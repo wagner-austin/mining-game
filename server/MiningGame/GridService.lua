@@ -120,7 +120,7 @@ function GridService:ApplyDig(
         for d = 0, depth - 1 do
             local digX, digY, digZ = x, y - d, z
             
-            -- Check bounds
+            -- Double-check bounds to prevent any edge spillover
             if GridMath.isInBounds(digX, digY, digZ, GameConfig.Grid.CUBE_SIZE_STUDS) then
                 -- Mark cell as dug
                 if markCellDug(state, digX, digY, digZ) then
@@ -131,6 +131,15 @@ function GridService:ApplyDig(
         end
     end
     
+    -- Extra safety: Filter to ensure only in-bounds cells
+    local filtered = {}
+    for _, c in ipairs(cellsToWrite) do
+        if GridMath.isInBounds(c.x, c.y, c.z, GameConfig.Grid.CUBE_SIZE_STUDS) then
+            table.insert(filtered, c)
+        end
+    end
+    cellsToWrite = filtered
+    
     -- Write to terrain in batches
     if #cellsToWrite > 0 then
         self:WriteCellsToTerrain(cubeOrigin, cellsToWrite, state.materialId)
@@ -139,51 +148,74 @@ function GridService:ApplyDig(
     return dugCells
 end
 
--- Write cells to terrain using WriteVoxels
+-- Write cells to terrain using a single Read/Write pass
 function GridService:WriteCellsToTerrain(cubeOrigin: CFrame, cells: {{x: number, y: number, z: number}}, materialId: string)
-    -- Group cells by region for efficient WriteVoxels calls
-    local regions = {}
+    if #cells == 0 then return end
     
-    for _, cell in ipairs(cells) do
-        -- Convert to world space and snap to voxel grid
-        local region = GridMath.snapCellToVoxel(cell.x, cell.y, cell.z, CELL_SIZE, cubeOrigin)
-        table.insert(regions, region)
+    -- 1) Compute cell-space AABB of the dig set
+    local minX, minY, minZ = math.huge, math.huge, math.huge
+    local maxX, maxY, maxZ = -math.huge, -math.huge, -math.huge
+    for _, c in ipairs(cells) do
+        if c.x < minX then minX = c.x end
+        if c.y < minY then minY = c.y end
+        if c.z < minZ then minZ = c.z end
+        if c.x > maxX then maxX = c.x end
+        if c.y > maxY then maxY = c.y end
+        if c.z > maxZ then maxZ = c.z end
     end
     
-    -- Process regions in batches
-    for _, region in ipairs(regions) do
-        local success, err = pcall(function()
-            -- Convert Region3 to Region3int16 for WriteVoxels
-            local minPoint = region.CFrame.Position - region.Size/2
-            local maxPoint = region.CFrame.Position + region.Size/2
-            
-            local region3int16 = Region3int16.new(
-                Vector3int16.new(minPoint.X/4, minPoint.Y/4, minPoint.Z/4),
-                Vector3int16.new(maxPoint.X/4, maxPoint.Y/4, maxPoint.Z/4)
-            )
-            
-            -- Read current voxels
-            local materials, occupancy = Terrain:ReadVoxels(region, 4)
-            
-            -- Set to air (carve out)
-            local size = materials.Size
-            for x = 1, size.X do
-                for y = 1, size.Y do
-                    for z = 1, size.Z do
-                        occupancy[x][y][z] = 0 -- Air
-                        materials[x][y][z] = Enum.Material.Air
-                    end
-                end
-            end
-            
-            -- Write back
-            Terrain:WriteVoxels(region, 4, materials, occupancy)
-        end)
+    -- 2) Convert the cell AABB to world-space voxel-aligned Region3
+    local function cellToWorldCorner(cx, cy, cz)
+        -- cell center:
+        local center = GridMath.cellToWorld(cx, cy, cz, cubeOrigin, CELL_SIZE)
+        -- convert to min world corner of that cell
+        return center - Vector3.new(CELL_SIZE/2, CELL_SIZE/2, CELL_SIZE/2)
+    end
+    local cellMinWorld = cellToWorldCorner(minX, minY, minZ)
+    local cellMaxWorld = cellToWorldCorner(maxX, maxY, maxZ) + Vector3.new(CELL_SIZE, CELL_SIZE, CELL_SIZE)
+    
+    -- align to 4-stud voxel grid
+    local function snapDown4(v)
+        return Vector3.new(
+            math.floor(v.X/4)*4, 
+            math.floor(v.Y/4)*4, 
+            math.floor(v.Z/4)*4
+        )
+    end
+    local function snapUp4(v)
+        return Vector3.new(
+            math.ceil(v.X/4)*4,
+            math.ceil(v.Y/4)*4,
+            math.ceil(v.Z/4)*4
+        )
+    end
+    
+    local rmin = snapDown4(cellMinWorld)
+    local rmax = snapUp4(cellMaxWorld)
+    local region = Region3.new(rmin, rmax):ExpandToGrid(4)
+    
+    -- 3) Read once
+    local materials, occupancy = Terrain:ReadVoxels(region, 4)
+    local size = materials.Size  -- Vector3int16 of voxel counts
+    
+    -- 4) Mark only targeted voxels
+    -- Convert each cell's world pos into region-relative [1..size] voxel indices
+    local regionMin = region.CFrame.Position - region.Size/2
+    for _, c in ipairs(cells) do
+        local wCenter = GridMath.cellToWorld(c.x, c.y, c.z, cubeOrigin, CELL_SIZE)
+        local rel = wCenter - regionMin
+        local vx = math.floor(rel.X / 4) + 1
+        local vy = math.floor(rel.Y / 4) + 1
+        local vz = math.floor(rel.Z / 4) + 1
         
-        if not success then
-            warn("[GridService] Failed to write terrain:", err)
+        if vx >= 1 and vx <= size.X and vy >= 1 and vy <= size.Y and vz >= 1 and vz <= size.Z then
+            occupancy[vx][vy][vz] = 0
+            materials[vx][vy][vz] = Enum.Material.Air
         end
     end
+    
+    -- 5) Write once
+    Terrain:WriteVoxels(region, 4, materials, occupancy)
 end
 
 -- Create the initial terrain cube
@@ -208,16 +240,21 @@ function GridService:CreateTerrainCube(cubeOrigin: CFrame, size: number, materia
     bounds.CFrame = cubeOrigin
     bounds.Transparency = 1
     bounds.CanCollide = false
+    bounds.CanTouch = false
+    bounds.CanQuery = false  -- IMPORTANT: Prevent raycast hits
     bounds.Anchored = true
     bounds.Parent = model
     
-    -- Add selection box for visual reference
-    local selectionBox = Instance.new("SelectionBox")
-    selectionBox.Adornee = bounds
-    selectionBox.LineThickness = 0.1
-    selectionBox.Transparency = 0.8
-    selectionBox.Color3 = Color3.new(1, 1, 1)
-    selectionBox.Parent = bounds
+    -- Add selection box for visual reference (Studio only)
+    local RunService = game:GetService("RunService")
+    if RunService:IsStudio() then
+        local selectionBox = Instance.new("SelectionBox")
+        selectionBox.Adornee = bounds
+        selectionBox.LineThickness = 0.1
+        selectionBox.Transparency = 0.8
+        selectionBox.Color3 = Color3.new(1, 1, 1)
+        selectionBox.Parent = bounds
+    end
     
     return model
 end
