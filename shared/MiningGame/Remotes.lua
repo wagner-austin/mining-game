@@ -62,6 +62,9 @@ return {
         OnParticleEffect = mg:WaitForChild("OnParticleEffect"),
         OnSoundEffect = mg:WaitForChild("OnSoundEffect"),
         OnCameraShake = mg:WaitForChild("OnCameraShake"),
+        
+        -- Debug/Visual
+        OnTerrainPoke = mg:WaitForChild("OnTerrainPoke"),
     },
     Folder = mg,
 }
