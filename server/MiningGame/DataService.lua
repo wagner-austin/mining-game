@@ -26,6 +26,7 @@ end)
 
 if not success then
     warn("[DataService] DataStore access disabled (Studio mode). Using mock data.")
+    warn("[DataService] Error:", success)
     -- Create mock stores for testing
     local mockData = {}
     PlayerDataStore = {
@@ -33,6 +34,8 @@ if not success then
         SetAsync = function(_, key, value) mockData[key] = value return true end,
     }
     CubeDataStore = PlayerDataStore
+else
+    print("[DataService] DataStore access ENABLED - data will persist!")
 end
 
 -- Session locking with MemoryStore
@@ -157,6 +160,8 @@ function DataService:LoadPlayerAsync(player: Player): Types.PlayerStats?
     
     -- Load from DataStore
     local key = "Player_" .. tostring(userId)
+    print("[DataService] Loading data for", player.Name, "with key:", key)
+    
     local success, result = pcall(function()
         return PlayerDataStore:GetAsync(key)
     end)
@@ -167,14 +172,18 @@ function DataService:LoadPlayerAsync(player: Player): Types.PlayerStats?
         return nil
     end
     
+    print("[DataService] Load result for", player.Name, "- Has existing data:", result ~= nil)
+    
     local profile: Types.PlayerStats
     if result then
         profile = result :: Types.PlayerStats
+        print("[DataService] Loaded existing profile - Coins:", profile.coins, "Blocks dug:", profile.totalBlocksDug)
         -- Migrate old data if needed
         if not profile.gems then profile.gems = 0 end
         if not profile.equipped then profile.equipped = {} end
         if not profile.pets then profile.pets = {} end
     else
+        print("[DataService] Creating NEW profile for", player.Name)
         profile = createDefaultProfile(userId)
     end
     
@@ -339,6 +348,38 @@ function DataService:AddCurrency(player: Player, currencyType: string, amount: n
     return true
 end
 
+-- Ensure player data is loaded (for on-demand initialization)
+function DataService:EnsureLoaded(player: Player): boolean
+    -- Already loaded?
+    if playerData[player] and playerCubes[player] then
+        if not player:GetAttribute("DataLoaded") then
+            player:SetAttribute("DataLoaded", true)
+        end
+        return true
+    end
+    
+    -- Studio: synthesize defaults immediately
+    if RunService:IsStudio() then
+        warn("[DataService] EnsureLoaded: synthesizing default data for", player.Name)
+        local profile = createDefaultProfile(player.UserId)
+        playerData[player] = profile
+        local cube = createDefaultCube(player.UserId, profile.materialId)
+        playerCubes[player] = cube
+        player:SetAttribute("DataLoaded", true)
+        return true
+    end
+    
+    -- Production: attempt synchronous load (last resort path)
+    local ok = pcall(function()
+        local profile = DataService:LoadPlayerAsync(player)
+        if not profile then return end
+        local cube = DataService:LoadCubeAsync(player)
+        if not cube then return end
+        player:SetAttribute("DataLoaded", true)
+    end)
+    return ok and player:GetAttribute("DataLoaded") == true
+end
+
 -- Can afford check
 function DataService:CanAfford(player: Player, currencyType: string, amount: number): boolean
     local profile = playerData[player]
@@ -369,33 +410,52 @@ local function autoSaveLoop()
     end
 end
 
--- Handle player joining
-Players.PlayerAdded:Connect(function(player)
+-- Function to initialize player data
+local function onPlayerAdded(player)
+    print("[DataService] Player joined:", player.Name)
+    
     -- Load data asynchronously
     spawn(function()
+        -- Try to load from DataStore (works in Studio if API Services enabled)
         local profile = DataService:LoadPlayerAsync(player)
         if profile then
             local cube = DataService:LoadCubeAsync(player)
             if cube then
                 -- Notify other services that data is loaded
                 player:SetAttribute("DataLoaded", true)
+                print("[DataService] Data loaded for", player.Name)
+            else
+                -- Create default cube if loading failed
+                warn("[DataService] Failed to load cube, creating default")
+                local defaultCube = createDefaultCube(player.UserId, profile.materialId)
+                playerCubes[player] = defaultCube
+                player:SetAttribute("DataLoaded", true)
             end
         else
-            -- Failed to load in production, kick player
-            -- In Studio, create default data
-            if RunService:IsStudio() then
-                warn("[DataService] Using default data for Studio testing")
+            -- In Studio with no DataStore access, create default data
+            if not canUseDataStore then
+                print("[DataService] No DataStore access - creating default data for", player.Name)
                 local profile = createDefaultProfile(player.UserId)
                 playerData[player] = profile
                 local cube = createDefaultCube(player.UserId, profile.materialId)
                 playerCubes[player] = cube
                 player:SetAttribute("DataLoaded", true)
             else
-                player:Kick("Failed to load data. Please try again.")
+                -- Production failure - should not happen
+                warn("[DataService] Failed to load profile in production for", player.Name)
+                player:Kick("Failed to load profile data. Please try again.")
             end
         end
     end)
-end)
+end
+
+-- Connect player events
+Players.PlayerAdded:Connect(onPlayerAdded)
+
+-- Handle players already in game (Studio test player)
+for _, player in ipairs(Players:GetPlayers()) do
+    onPlayerAdded(player)
+end
 
 -- Handle player leaving
 Players.PlayerRemoving:Connect(function(player)
