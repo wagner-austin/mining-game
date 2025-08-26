@@ -1,0 +1,16 @@
+# Roblox Studio lock files
+/*.rbxlx.lock
+/*.rbxl.lock
+
+# Rojo sync
+/*.rbxlx
+/*.rbxl
+/rojo.json
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+/build/
+/out/

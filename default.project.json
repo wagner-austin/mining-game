@@ -1,0 +1,51 @@
+{
+  "name": "MiningGame",
+  "servePlaceIds": [81792982057124],
+  "servePort": 34873,
+  "tree": {
+    "$className": "DataModel",
+
+    "ReplicatedStorage": {
+      "$path": "shared"
+    },
+
+    "ServerScriptService": {
+      "$path": "server"
+    },
+
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "$path": "client"
+      },
+      "StarterCharacterScripts": {
+        "$path": "character"
+      }
+    },
+
+    "StarterPack": {
+      "$path": "StarterPack"
+    },
+
+    "ServerStorage": {
+      "$className": "ServerStorage",
+      "$ignoreUnknownInstances": true,
+      "Items": {
+        "$path": "ServerStorage/Items"
+      }
+    },
+
+    "Workspace": {
+      "$className": "Workspace",
+      "$ignoreUnknownInstances": true,
+      "$properties": {
+        "StreamingEnabled": true,
+        "StreamingMinRadius": 64,
+        "StreamingTargetRadius": 128,
+        "StreamOutBehavior": "Opportunistic"
+      },
+      "Map": {
+        "$path": "Workspace/Map"
+      }
+    }
+  }
+}
