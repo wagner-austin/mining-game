@@ -37,6 +37,12 @@ print("[Bootstrap] InventoryService loaded")
 local MonetizationService = require(script.MonetizationService)
 print("[Bootstrap] MonetizationService loaded")
 
+local CubePositionService = require(script.CubePositionService)
+print("[Bootstrap] CubePositionService loaded")
+
+local SpawnService = require(script.SpawnService)
+print("[Bootstrap] SpawnService loaded")
+
 local DigService = require(script.DigService)
 print("[Bootstrap] DigService loaded")
 
@@ -50,6 +56,8 @@ _G.MiningGameServices = {
     UpgradeService = UpgradeService,
     InventoryService = InventoryService,
     MonetizationService = MonetizationService,
+    CubePositionService = CubePositionService,
+    SpawnService = SpawnService,
     DigService = DigService,
     Remotes = RemotesCreator,
 }
