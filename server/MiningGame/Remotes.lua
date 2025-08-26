@@ -102,6 +102,9 @@ local remoteEvents = {
     OnParticleEffect = createRemoteEvent("OnParticleEffect"),
     OnSoundEffect = createRemoteEvent("OnSoundEffect"),
     OnCameraShake = createRemoteEvent("OnCameraShake"),
+    
+    -- Debug/Visual
+    OnTerrainPoke = createRemoteEvent("OnTerrainPoke"),
 }
 
 print("[Remotes] Initialized all RemoteEvents and RemoteFunctions")
