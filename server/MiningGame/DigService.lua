@@ -19,6 +19,7 @@ local GridService = require(script.Parent.GridService)
 local LootService = require(script.Parent.LootService)
 local UpgradeService = require(script.Parent.UpgradeService)
 local InventoryService = require(script.Parent.InventoryService)
+local CubePositionService = require(script.Parent.CubePositionService)
 
 -- Shared remotes accessor
 local Remotes = require(ReplicatedStorage.MiningGame.Remotes)
@@ -34,33 +35,29 @@ local playerCubes: {[Player]: {origin: CFrame, model: Model}} = {}
 
 -- Initialize player's cube
 function DigService:InitializePlayerCube(player: Player)
+    print("[DigService] Initializing cube for", player.Name)
+    
     -- Wait for data to load
     local dataLoaded = player:GetAttribute("DataLoaded")
     if not dataLoaded then
+        print("[DigService] Waiting for data to load for", player.Name)
         player:GetAttributeChangedSignal("DataLoaded"):Wait()
+        print("[DigService] Data loaded signal received for", player.Name)
     end
     
     local profile = DataService:GetPlayerData(player)
     local cubeState = DataService:GetCubeData(player)
+    
+    print("[DigService] Profile:", profile and "exists" or "nil")
+    print("[DigService] CubeState:", cubeState and "exists" or "nil")
     
     if not profile or not cubeState then
         warn("[DigService] No data for player", player.Name)
         return
     end
     
-    -- Calculate cube position (in neighborhood grid)
-    local playerIndex = 0
-    for i, p in ipairs(Players:GetPlayers()) do
-        if p == player then
-            playerIndex = i - 1
-            break
-        end
-    end
-    
-    local spacing = GameConfig.Multiplayer.CUBE_SPACING
-    local gridX = playerIndex % 3
-    local gridZ = math.floor(playerIndex / 3)
-    local cubeOrigin = CFrame.new(gridX * spacing, 0, gridZ * spacing)
+    -- Get cube position from service
+    local cubeOrigin = CubePositionService:GetOrigin(player)
     
     -- Create or restore cube
     local model = GridService:RestoreCube(cubeOrigin, cubeState)
@@ -85,7 +82,7 @@ function DigService:InitializePlayerCube(player: Player)
         end
     end
     
-    print("[DigService] Initialized cube for", player.Name)
+    print(string.format("[DigService] Initialized cube for %s @ %s", player.Name, tostring(cubeOrigin.Position)))
 end
 
 -- Handle dig request
@@ -125,13 +122,23 @@ function DigService:ProcessDigRequest(player: Player, worldPos: Vector3): Types.
     -- Convert world position to cell coordinates
     local cellX, cellY, cellZ = GridMath.worldToCell(worldPos, cubeData.origin, GameConfig.Grid.CELL_SIZE_STUDS)
     
-    -- Check if position is within bounds
+    -- Check if click is within cube bounds BEFORE clamping
+    local halfCells = (GameConfig.Grid.CUBE_SIZE_STUDS / 4) / 2
     if not GridMath.isInBounds(cellX, cellY, cellZ, GameConfig.Grid.CUBE_SIZE_STUDS) then
+        -- Click is outside the cube - reject it
         return {
             ok = false,
-            reason = "Out of bounds",
+            reason = "Outside cube bounds",
         }
     end
+    
+    -- Now clamp for safety (shouldn't be needed but keeps as failsafe)
+    local function clampCell(n: number): number
+        return math.clamp(n, -halfCells, halfCells - 1)
+    end
+    cellX = clampCell(cellX)
+    cellY = clampCell(cellY)
+    cellZ = clampCell(cellZ)
     
     -- Apply dig to grid
     local dugCells = GridService:ApplyDig(
@@ -193,6 +200,13 @@ function DigService:ProcessDigRequest(player: Player, worldPos: Vector3): Types.
         })
     end
     
+    -- Send visual poke for the center cell
+    if #dugCells > 0 then
+        local poke = dugCells[1]
+        local worldCenter = GridMath.cellToWorld(poke.x, poke.y, poke.z, cubeData.origin, GameConfig.Grid.CELL_SIZE_STUDS)
+        Remotes.RE.OnTerrainPoke:FireClient(player, { pos = worldCenter })
+    end
+    
     return {
         ok = true,
         cellsDug = #dugCells,
@@ -206,11 +220,25 @@ end
 local function setupRemotes()
     -- Handle dig requests
     Remotes.RF.RequestDig.OnServerInvoke = function(player: Player, worldPos: Vector3)
+        print("[DigService] Dig request from", player.Name, "at", worldPos)
+        
+        -- Make absolutely sure we have data
+        if not DataService:EnsureLoaded(player) then
+            return {ok = false, reason = "No profile"}
+        end
+        
         return DigService:ProcessDigRequest(player, worldPos)
     end
     
     -- Handle profile requests
     Remotes.RF.GetProfile.OnServerInvoke = function(player: Player)
+        print("[DigService] Profile request from", player.Name)
+        
+        -- Make absolutely sure we have data
+        if not DataService:EnsureLoaded(player) then
+            return nil -- client can retry
+        end
+        
         local profile = DataService:GetPlayerData(player)
         local cubeState = DataService:GetCubeData(player)
         
@@ -236,14 +264,23 @@ local function setupRemotes()
 end
 
 -- Handle player joining
-Players.PlayerAdded:Connect(function(player)
+local function onPlayerAdded(player)
+    print("[DigService] Player added:", player.Name)
+    
     -- Wait a frame for data to potentially load
     RunService.Heartbeat:Wait()
     
     spawn(function()
         DigService:InitializePlayerCube(player)
     end)
-end)
+end
+
+Players.PlayerAdded:Connect(onPlayerAdded)
+
+-- Handle players already in game (Studio test player)
+for _, player in ipairs(Players:GetPlayers()) do
+    onPlayerAdded(player)
+end
 
 -- Handle player leaving
 Players.PlayerRemoving:Connect(function(player)
