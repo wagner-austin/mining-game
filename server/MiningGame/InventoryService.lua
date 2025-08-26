@@ -307,6 +307,9 @@ end
 local function setupRemotes()
     -- Sell items
     Remotes.RF.SellItems.OnServerInvoke = function(player: Player, items: {[string]: number})
+        if not DataService:EnsureLoaded(player) then
+            return {success = false, reason = "No profile"}
+        end
         return InventoryService:SellItems(player, items)
     end
     
