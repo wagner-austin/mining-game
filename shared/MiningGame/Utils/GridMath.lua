@@ -121,11 +121,12 @@ function GridMath.indexToChunkLocal(index: number, chunkSize: number): (number, 
 end
 
 -- Check if a cell is within cube bounds
+-- The cube is centered at origin, so cells go from -halfSize to +halfSize
 function GridMath.isInBounds(cellX: number, cellY: number, cellZ: number, cubeSize: number): boolean
-    local maxCell = cubeSize / 4 -- 4 studs per cell
-    return cellX >= 0 and cellX < maxCell and
-           cellY >= 0 and cellY < maxCell and
-           cellZ >= 0 and cellZ < maxCell
+    local halfCells = cubeSize / 4 / 2 -- 4 studs per cell, then divide by 2 for half
+    return cellX >= -halfCells and cellX < halfCells and
+           cellY >= -halfCells and cellY < halfCells and
+           cellZ >= -halfCells and cellZ < halfCells
 end
 
 -- Get all chunks affected by a dig operation
