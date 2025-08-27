@@ -69,7 +69,7 @@ local function createDefaultProfile(userId: number): Types.PlayerStats
     return {
         coins = 0,
         gems = 0,
-        materialId = "stone",
+        materialId = "tier1",  -- Use tier ID from GameConfig.CubeMaterials
         cubeSeed = userId % 1000000, -- Deterministic seed based on user ID
         upgrades = {
             speed = 0,
@@ -181,6 +181,14 @@ function DataService:LoadPlayerAsync(player: Player): Types.PlayerStats?
         if not profile.gems then profile.gems = 0 end
         if not profile.equipped then profile.equipped = {} end
         if not profile.pets then profile.pets = {} end
+        -- Migrate old material IDs to tier system
+        local oldToNew = {stone = "tier1", sandstone = "tier2", granite = "tier3", 
+                          obsidian = "tier4", crystal = "tier5", void = "tier6"}
+        if oldToNew[profile.materialId] then
+            local old = profile.materialId
+            profile.materialId = oldToNew[old]
+            print("[DataService] Migrated material ID:", old, "->", profile.materialId)
+        end
     else
         print("[DataService] Creating NEW profile for", player.Name)
         profile = createDefaultProfile(userId)
@@ -502,6 +510,47 @@ end)
 
 -- Start auto-save loop
 spawn(autoSaveLoop)
+
+-- Admin command to wipe a player's data (for testing)
+local function setupWipeCommand(player)
+    player.Chatted:Connect(function(message)
+        if message == "/wipedata" then
+            print("[DataService] Wipe command received from", player.Name)
+            
+            -- Wipe the player's data
+            local profile = playerData[player]
+            if profile then
+                -- Create fresh profile
+                local freshProfile = createDefaultProfile(player.UserId)
+                
+                -- Replace with fresh data
+                playerData[player] = freshProfile
+                
+                -- Reset cube state too
+                local freshCube = createDefaultCube(player.UserId, freshProfile.materialId)
+                playerCubes[player] = freshCube
+                
+                -- Force save using the actual save method
+                DataService:SaveAllAsync(player)
+                
+                print("[DataService] Wiped data for", player.Name)
+                
+                -- Kick player to force reload
+                player:Kick("Data wiped! Please rejoin.")
+            else
+                warn("[DataService] No profile found for", player.Name)
+            end
+        end
+    end)
+end
+
+-- Set up for already connected players
+for _, player in ipairs(game.Players:GetPlayers()) do
+    setupWipeCommand(player)
+end
+
+-- Set up for future players
+game.Players.PlayerAdded:Connect(setupWipeCommand)
 
 print("[DataService] Initialized")
 
