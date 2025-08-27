@@ -29,7 +29,7 @@ Config.LIMITS = {
 -- Gravity Multiplier (applied server-wide)
 -- 1.0 = normal Roblox gravity (196.2)
 -- Lower values = floatier jumps, higher values = heavier feel
-Config.GRAVITY_MULT = 1.0  -- Can be adjusted for different gameplay feel
+Config.GRAVITY_MULT = 0.45  -- Moderately reduced gravity for enhanced vertical mobility
 
 -- Double Jump Configuration
 Config.DOUBLE_JUMP = {
