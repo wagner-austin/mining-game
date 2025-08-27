@@ -49,6 +49,9 @@ print("[Bootstrap] MonetizationService loaded")
 local CubePositionService = require(script.CubePositionService)
 print("[Bootstrap] CubePositionService loaded")
 
+local CubeMaterialService = require(script.CubeMaterialService)
+print("[Bootstrap] CubeMaterialService loaded")
+
 local SpawnService = require(script.SpawnService)
 print("[Bootstrap] SpawnService loaded")
 
