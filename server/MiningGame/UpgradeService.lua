@@ -13,8 +13,7 @@ local UpgradeService = {}
 
 -- Cache upgrade definitions
 local SPEED_LEVELS = GameConfig.Upgrades.SPEED_LEVELS
-local STRENGTH_LEVELS = GameConfig.Upgrades.STRENGTH_LEVELS
-local RADIUS_LEVELS = GameConfig.Upgrades.RADIUS_LEVELS
+local SIZE_LEVELS = GameConfig.Upgrades.SIZE_LEVELS
 
 -- Get upgrade definition by level
 local function getUpgradeLevel(levels: {Types.UpgradeLevel}, level: number): Types.UpgradeLevel?
@@ -35,23 +34,19 @@ function UpgradeService:ComputeEffectiveStats(
     
     -- Base values
     local baseDelay = GameConfig.Digging.BASE_DIG_DELAY
-    local baseDepth = GameConfig.Digging.BASE_DIG_DEPTH_CELLS
-    local baseRadius = GameConfig.Digging.BASE_DIG_RADIUS_CELLS
+    local baseSize = GameConfig.Digging.BASE_DIG_SIZE_CELLS or 0
     local baseLuck = 1.0
     
     -- Get upgrade levels
     local speedLevel = profile.upgrades.speed or 0
-    local strengthLevel = profile.upgrades.strength or 0
-    local radiusLevel = profile.upgrades.radius or 0
+    local sizeLevel = profile.upgrades.size or 0
     
     -- Apply upgrade multipliers
     local speedUpgrade = getUpgradeLevel(SPEED_LEVELS, speedLevel)
-    local strengthUpgrade = getUpgradeLevel(STRENGTH_LEVELS, strengthLevel)
-    local radiusUpgrade = getUpgradeLevel(RADIUS_LEVELS, radiusLevel)
+    local sizeUpgrade = getUpgradeLevel(SIZE_LEVELS, sizeLevel)
     
     local delay = baseDelay * (speedUpgrade and speedUpgrade.multiplier or 1.0)
-    local depth = strengthUpgrade and strengthUpgrade.depth or baseDepth
-    local radius = radiusUpgrade and radiusUpgrade.radius or baseRadius
+    local size = (sizeUpgrade and sizeUpgrade.size) or baseSize
     local luck = baseLuck
     
     -- Apply boosts (time-limited)
@@ -62,8 +57,8 @@ function UpgradeService:ComputeEffectiveStats(
                 delay = delay * 0.5 -- 50% faster
             elseif boostType == "luck" then
                 luck = luck * 2.0 -- 2x luck
-            elseif boostType == "strength" then
-                depth = depth + 2 -- +2 depth
+            elseif boostType == "size" then
+                size = size + 2 -- +2 size
             end
         end
     end
@@ -73,8 +68,7 @@ function UpgradeService:ComputeEffectiveStats(
         luck = luck * 2.0 -- VIP doubles luck
     end
     if gamepasses["MEGA_PICKAXE"] then
-        radius = radius + 2 -- +2 radius
-        depth = depth + 2 -- +2 depth
+        size = size + 3 -- +3 size
     end
     
     -- Apply equipped pickaxe stats
@@ -89,9 +83,8 @@ function UpgradeService:ComputeEffectiveStats(
         
         if pickaxeDef and pickaxeDef.stats then
             delay = delay / (pickaxeDef.stats.speed or 1.0)
-            depth = math.floor(depth * (pickaxeDef.stats.strength or 1.0))
+            size = math.floor(size + (pickaxeDef.stats.size or 0))  -- Add pickaxe size bonus
             luck = luck * (pickaxeDef.stats.luck or 1.0)
-            radius = math.floor(radius * (pickaxeDef.stats.radius or 1.0))
         end
     end
     
@@ -114,11 +107,9 @@ function UpgradeService:ComputeEffectiveStats(
                     if petDef.buffs.speed then
                         delay = delay * (1 - petDef.buffs.speed * starMult)
                     end
-                    if petDef.buffs.strength then
-                        depth = depth + math.floor(depth * petDef.buffs.strength * starMult)
-                    end
-                    if petDef.buffs.radius then
-                        radius = radius + math.floor(radius * petDef.buffs.radius * starMult)
+                    if petDef.buffs.size then
+                        local sizeBuff = petDef.buffs.size or 0
+                        size = size + math.floor(size * sizeBuff * starMult)
                     end
                     if petDef.buffs.luck then
                         luck = luck * (1 + petDef.buffs.luck * starMult)
@@ -137,14 +128,12 @@ function UpgradeService:ComputeEffectiveStats(
     
     -- Clamp values to reasonable ranges
     delay = math.max(0.1, delay) -- Minimum 0.1 second delay
-    depth = math.min(20, depth) -- Maximum 20 depth
-    radius = math.min(15, radius) -- Maximum 15 radius
+    size = math.min(20, size) -- Maximum 20 size
     luck = math.min(10, luck) -- Maximum 10x luck
     
     return {
         delay = delay,
-        depth = depth,
-        radius = radius,
+        size = size,
         luck = luck,
         hardness = hardness,
     }
@@ -164,10 +153,8 @@ function UpgradeService:PurchaseUpgrade(
     local levels = nil
     if upgradeType == "speed" then
         levels = SPEED_LEVELS
-    elseif upgradeType == "strength" then
-        levels = STRENGTH_LEVELS
-    elseif upgradeType == "radius" then
-        levels = RADIUS_LEVELS
+    elseif upgradeType == "size" then
+        levels = SIZE_LEVELS
     else
         return {success = false, reason = "Invalid upgrade type"}
     end
@@ -258,21 +245,10 @@ function UpgradeService:GetActivePets(profile: Types.PlayerStats): {Types.PetDat
 end
 
 -- Calculate total cells that will be dug
-function UpgradeService:CalculateDigVolume(radius: number, depth: number, shape: string): number
-    if shape == "CUBE" then
-        local diameter = radius * 2 + 1
-        return diameter * diameter * depth
-    elseif shape == "SPHERE" then
-        -- Approximate sphere volume
-        local volume = 0
-        for d = 0, depth - 1 do
-            local effectiveRadius = radius * (1 - d / depth) -- Taper with depth
-            volume = volume + ((effectiveRadius * 2 + 1) ^ 2)
-        end
-        return math.floor(volume)
-    end
-    
-    return 1
+function UpgradeService:CalculateDigVolume(size: number): number
+    -- Simple cube volume calculation
+    local diameter = size * 2 + 1
+    return diameter * diameter * diameter
 end
 
 -- Get upgrade progress
@@ -288,22 +264,13 @@ function UpgradeService:GetUpgradeProgress(profile: Types.PlayerStats): {[string
         percent = speedMax > 0 and (speedCurrent / speedMax) or 0,
     }
     
-    -- Strength
-    local strengthCurrent = profile.upgrades.strength or 0
-    local strengthMax = #STRENGTH_LEVELS - 1
-    progress.strength = {
-        current = strengthCurrent,
-        max = strengthMax,
-        percent = strengthMax > 0 and (strengthCurrent / strengthMax) or 0,
-    }
-    
-    -- Radius
-    local radiusCurrent = profile.upgrades.radius or 0
-    local radiusMax = #RADIUS_LEVELS - 1
-    progress.radius = {
-        current = radiusCurrent,
-        max = radiusMax,
-        percent = radiusMax > 0 and (radiusCurrent / radiusMax) or 0,
+    -- Size
+    local sizeCurrent = profile.upgrades.size or 0
+    local sizeMax = #SIZE_LEVELS - 1
+    progress.size = {
+        current = sizeCurrent,
+        max = sizeMax,
+        percent = sizeMax > 0 and (sizeCurrent / sizeMax) or 0,
     }
     
     return progress
