@@ -14,6 +14,9 @@ local Types = require(Shared:WaitForChild("Types"))
 local GridMath = require(Shared:WaitForChild("Utils"):WaitForChild("GridMath"))
 local ChunkCodec = require(Shared:WaitForChild("Utils"):WaitForChild("ChunkCodec"))
 
+-- Performance tracking (optional)
+local DigPerformance = require(script.Parent:WaitForChild("DigPerformance"))
+
 local GridService = {}
 
 -- Constants
@@ -94,7 +97,7 @@ local function shouldThrottle(player: Player): boolean
     return false
 end
 
--- Apply a dig operation to terrain
+-- Apply a dig operation to terrain (optimized cube shape)
 function GridService:ApplyDig(
     player: Player,
     cubeOrigin: CFrame,
@@ -102,48 +105,78 @@ function GridService:ApplyDig(
     cellX: number,
     cellY: number,
     cellZ: number,
-    radius: number,
-    depth: number
+    size: number
 ): {{x: number, y: number, z: number}}
     
-    -- Check throttling
+    -- Throttle per-player writes
     if shouldThrottle(player) then
-        return {} -- Rate limited
+        return {}
     end
     
-    local dugCells = {}
-    local cellsToWrite = {}
+    -- Guard input to prevent negative size
+    size = math.max(0, size)
     
-    -- Collect all cells to dig (cube shape)
-    for x, y, z in GridMath.cellCube(cellX, cellY, cellZ, radius) do
-        -- Apply depth (dig downward)
-        for d = 0, depth - 1 do
-            local digX, digY, digZ = x, y - d, z
-            
-            -- Double-check bounds to prevent any edge spillover
-            if GridMath.isInBounds(digX, digY, digZ, GameConfig.Grid.CUBE_SIZE_STUDS) then
-                -- Mark cell as dug
-                if markCellDug(state, digX, digY, digZ) then
-                    table.insert(dugCells, {x = digX, y = digY, z = digZ})
-                    table.insert(cellsToWrite, {x = digX, y = digY, z = digZ})
+    local halfCells = (GameConfig.Grid.CUBE_SIZE_STUDS / CELL_SIZE) / 2
+    local minBound, maxBound = -halfCells, halfCells - 1
+    
+    -- Create a cube centered on the target cell
+    local xMin = math.max(cellX - size, minBound)
+    local xMax = math.min(cellX + size, maxBound)
+    local yMin = math.max(cellY - size, minBound)
+    local yMax = math.min(cellY + size, maxBound)
+    local zMin = math.max(cellZ - size, minBound)
+    local zMax = math.min(cellZ + size, maxBound)
+    
+    -- Early exit if bounds are invalid
+    if xMin > xMax or yMin > yMax or zMin > zMax then
+        return {}
+    end
+    
+    -- Preallocate based on actual volume
+    local width = xMax - xMin + 1
+    local height = yMax - yMin + 1
+    local length = zMax - zMin + 1
+    local expected = width * height * length
+    
+    local prealloc = math.min(expected, 10000)
+    local dugCells = table.create(prealloc)
+    local cellsToWrite = table.create(prealloc)
+    local dugCount, writeCount = 0, 0
+    
+    -- Iterate once over unique cells (no duplicates)
+    DigPerformance.measureSection("CellIteration", function()
+        for y = yMax, yMin, -1 do
+            for x = xMin, xMax do
+                for z = zMin, zMax do
+                    if markCellDug(state, x, y, z) then
+                        dugCount = dugCount + 1
+                        writeCount = writeCount + 1
+                        local cell = {x = x, y = y, z = z}
+                        dugCells[dugCount] = cell
+                        cellsToWrite[writeCount] = cell
+                    end
                 end
             end
         end
+    end)
+    
+    -- Early exit if nothing was dug
+    if writeCount == 0 then
+        return {}
     end
     
-    -- Extra safety: Filter to ensure only in-bounds cells
-    local filtered = {}
-    for _, c in ipairs(cellsToWrite) do
-        if GridMath.isInBounds(c.x, c.y, c.z, GameConfig.Grid.CUBE_SIZE_STUDS) then
-            table.insert(filtered, c)
-        end
+    -- Trim arrays to actual size (important for #cells to work correctly)
+    for i = dugCount + 1, #dugCells do
+        dugCells[i] = nil
     end
-    cellsToWrite = filtered
+    for i = writeCount + 1, #cellsToWrite do
+        cellsToWrite[i] = nil
+    end
     
-    -- Write to terrain in batches
-    if #cellsToWrite > 0 then
+    -- Single pass terrain write
+    DigPerformance.measureSection("TerrainWrite", function()
         self:WriteCellsToTerrain(cubeOrigin, cellsToWrite, state.materialId)
-    end
+    end)
     
     return dugCells
 end
@@ -195,27 +228,43 @@ function GridService:WriteCellsToTerrain(cubeOrigin: CFrame, cells: {{x: number,
     local region = Region3.new(rmin, rmax):ExpandToGrid(4)
     
     -- 3) Read once
-    local materials, occupancy = Terrain:ReadVoxels(region, 4)
+    local materials, occupancy = DigPerformance.measureSection("ReadVoxels", function()
+        return Terrain:ReadVoxels(region, 4)
+    end)
     local size = materials.Size  -- Vector3int16 of voxel counts
     
-    -- 4) Mark only targeted voxels
-    -- Convert each cell's world pos into region-relative [1..size] voxel indices
+    -- 4) Mark only targeted voxels (optimized with inline calculations)
     local regionMin = region.CFrame.Position - region.Size/2
-    for _, c in ipairs(cells) do
-        local wCenter = GridMath.cellToWorld(c.x, c.y, c.z, cubeOrigin, CELL_SIZE)
-        local rel = wCenter - regionMin
-        local vx = math.floor(rel.X / 4) + 1
-        local vy = math.floor(rel.Y / 4) + 1
-        local vz = math.floor(rel.Z / 4) + 1
+    local maxVX, maxVY, maxVZ = size.X, size.Y, size.Z
+    local invVoxel = 0.25  -- 1/4 for voxel size
+    
+    for i = 1, #cells do
+        local c = cells[i]
         
-        if vx >= 1 and vx <= size.X and vy >= 1 and vy <= size.Y and vz >= 1 and vz <= size.Z then
+        -- Inline world position calculation (saves function call overhead)
+        local localPos = Vector3.new(
+            (c.x + 0.5) * CELL_SIZE,
+            (c.y + 0.5) * CELL_SIZE,
+            (c.z + 0.5) * CELL_SIZE
+        )
+        local wCenter = cubeOrigin:PointToWorldSpace(localPos)
+        local rel = wCenter - regionMin
+        
+        -- Use integer floor operator // to avoid function call
+        local vx = (rel.X * invVoxel) // 1 + 1
+        local vy = (rel.Y * invVoxel) // 1 + 1
+        local vz = (rel.Z * invVoxel) // 1 + 1
+        
+        if vx >= 1 and vx <= maxVX and vy >= 1 and vy <= maxVY and vz >= 1 and vz <= maxVZ then
             occupancy[vx][vy][vz] = 0
             materials[vx][vy][vz] = Enum.Material.Air
         end
     end
     
     -- 5) Write once
-    Terrain:WriteVoxels(region, 4, materials, occupancy)
+    DigPerformance.measureSection("WriteVoxels", function()
+        Terrain:WriteVoxels(region, 4, materials, occupancy)
+    end)
 end
 
 -- Create the initial terrain cube
@@ -305,18 +354,12 @@ function GridService:RestoreCube(cubeOrigin: CFrame, state: Types.CubeState): Mo
     return model
 end
 
--- Get cells in a radius (for preview)
-function GridService:GetCellsInRadius(cellX: number, cellY: number, cellZ: number, radius: number, shape: string): {{x: number, y: number, z: number}}
+-- Get cells in a cube (for preview)
+function GridService:GetCellsInCube(cellX: number, cellY: number, cellZ: number, size: number): {{x: number, y: number, z: number}}
     local cells = {}
     
-    if shape == "CUBE" then
-        for x, y, z in GridMath.cellCube(cellX, cellY, cellZ, radius) do
-            table.insert(cells, {x = x, y = y, z = z})
-        end
-    elseif shape == "SPHERE" then
-        for x, y, z in GridMath.cellSphere(cellX, cellY, cellZ, radius) do
-            table.insert(cells, {x = x, y = y, z = z})
-        end
+    for x, y, z in GridMath.cellCube(cellX, cellY, cellZ, size) do
+        table.insert(cells, {x = x, y = y, z = z})
     end
     
     return cells
@@ -366,5 +409,16 @@ end
 game.Players.PlayerRemoving:Connect(cleanupPlayer)
 
 print("[GridService] Initialized")
+
+-- Debug command to print performance report
+game:GetService("RunService").Heartbeat:Connect(function()
+    local perfReport = DigPerformance.getReport()
+    if perfReport and #perfReport > 50 then  -- Only print if there's data
+        -- Print every 30 seconds if there's new data
+        if tick() % 30 < 0.1 then
+            print(perfReport)
+        end
+    end
+end)
 
 return GridService
