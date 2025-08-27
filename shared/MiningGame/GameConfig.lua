@@ -27,10 +27,9 @@ GameConfig.Grid = {
 GameConfig.Digging = {
     -- Base dig parameters
     BASE_DIG_DELAY = 1.0, -- Seconds between digs
-    BASE_DIG_DEPTH_CELLS = 1, -- Cells deep per dig
-    BASE_DIG_RADIUS_CELLS = 1, -- Cube radius (diameter = 2*radius+1)
+    BASE_DIG_SIZE_CELLS = 1, -- Base size of dig cube (1 = 3x3x3 cube)
     
-    -- Dig shape (can expand to SPHERE later)
+    -- Dig shape
     DIG_SHAPE = "CUBE",
     
     -- Visual feedback
@@ -69,33 +68,24 @@ GameConfig.Upgrades = {
         {level = 15, cost = 1600000, multiplier = 0.15},
     },
     
-    -- Dig strength (depth per dig)
-    STRENGTH_LEVELS = {
-        {level = 0, cost = 0, depth = 1},
-        {level = 1, cost = 100, depth = 2},
-        {level = 2, cost = 300, depth = 3},
-        {level = 3, cost = 700, depth = 4},
-        {level = 4, cost = 1500, depth = 5},
-        {level = 5, cost = 3000, depth = 6},
-        {level = 6, cost = 6000, depth = 7},
-        {level = 7, cost = 12000, depth = 8},
-        {level = 8, cost = 25000, depth = 9},
-        {level = 9, cost = 50000, depth = 10},
-        {level = 10, cost = 100000, depth = 12},
-    },
-    
-    -- Dig radius (area of effect) - expensive for performance
-    RADIUS_LEVELS = {
-        {level = 0, cost = 0, radius = 1},
-        {level = 1, cost = 200, radius = 2},
-        {level = 2, cost = 800, radius = 3},
-        {level = 3, cost = 3000, radius = 4},
-        {level = 4, cost = 10000, radius = 5},
-        {level = 5, cost = 30000, radius = 6},
-        {level = 6, cost = 80000, radius = 7},
-        {level = 7, cost = 200000, radius = 8},
-        {level = 8, cost = 500000, radius = 9},
-        {level = 9, cost = 1200000, radius = 10},
+    -- Dig size (cube size)
+    SIZE_LEVELS = {
+        {level = 0, cost = 0, size = 1},  -- Start with 3x3x3
+        {level = 1, cost = 100, size = 2},  -- 5x5x5
+        {level = 2, cost = 300, size = 2},
+        {level = 3, cost = 700, size = 3},
+        {level = 4, cost = 1500, size = 4},
+        {level = 5, cost = 3000, size = 5},
+        {level = 6, cost = 6000, size = 6},
+        {level = 7, cost = 12000, size = 7},
+        {level = 8, cost = 25000, size = 8},
+        {level = 9, cost = 50000, size = 9},
+        {level = 10, cost = 100000, size = 10},
+        {level = 11, cost = 200000, size = 11},
+        {level = 12, cost = 400000, size = 12},
+        {level = 13, cost = 800000, size = 13},
+        {level = 14, cost = 1600000, size = 14},
+        {level = 15, cost = 3200000, size = 15},
     },
 }
 
@@ -108,15 +98,15 @@ GameConfig.Pets = {
         {id = "cat", name = "Lucky Cat", rarity = "UNCOMMON", 
          buffs = {speed = 0.03, luck = 0.1}},
         {id = "dog", name = "Strong Dog", rarity = "UNCOMMON", 
-         buffs = {strength = 0.1, radius = 0}},
+         buffs = {size = 0.1, luck = 0}},
         {id = "eagle", name = "Golden Eagle", rarity = "RARE", 
-         buffs = {speed = 0.08, strength = 0.08, luck = 0.05}},
+         buffs = {speed = 0.08, size = 0.08, luck = 0.05}},
         {id = "dragon", name = "Mining Dragon", rarity = "EPIC", 
-         buffs = {strength = 0.15, radius = 0.1, luck = 0.1}},
+         buffs = {size = 0.15, luck = 0.1}},
         {id = "phoenix", name = "Phoenix", rarity = "LEGENDARY", 
-         buffs = {speed = 0.15, strength = 0.15, luck = 0.2}},
+         buffs = {speed = 0.15, size = 0.15, luck = 0.2}},
         {id = "cosmic", name = "Cosmic Entity", rarity = "MYTHIC", 
-         buffs = {speed = 0.25, strength = 0.25, radius = 0.15, luck = 0.3}},
+         buffs = {speed = 0.25, size = 0.25, luck = 0.3}},
     },
     
     -- Pet star levels (multiplicative with base buffs)
@@ -149,7 +139,7 @@ GameConfig.Monetization = {
         
         -- Instant actions
         {id = "MEGA_DIG", productId = 0, robux = 49, 
-         effect = "instant_dig", radius = 10, depth = 10},
+         effect = "instant_dig", size = 10},
         {id = "AUTO_DIGGER", productId = 0, robux = 299, 
          effect = "auto_dig", duration = 3600},
         
@@ -164,9 +154,9 @@ GameConfig.Monetization = {
         {id = "VIP", gamepassId = 0, robux = 399, 
          effects = {loot_multiplier = 2.0, exp_multiplier = 2.0}},
         {id = "MEGA_PICKAXE", gamepassId = 0, robux = 799, 
-         effects = {radius_bonus = 2, strength_bonus = 2}},
+         effects = {size_bonus = 3}},
         {id = "AUTO_COLLECT", gamepassId = 0, robux = 299, 
-         effects = {auto_collect_radius = 50}},
+         effects = {auto_collect_range = 50}},
         {id = "EXTRA_PETS", gamepassId = 0, robux = 499, 
          effects = {max_pets_bonus = 2}},
     },
@@ -205,15 +195,15 @@ GameConfig.Loot = {
         
         -- Pickaxes (equipment)
         {id = "iron_pickaxe", name = "Iron Pickaxe", rarity = "UNCOMMON", type = "pickaxe", 
-         stats = {speed = 1.1, strength = 1.2, luck = 1.0}},
+         stats = {speed = 1.1, size = 1, luck = 1.0}},
         {id = "gold_pickaxe", name = "Golden Pickaxe", rarity = "RARE", type = "pickaxe", 
-         stats = {speed = 1.3, strength = 1.3, luck = 1.1}},
+         stats = {speed = 1.3, size = 1, luck = 1.1}},
         {id = "diamond_pickaxe", name = "Diamond Pickaxe", rarity = "EPIC", type = "pickaxe", 
-         stats = {speed = 1.5, strength = 1.5, luck = 1.2}},
+         stats = {speed = 1.5, size = 2, luck = 1.2}},
         {id = "obsidian_pickaxe", name = "Obsidian Pickaxe", rarity = "LEGENDARY", type = "pickaxe", 
-         stats = {speed = 2.0, strength = 2.0, luck = 1.5}},
+         stats = {speed = 2.0, size = 3, luck = 1.5}},
         {id = "void_pickaxe", name = "Void Pickaxe", rarity = "MYTHIC", type = "pickaxe", 
-         stats = {speed = 3.0, strength = 3.0, luck = 2.0, radius = 1.5}},
+         stats = {speed = 3.0, size = 2.0, luck = 2.0}},
         
         -- Cosmetics
         {id = "miner_helmet", name = "Miner's Helmet", rarity = "UNCOMMON", type = "cosmetic", slot = "head"},
@@ -227,12 +217,12 @@ GameConfig.Loot = {
         -- Consumable buffs
         {id = "speed_potion", name = "Speed Potion", rarity = "UNCOMMON", type = "consumable", 
          effect = "speed", multiplier = 0.8, duration = 300},
-        {id = "strength_potion", name = "Strength Potion", rarity = "RARE", type = "consumable", 
-         effect = "strength", bonus = 2, duration = 300},
+        {id = "size_potion", name = "Size Potion", rarity = "RARE", type = "consumable", 
+         effect = "size", bonus = 2, duration = 300},
         {id = "luck_potion", name = "Luck Potion", rarity = "EPIC", type = "consumable", 
          effect = "luck", multiplier = 1.5, duration = 600},
         {id = "mega_potion", name = "Mega Potion", rarity = "LEGENDARY", type = "consumable", 
-         effect = "all", speed_mult = 0.7, strength_bonus = 3, luck_mult = 2.0, duration = 900},
+         effect = "all", speed_mult = 0.7, size_bonus = 3, luck_mult = 2.0, duration = 900},
     },
 }
 
