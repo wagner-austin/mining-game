@@ -77,6 +77,10 @@ local remoteFunctions = {
     DebugAddCurrency = createRemoteFunction("DebugAddCurrency"),
     DebugResetStats = createRemoteFunction("DebugResetStats"),
     DebugResetCube = createRemoteFunction("DebugResetCube"),
+    
+    -- Material changes
+    ApplyCubeSurfaceMaterial = createRemoteFunction("ApplyCubeSurfaceMaterial"),
+    ApplyFloorMaterial = createRemoteFunction("ApplyFloorMaterial"),
 }
 
 -- Create RemoteEvents (server -> client, no return value)
