@@ -45,7 +45,7 @@ Request to dig at a world position.
 Purchase an upgrade with coins.
 
 **Parameters:**
-- `upgradeType`: "speed", "strength", or "radius"
+- `upgradeType`: "speed" or "size"
 
 **Returns:**
 ```lua
@@ -227,7 +227,7 @@ Trigger camera shake.
 ### Main HUD
 - **Dig Button**: Large, mobile-friendly button at `GameConfig.MobileUI.DIG_BUTTON_POSITION`
 - **Currency Display**: Coins and gems at top
-- **Stats Bar**: Current dig delay, depth, radius, luck
+- **Stats Bar**: Current dig delay, size, luck
 - **Boost Timers**: Active boosts with countdown
 
 ### Menus (Mobile-Optimized)
@@ -238,7 +238,7 @@ Trigger camera shake.
    - Equipment slots
 
 2. **Shop**
-   - Upgrades tab (speed/strength/radius)
+   - Upgrades tab (speed/size)
    - Materials tab
    - Boosts tab (Robux products)
    - Gamepasses tab
