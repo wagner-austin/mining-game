@@ -18,6 +18,15 @@ print("[Bootstrap] Found ReplicatedStorage.MiningGame")
 local RemotesCreator = require(script.Remotes) -- creates instances under RS.Remotes.MiningGame
 print("[Bootstrap] Remotes created")
 
+-- Create Unix time sync remote for day/night cycle
+local GetServerUnix = Instance.new("RemoteFunction")
+GetServerUnix.Name = "GetServerUnix"
+GetServerUnix.Parent = ReplicatedStorage
+GetServerUnix.OnServerInvoke = function()
+	return os.time()
+end
+print("[Bootstrap] Time sync remote created")
+
 -- Initialize core services (order matters)
 local DataService = require(script.DataService)
 print("[Bootstrap] DataService loaded")
