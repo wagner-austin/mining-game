@@ -312,18 +312,37 @@ end
 
 -- Restore cube from saved state
 function GridService:RestoreCube(cubeOrigin: CFrame, state: Types.CubeState): Model
-    -- Get material
-    local materialData = GameConfig.CubeMaterialsById[state.materialId]
+    -- Get material (handle both old and new material IDs)
+    local materialId = state.materialId or "tier1"
+    local materialData = GameConfig.CubeMaterialsById[materialId]
+    
     if not materialData then
-        warn("[GridService] Unknown material:", state.materialId)
-        return Instance.new("Model")
+        warn("[GridService] Unknown material ID:", materialId, "- using tier1")
+        materialData = GameConfig.CubeMaterialsById["tier1"]
     end
     
-    -- Create the base cube
+    -- Get the terrain material enum from the terrainKey
+    local terrainMaterial: Enum.Material = Enum.Material.Rock
+    if materialData and materialData.terrainKey then
+        local terrainKeyMap = {
+            rock = Enum.Material.Rock,
+            sandstone = Enum.Material.Sandstone,
+            basalt = Enum.Material.Basalt,
+            slate = Enum.Material.Slate,
+            limestone = Enum.Material.Limestone,
+            glacier = Enum.Material.Glacier,
+        }
+        terrainMaterial = terrainKeyMap[materialData.terrainKey] or Enum.Material.Rock
+        print("[GridService] Material resolved:", materialId, "->", materialData.terrainKey, "->", tostring(terrainMaterial))
+    else
+        warn("[GridService] No terrainKey for material:", materialId, "- defaulting to Rock")
+    end
+    
+    -- Create the base cube (now guaranteed to have a valid material)
     local model = self:CreateTerrainCube(
         cubeOrigin,
         GameConfig.Grid.CUBE_SIZE_STUDS,
-        materialData.material
+        terrainMaterial
     )
     
     -- Apply dug cells from state
