@@ -43,9 +43,17 @@ function InventoryService:AddItem(player: Player, itemId: string, count: number)
     -- Get max stack size
     local maxStack = MAX_STACK_SIZE[itemDef.type] or 1
     
-    -- Add to inventory
+    -- Calculate how much we can actually add
     local currentCount = profile.inventory[itemId] or 0
-    local newCount = math.min(currentCount + count, maxStack)
+    local addable = math.max(0, math.min(count, maxStack - currentCount))
+    
+    -- Skip if nothing to add (already at cap)
+    if addable <= 0 then
+        return false
+    end
+    
+    -- Add to inventory
+    local newCount = currentCount + addable
     profile.inventory[itemId] = newCount
     
     -- Queue save
@@ -55,11 +63,52 @@ function InventoryService:AddItem(player: Player, itemId: string, count: number)
     Remotes.RE.OnInventoryChanged:FireClient(player, {
         action = "add",
         itemId = itemId,
-        count = newCount - currentCount,
+        count = addable,
         total = newCount,
     })
     
     return true
+end
+
+-- Add multiple items in bulk (efficient for large operations)
+function InventoryService:AddItemsBulk(player: Player, countsById: {[string]: number}): {[string]: number}
+    local profile = DataService:GetPlayerData(player)
+    if not profile then
+        return {}
+    end
+    
+    local actuallyAdded = {}
+    local needsSave = false
+    
+    for itemId, count in pairs(countsById) do
+        local itemDef = LootService:GetItemDefinition(itemId)
+        if itemDef then
+            local maxStack = MAX_STACK_SIZE[itemDef.type] or 1
+            local currentCount = profile.inventory[itemId] or 0
+            local addable = math.max(0, math.min(count, maxStack - currentCount))
+            
+            if addable > 0 then
+                profile.inventory[itemId] = currentCount + addable
+                actuallyAdded[itemId] = addable
+                needsSave = true
+                
+                -- Send individual inventory change events
+                Remotes.RE.OnInventoryChanged:FireClient(player, {
+                    action = "add",
+                    itemId = itemId,
+                    count = addable,
+                    total = profile.inventory[itemId],
+                })
+            end
+        end
+    end
+    
+    -- Queue save only once if anything was added
+    if needsSave then
+        DataService:QueueSave(player)
+    end
+    
+    return actuallyAdded
 end
 
 -- Remove item from inventory
@@ -256,15 +305,15 @@ function InventoryService:UseConsumable(player: Player, itemId: string): {succes
     -- Apply effect
     if itemDef.effect == "speed" then
         profile.boosts.speed = os.time() + (itemDef.duration or 300)
-    elseif itemDef.effect == "strength" then
-        profile.boosts.strength = os.time() + (itemDef.duration or 300)
+    elseif itemDef.effect == "size" then
+        profile.boosts.size = os.time() + (itemDef.duration or 300)
     elseif itemDef.effect == "luck" then
         profile.boosts.luck = os.time() + (itemDef.duration or 300)
     elseif itemDef.effect == "all" then
         -- Mega potion affects multiple stats
         local duration = itemDef.duration or 900
         profile.boosts.speed = os.time() + duration
-        profile.boosts.strength = os.time() + duration
+        profile.boosts.size = os.time() + duration
         profile.boosts.luck = os.time() + duration
     end
     
