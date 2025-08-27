@@ -56,9 +56,9 @@ local function handleProductPurchase(player: Player, product: Types.Product)
         profile.boosts.luck = os.time() + (product.duration or 3600)
         Remotes.RE.OnBoostsChanged:FireClient(player, profile.boosts)
         
-    elseif product.effect == "strength" then
-        -- Apply strength boost
-        profile.boosts.strength = os.time() + (product.duration or 3600)
+    elseif product.effect == "size" then
+        -- Apply size boost
+        profile.boosts.size = os.time() + (product.duration or 3600)
         Remotes.RE.OnBoostsChanged:FireClient(player, profile.boosts)
         
     elseif product.effect == "instant_dig" then
@@ -68,19 +68,16 @@ local function handleProductPurchase(player: Player, product: Types.Product)
         
         if worldPos then
             -- Temporarily boost stats for one dig
-            local oldRadius = profile.upgrades.radius
-            local oldDepth = profile.upgrades.strength
+            local oldSize = profile.upgrades.size or 0
             
             -- Apply mega dig stats
-            profile.upgrades.radius = math.min(15, (profile.upgrades.radius or 0) + (product.radius or 10))
-            profile.upgrades.strength = math.min(20, (profile.upgrades.strength or 0) + (product.depth or 10))
+            profile.upgrades.size = math.min(15, oldSize + (product.size or 10))
             
             -- Process dig
             cubeData:ProcessDigRequest(player, worldPos)
             
             -- Restore stats
-            profile.upgrades.radius = oldRadius
-            profile.upgrades.strength = oldDepth
+            profile.upgrades.size = oldSize
         end
         
     elseif product.effect == "auto_dig" then
@@ -175,8 +172,8 @@ local function handleGamepassPurchase(player: Player, gamepass: Types.GamePass)
     
     -- Special effects for specific gamepasses
     if gamepass.id == "AUTO_COLLECT" then
-        -- Enable auto collection radius
-        player:SetAttribute("AutoCollectRadius", gamepass.effects.auto_collect_radius or 50)
+        -- Enable auto collection range
+        player:SetAttribute("AutoCollectRange", gamepass.effects.auto_collect_range or 50)
     elseif gamepass.id == "EXTRA_PETS" then
         -- Increase max pets
         player:SetAttribute("MaxPetsBonus", gamepass.effects.max_pets_bonus or 2)
