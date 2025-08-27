@@ -73,8 +73,7 @@ local function createDefaultProfile(userId: number): Types.PlayerStats
         cubeSeed = userId % 1000000, -- Deterministic seed based on user ID
         upgrades = {
             speed = 0,
-            strength = 0,
-            radius = 0,
+            size = 0,  -- Level 0 gives size 1 from config
         },
         boosts = {}, -- boost type -> expiry timestamp
         pets = {}, -- pet instance id -> pet data
@@ -358,8 +357,21 @@ function DataService:EnsureLoaded(player: Player): boolean
         return true
     end
     
-    -- Studio: synthesize defaults immediately
+    -- Studio: Wait longer for async load, then synthesize if needed
     if RunService:IsStudio() then
+        -- Give the async load a fair chance (up to 2 seconds)
+        local deadline = tick() + 2.0
+        while tick() < deadline do
+            if playerData[player] and playerCubes[player] then
+                if not player:GetAttribute("DataLoaded") then
+                    player:SetAttribute("DataLoaded", true)
+                end
+                return true
+            end
+            task.wait(0.1)
+        end
+        
+        -- Still no data after timeout? Synthesize defaults as fallback
         warn("[DataService] EnsureLoaded: synthesizing default data for", player.Name)
         local profile = createDefaultProfile(player.UserId)
         playerData[player] = profile
