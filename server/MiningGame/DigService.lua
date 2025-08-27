@@ -95,7 +95,15 @@ function DigService:ProcessDigRequest(player: Player, worldPos: Vector3): Types.
     local cubeState = DataService:GetCubeData(player)
     local cubeData = playerCubes[player]
     
+    -- If cube isn't initialized yet, try to initialize it now
+    if not cubeData and profile and cubeState then
+        warn("[DigService] Cube not initialized for", player.Name, "- attempting late initialization")
+        DigService:InitializePlayerCube(player)
+        cubeData = playerCubes[player]
+    end
+    
     if not profile or not cubeState or not cubeData then
+        warn("[DigService] Missing data - Profile:", profile ~= nil, "CubeState:", cubeState ~= nil, "CubeData:", cubeData ~= nil)
         return {
             ok = false,
             reason = "No cube data",
@@ -122,23 +130,16 @@ function DigService:ProcessDigRequest(player: Player, worldPos: Vector3): Types.
     -- Convert world position to cell coordinates
     local cellX, cellY, cellZ = GridMath.worldToCell(worldPos, cubeData.origin, GameConfig.Grid.CELL_SIZE_STUDS)
     
-    -- Check if click is within cube bounds BEFORE clamping
-    local halfCells = (GameConfig.Grid.CUBE_SIZE_STUDS / 4) / 2
-    if not GridMath.isInBounds(cellX, cellY, cellZ, GameConfig.Grid.CUBE_SIZE_STUDS) then
-        -- Click is outside the cube - reject it
-        return {
-            ok = false,
-            reason = "Outside cube bounds",
-        }
-    end
-    
-    -- Now clamp for safety (shouldn't be needed but keeps as failsafe)
+    -- Clamp cells to valid range (handles terrain texture overflow gracefully)
+    local halfCells = (GameConfig.Grid.CUBE_SIZE_STUDS / GameConfig.Grid.CELL_SIZE_STUDS) / 2
     local function clampCell(n: number): number
         return math.clamp(n, -halfCells, halfCells - 1)
     end
     cellX = clampCell(cellX)
     cellY = clampCell(cellY)
     cellZ = clampCell(cellZ)
+    
+    -- No separate isInBounds check needed now; clamped values are valid
     
     -- Apply dig to grid
     local dugCells = GridService:ApplyDig(
@@ -167,11 +168,21 @@ function DigService:ProcessDigRequest(player: Player, worldPos: Vector3): Types.
         effectiveStats.luck
     )
     
-    -- Grant loot to inventory
-    local lootGranted = {}
+    -- Grant loot to inventory (aggregate counts for efficiency)
+    local countsById = {}
     for _, drop in ipairs(lootDrops) do
-        InventoryService:AddItem(player, drop.id, 1)
-        table.insert(lootGranted, drop.id)
+        countsById[drop.id] = (countsById[drop.id] or 0) + 1
+    end
+    
+    -- Add items in bulk (single operation, one save)
+    local actuallyAdded = InventoryService:AddItemsBulk(player, countsById)
+    
+    -- Rebuild legacy flat list from actual adds (for backwards compat)
+    local lootGranted = {}
+    for itemId, count in pairs(actuallyAdded) do
+        for i = 1, count do
+            table.insert(lootGranted, itemId)
+        end
     end
     
     -- Update statistics
@@ -184,19 +195,23 @@ function DigService:ProcessDigRequest(player: Player, worldPos: Vector3): Types.
     -- Queue save
     DataService:QueueSave(player)
     
-    -- Send feedback to client
+    -- Send feedback to client (lightweight, no cell array)
     Remotes.RE.OnDigFeedback:FireClient(player, {
-        cells = dugCells,
+        radius = effectiveStats.radius,
+        depth = effectiveStats.depth,
+        centerPos = GridMath.cellToWorld(cellX, cellY, cellZ, cubeData.origin, GameConfig.Grid.CELL_SIZE_STUDS),
+        cellCount = #dugCells,  -- Just the count for telemetry
         shake = GameConfig.Digging.ENABLE_CAMERA_SHAKE,
         particles = GameConfig.Digging.ENABLE_PARTICLES,
         sound = GameConfig.Digging.DIG_SOUND_ID,
     })
     
-    -- Send loot notifications
-    for _, drop in ipairs(lootDrops) do
+    -- Send batched loot notification (single network event for all drops)
+    if next(actuallyAdded) ~= nil then
         Remotes.RE.OnLootDropped:FireClient(player, {
-            item = drop,
+            counts = actuallyAdded,  -- Only what was actually added (respects caps)
             worldPos = GridMath.cellToWorld(cellX, cellY, cellZ, cubeData.origin, GameConfig.Grid.CELL_SIZE_STUDS),
+            schema = 2,  -- Version flag for client compatibility
         })
     end
     
@@ -210,7 +225,8 @@ function DigService:ProcessDigRequest(player: Player, worldPos: Vector3): Types.
     return {
         ok = true,
         cellsDug = #dugCells,
-        lootGranted = lootGranted,
+        lootGranted = lootGranted,    -- Legacy: flat array (rebuilt from actuallyAdded)
+        lootCounts = actuallyAdded,    -- New: compact map (only what was actually added)
         nextAllowedAt = now + effectiveStats.delay,
         effectiveStats = effectiveStats,
     }
@@ -271,6 +287,14 @@ local function onPlayerAdded(player)
     RunService.Heartbeat:Wait()
     
     spawn(function()
+        -- Ensure data is loaded first
+        if not DataService:EnsureLoaded(player) then
+            warn("[DigService] Failed to ensure data loaded for", player.Name)
+            -- Try again after a delay
+            wait(1)
+            DataService:EnsureLoaded(player)
+        end
+        
         DigService:InitializePlayerCube(player)
     end)
 end
