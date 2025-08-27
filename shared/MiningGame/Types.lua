@@ -7,7 +7,7 @@ export type PlayerStats = {
     gems: number,
     materialId: string,
     cubeSeed: number,
-    upgrades: { [string]: number }, -- "speed", "strength", "radius"
+    upgrades: { [string]: number }, -- "speed", "size"
     boosts: { [string]: number },   -- boost type -> unix timestamp expiry
     pets: { [string]: PetData },    -- pet instance id -> pet data
     inventory: { [string]: number }, -- item id -> count
@@ -66,8 +66,7 @@ export type DigResult = {
 
 export type EffectiveStats = {
     delay: number,
-    depth: number,
-    radius: number,
+    size: number,
     luck: number,
     hardness: number,
 }
@@ -87,8 +86,7 @@ export type UpgradeLevel = {
     level: number,
     cost: number,
     multiplier: number?,
-    depth: number?,
-    radius: number?,
+    size: number?,
 }
 
 export type Product = {
@@ -99,8 +97,7 @@ export type Product = {
     multiplier: number?,
     duration: number?,
     coins: number?,
-    radius: number?,
-    depth: number?,
+    size: number?,
 }
 
 export type GamePass = {
@@ -126,8 +123,7 @@ export type Pet = {
     rarity: string,
     buffs: {
         speed: number?,
-        strength: number?,
-        radius: number?,
+        size: number?,
         luck: number?,
     },
 }
