@@ -1,0 +1,78 @@
+--[[
+    Movement Configuration Module for Mining Game
+    ==============================================
+    Central configuration for all player movement parameters.
+    This module is used by all movement scripts to ensure consistency.
+    
+    Simplified version without sprint functionality
+    Tunable movement speed, jump height, gravity, and double jump
+    
+    Location: ReplicatedStorage/Movement/Config.lua (via Rojo: shared/Movement/Config.lua)
+--]]
+
+local Config = {}
+
+-- Base Movement Parameters
+-- These values define the default movement characteristics for all players
+Config.BASE_SPEED       = 24   -- Base walking speed in studs/second (50% faster than default 16)
+Config.BASE_JUMP_HEIGHT = 10   -- Base jump height in studs (higher than default 7.2 for mining gameplay)
+
+-- Movement Limits
+-- Prevents extreme values that could break gameplay
+Config.LIMITS = {
+    speedMin = 8,    -- Minimum walk speed (prevents getting stuck)
+    speedMax = 100,  -- Maximum walk speed (prevents breaking physics)
+    jumpMin  = 5,    -- Minimum jump height
+    jumpMax  = 50,   -- Maximum jump height (capped for balance)
+}
+
+-- Gravity Multiplier (applied server-wide)
+-- 1.0 = normal Roblox gravity (196.2)
+-- Lower values = floatier jumps, higher values = heavier feel
+Config.GRAVITY_MULT = 1.0  -- Can be adjusted for different gameplay feel
+
+-- Double Jump Configuration
+Config.DOUBLE_JUMP = {
+    enabled       = true,   -- Enable/disable double jump feature
+    maxJumps      = 2,      -- Total jumps (1 ground + 1 air)
+    scale         = 0.95,   -- Second jump height multiplier (0.95 = 95% of base jump)
+    impulseScale  = 0.3,    -- Scales the additive impulse (0.3 = 30% strength for balanced feel)
+    coyoteTime    = 0.15,   -- Grace period after leaving ground (seconds)
+    jumpCooldown  = 0.10,   -- Cooldown between jump inputs (prevents spam)
+}
+
+-- Terrain Speed Multipliers (for mining-specific terrain types)
+-- Different materials affect movement speed for gameplay variety
+-- 1.0 = normal speed, <1.0 = slower, >1.0 = faster
+Config.TERRAIN_MULT = {
+    [Enum.Material.Rock]     = 0.95,  -- Slightly slower on rock
+    [Enum.Material.Granite]  = 0.90,  -- Harder rock, more difficult
+    [Enum.Material.Slate]    = 1.00,  -- Standard mine floor
+    [Enum.Material.Concrete] = 1.10,  -- Constructed paths are faster
+    [Enum.Material.Metal]    = 1.15,  -- Metal platforms/rails give speed boost
+    [Enum.Material.Sand]     = 0.75,  -- Sandy areas slow you down
+    [Enum.Material.Mud]      = 0.60,  -- Very slow in muddy areas
+    [Enum.Material.Water]    = 0.70,  -- Wading through underground water
+    [Enum.Material.Ice]      = 1.20,  -- Ice caves are slippery but fast
+}
+
+-- Item/Upgrade Modifiers
+-- These can be applied when players get upgrades or equipment
+Config.UPGRADE_MODS = {
+    -- Speed upgrades
+    speedBoots1   = { speedMult = 1.15 },  -- 15% speed increase
+    speedBoots2   = { speedMult = 1.30 },  -- 30% speed increase
+    speedBoots3   = { speedMult = 1.50 },  -- 50% speed increase
+    
+    -- Jump upgrades
+    jumpBoots1    = { jumpMult = 1.20 },   -- 20% jump increase
+    jumpBoots2    = { jumpMult = 1.40 },   -- 40% jump increase
+    jumpBoots3    = { jumpMult = 1.60 },   -- 60% jump increase
+    
+    -- Combined upgrades
+    minerGear1    = { speedMult = 1.10, jumpMult = 1.10 },  -- 10% both
+    minerGear2    = { speedMult = 1.20, jumpMult = 1.20 },  -- 20% both
+    minerGear3    = { speedMult = 1.35, jumpMult = 1.35 },  -- 35% both
+}
+
+return Config
