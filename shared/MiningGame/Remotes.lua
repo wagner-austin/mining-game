@@ -34,6 +34,10 @@ return {
         
         -- Settings
         UpdateSettings = mg:WaitForChild("UpdateSettings"),
+        
+        -- Debug
+        DebugAddCurrency = mg:WaitForChild("DebugAddCurrency"),
+        DebugResetStats = mg:WaitForChild("DebugResetStats"),
     },
     RE = {
         -- State updates
