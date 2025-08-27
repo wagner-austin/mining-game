@@ -30,8 +30,9 @@ local DigService = {}
 local lastDigTime: {[number]: number} = {}
 local digCooldowns: {[number]: number} = {}
 
--- Player cube references
+-- Player cube references (exposed for debug reset)
 local playerCubes: {[Player]: {origin: CFrame, model: Model}} = {}
+DigService.playerCubes = playerCubes
 
 -- Initialize player's cube
 function DigService:InitializePlayerCube(player: Player)
@@ -149,8 +150,7 @@ function DigService:ProcessDigRequest(player: Player, worldPos: Vector3): Types.
         cellX,
         cellY,
         cellZ,
-        effectiveStats.radius,
-        effectiveStats.depth
+        effectiveStats.size
     )
     
     if #dugCells == 0 then
@@ -197,8 +197,7 @@ function DigService:ProcessDigRequest(player: Player, worldPos: Vector3): Types.
     
     -- Send feedback to client (lightweight, no cell array)
     Remotes.RE.OnDigFeedback:FireClient(player, {
-        radius = effectiveStats.radius,
-        depth = effectiveStats.depth,
+        size = effectiveStats.size,
         centerPos = GridMath.cellToWorld(cellX, cellY, cellZ, cubeData.origin, GameConfig.Grid.CELL_SIZE_STUDS),
         cellCount = #dugCells,  -- Just the count for telemetry
         shake = GameConfig.Digging.ENABLE_CAMERA_SHAKE,

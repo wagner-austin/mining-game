@@ -36,12 +36,16 @@ local digCooldown = 1 -- Start with 1 second cooldown
 -- Store player's cube origin when profile loads
 local playerCubeOrigin = nil
 
--- Quick client-side bounds check
+-- Quick client-side bounds check with tolerance for terrain texture overflow
 local function insideCube(worldPos: Vector3, origin: CFrame): boolean
     if not origin then return false end
     local localPos = origin:PointToObjectSpace(worldPos)
     local half = GameConfig.Grid.CUBE_SIZE_STUDS / 2
-    return math.abs(localPos.X) < half and math.abs(localPos.Y) < half and math.abs(localPos.Z) < half
+    -- Add 2 stud tolerance for terrain texture that extends beyond voxel boundaries
+    local tolerance = 2
+    return math.abs(localPos.X) <= (half + tolerance) and 
+           math.abs(localPos.Y) <= (half + tolerance) and 
+           math.abs(localPos.Z) <= (half + tolerance)
 end
 
 -- Function to request a dig at specific position
@@ -94,24 +98,14 @@ local function getProfile()
         print("  Total blocks dug:", profile.profile.totalBlocksDug)
         print("  Effective stats:")
         print("    Delay:", profile.effectiveStats.delay)
-        print("    Depth:", profile.effectiveStats.depth)
-        print("    Radius:", profile.effectiveStats.radius)
+        print("    Size:", profile.effectiveStats.size or 0)
         print("    Luck:", profile.effectiveStats.luck)
         
-        -- Store cube origin for bounds checking (need to calculate it)
-        -- For now, use default position until we get it from server
-        local playerIndex = 0
-        for i, p in ipairs(Players:GetPlayers()) do
-            if p == player then
-                playerIndex = i - 1
-                break
-            end
-        end
-        local spacing = GameConfig.Multiplayer.CUBE_SPACING
-        local gridX = playerIndex % 3
-        local gridZ = math.floor(playerIndex / 3)
+        -- Store cube origin for bounds checking
+        -- Use the same position as CubePositionService on the server
         local cubeY = GameConfig.Grid.CUBE_SIZE_STUDS / 2
-        playerCubeOrigin = CFrame.new(gridX * spacing, cubeY, gridZ * spacing)
+        playerCubeOrigin = CFrame.new(0, cubeY, 0)
+        print("[TestClient] Cube origin set to:", playerCubeOrigin.Position)
     else
         print("[TestClient] Failed to get profile")
     end
@@ -120,15 +114,25 @@ end
 -- Listen for feedback events
 Remotes.RE.OnDigFeedback.OnClientEvent:Connect(function(feedback)
     print("[TestClient] Dig feedback received:")
-    print("  Cells dug:", #feedback.cells)
+    print("  Cells dug:", feedback.cellCount or "unknown")
+    print("  Size:", feedback.size or "unknown")
     print("  Shake:", feedback.shake)
     print("  Particles:", feedback.particles)
 end)
 
 Remotes.RE.OnLootDropped.OnClientEvent:Connect(function(data)
     print("[TestClient] Loot dropped!")
-    print("  Item:", data.item.id)
-    print("  Rarity:", data.item.rarity)
+    if data.schema == 2 and data.counts then
+        -- New batched format
+        print("  Items received (batched):")
+        for itemId, count in pairs(data.counts) do
+            print("    -", itemId, "x" .. count)
+        end
+    elseif data.item then
+        -- Legacy single item format
+        print("  Item:", data.item.id)
+        print("  Rarity:", data.item.rarity)
+    end
     print("  Position:", data.worldPos)
 end)
 
@@ -178,9 +182,9 @@ mouse.Button1Down:Connect(function()
     local hit = workspace:Raycast(ray.Origin, ray.Direction * 2000, params)
     
     if hit then
-        -- Step INTO the cube so the cell is inside, not on the surface
-        -- Use just over half a cell to ensure we're inside
-        local digPos = hit.Position - (hit.Normal * (CELL_SIZE * 0.51))
+        -- Use 1 stud offset to ensure we're inside the surface cell
+        -- but not so deep that we skip to the next cell (cells are 4 studs)
+        local digPos = hit.Position - (hit.Normal * 1.0)
         print(string.format("[Click] Hit terrain at %.1f, %.1f, %.1f", hit.Position.X, hit.Position.Y, hit.Position.Z))
         print(string.format("[Click] Digging at %.1f, %.1f, %.1f (offset by normal)", digPos.X, digPos.Y, digPos.Z))
         requestDigAt(digPos)
