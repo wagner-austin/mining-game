@@ -72,6 +72,10 @@ local remoteFunctions = {
     
     -- Settings
     UpdateSettings = createRemoteFunction("UpdateSettings"),
+    
+    -- Debug
+    DebugAddCurrency = createRemoteFunction("DebugAddCurrency"),
+    DebugResetStats = createRemoteFunction("DebugResetStats"),
 }
 
 -- Create RemoteEvents (server -> client, no return value)
