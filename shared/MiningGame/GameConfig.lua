@@ -68,24 +68,24 @@ GameConfig.Upgrades = {
         {level = 15, cost = 1600000, multiplier = 0.15},
     },
     
-    -- Dig size (cube size)
+    -- Dig size (cube size) - Size increases come FIRST as exciting milestones!
     SIZE_LEVELS = {
-        {level = 0, cost = 0, size = 1},  -- Start with 3x3x3
-        {level = 1, cost = 100, size = 2},  -- 5x5x5
-        {level = 2, cost = 300, size = 2},
-        {level = 3, cost = 700, size = 3},
-        {level = 4, cost = 1500, size = 4},
-        {level = 5, cost = 3000, size = 5},
-        {level = 6, cost = 6000, size = 6},
-        {level = 7, cost = 12000, size = 7},
-        {level = 8, cost = 25000, size = 8},
-        {level = 9, cost = 50000, size = 9},
-        {level = 10, cost = 100000, size = 10},
-        {level = 11, cost = 200000, size = 11},
-        {level = 12, cost = 400000, size = 12},
-        {level = 13, cost = 800000, size = 13},
-        {level = 14, cost = 1600000, size = 14},
-        {level = 15, cost = 3200000, size = 15},
+        {level = 0, cost = 0, size = 1},         -- 3x3x3 base
+        {level = 1, cost = 100, size = 2},       -- 5x5x5 - First big upgrade!
+        {level = 2, cost = 300, size = 2},       -- Still 5x5x5
+        {level = 3, cost = 700, size = 2},       -- Still 5x5x5
+        {level = 4, cost = 1500, size = 2},      -- Still 5x5x5
+        {level = 5, cost = 3000, size = 2},      -- Still 5x5x5
+        {level = 6, cost = 6000, size = 3},      -- 7x7x7 - Second big upgrade!
+        {level = 7, cost = 12000, size = 3},     -- Still 7x7x7
+        {level = 8, cost = 25000, size = 3},     -- Still 7x7x7
+        {level = 9, cost = 50000, size = 3},     -- Still 7x7x7
+        {level = 10, cost = 100000, size = 3},   -- Still 7x7x7
+        {level = 11, cost = 200000, size = 3},   -- Still 7x7x7
+        {level = 12, cost = 400000, size = 3},   -- Still 7x7x7
+        {level = 13, cost = 800000, size = 3},   -- Still 7x7x7
+        {level = 14, cost = 1600000, size = 3},  -- Still 7x7x7
+        {level = 15, cost = 3200000, size = 3},  -- Still 7x7x7 (MAX)
     },
 }
 
@@ -378,6 +378,30 @@ GameConfig.Debug = {
     UNLIMITED_RESOURCES = false,
     FREE_UPGRADES = false,
     LOG_LEVEL = "INFO", -- "DEBUG", "INFO", "WARN", "ERROR"
+}
+
+-- Visual Settings for cube indicators
+GameConfig.Visuals = {
+    -- Floor glow outline settings
+    FLOOR_GLOW_COLOR = Color3.fromRGB(0, 255, 255), -- Cyan neon
+    FLOOR_GLOW_THICKNESS = 0.5, -- Flatter strip
+    FLOOR_GLOW_GROUND_CLEARANCE = 9.83, -- Position at Y=9.83
+    FLOOR_GLOW_WIDTH = 2, -- Thinner strips
+    FLOOR_GLOW_MARGIN_MIN = 2, -- Minimum margin around cube
+    FLOOR_GLOW_MARGIN_MAX = 4, -- Maximum margin around cube
+    FLOOR_GLOW_REPLACE_MATERIALS = { Enum.Material.Grass, Enum.Material.LeafyGrass, Enum.Material.Ground }, -- Materials to swap
+    FLOOR_GLOW_REPLACEMENT_MATERIAL = Enum.Material.Concrete, -- What to replace them with
+    
+    -- Cube lighting settings
+    LIGHT_COLOR = Color3.fromRGB(180, 255, 255), -- Soft cyan
+    LIGHT_RANGE_MULT = 1.25, -- Multiplier for light range based on cube size
+    LIGHT_RANGE_MIN = 24, -- Minimum light range
+    LIGHT_BRIGHTNESS = 1.5, -- Light brightness
+    
+    -- Whole cube glow settings (for monetization/upgrades)
+    CUBE_GLOW_ENABLED = false, -- Default off, can be enabled via upgrade/purchase
+    CUBE_GLOW_COLOR = Color3.fromRGB(100, 255, 255), -- Cyan forcefield glow
+    CUBE_GLOW_TRANSPARENCY = 0.7, -- Semi-transparent overlay
 }
 
 return GameConfig
