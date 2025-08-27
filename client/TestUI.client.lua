@@ -45,8 +45,8 @@ statsLabel.Parent = statsFrame
 
 -- Button container
 local buttonFrame = Instance.new("Frame")
-buttonFrame.Size = UDim2.new(0, 150, 0, 400)
-buttonFrame.Position = UDim2.new(1, -160, 0.5, -200)
+buttonFrame.Size = UDim2.new(0, 150, 0, 320)
+buttonFrame.Position = UDim2.new(1, -160, 0.5, -100)
 buttonFrame.BackgroundColor3 = Color3.new(0, 0, 0)
 buttonFrame.BackgroundTransparency = 0.3
 buttonFrame.BorderSizePixel = 0
@@ -69,9 +69,6 @@ local function createButton(text: string, position: number, callback: () -> ())
     return button
 end
 
--- Track dig cooldown
-local lastDigTime = 0
-local digCooldown = 1
 
 -- Update stats display
 local function updateStats()
@@ -100,77 +97,13 @@ local function updateStats()
         end
         
         statsLabel.Text = table.concat(stats, "\n")
-        
-        -- Update dig cooldown
-        if profile.effectiveStats then
-            digCooldown = profile.effectiveStats.delay
-        end
     else
         statsLabel.Text = "Failed to load profile"
     end
 end
 
--- Dig button functionality
-local digButton
-digButton = createButton("DIG", 0, function()
-    local now = tick()
-    if now - lastDigTime < digCooldown then
-        local remaining = digCooldown - (now - lastDigTime)
-        if digButton and digButton.Parent then
-            digButton.Text = string.format("Cooldown: %.1fs", remaining)
-        end
-        return
-    end
-    
-    -- Get player position and dig below
-    local character = player.Character
-    if character and character:FindFirstChild("HumanoidRootPart") then
-        local position = character.HumanoidRootPart.Position + Vector3.new(0, -10, 0)
-        
-        if digButton and digButton.Parent then
-            digButton.Text = "Digging..."
-        end
-        local result = Remotes.RF.RequestDig:InvokeServer(position)
-        
-        if result.ok then
-            if digButton and digButton.Parent then
-                digButton.Text = string.format("Dug %d cells!", result.cellsDug or 0)
-            end
-            lastDigTime = now
-            
-            -- Update stats after successful dig
-            wait(0.5)
-            updateStats()
-            
-            -- Reset button text after delay
-            wait(1)
-            if digButton and digButton.Parent then
-                digButton.Text = "DIG"
-            end
-        else
-            if digButton and digButton.Parent then
-                digButton.Text = result.reason or "Failed"
-            end
-            wait(1)
-            if digButton and digButton.Parent then
-                digButton.Text = "DIG"
-            end
-        end
-    else
-        if digButton and digButton.Parent then
-            digButton.Text = "No character"
-        end
-        wait(1)
-        if digButton and digButton.Parent then
-            digButton.Text = "DIG"
-        end
-    end
-end)
-
 -- Other test buttons
-createButton("Refresh Stats", 1, updateStats)
-
-createButton("Buy Speed Up", 2, function()
+createButton("Buy Speed Up", 0, function()
     local result = Remotes.RF.PurchaseUpgrade:InvokeServer("speed")
     if result.success then
         print("Speed upgraded to level", result.newLevel)
@@ -180,7 +113,7 @@ createButton("Buy Speed Up", 2, function()
     end
 end)
 
-createButton("Buy Strength Up", 3, function()
+createButton("Buy Strength Up", 1, function()
     local result = Remotes.RF.PurchaseUpgrade:InvokeServer("strength")
     if result.success then
         print("Strength upgraded to level", result.newLevel)
@@ -190,7 +123,7 @@ createButton("Buy Strength Up", 3, function()
     end
 end)
 
-createButton("Buy Radius Up", 4, function()
+createButton("Buy Radius Up", 2, function()
     local result = Remotes.RF.PurchaseUpgrade:InvokeServer("radius")
     if result.success then
         print("Radius upgraded to level", result.newLevel)
@@ -200,7 +133,7 @@ createButton("Buy Radius Up", 4, function()
     end
 end)
 
-createButton("Sell All Items", 5, function()
+createButton("Sell All Items", 3, function()
     local profile = Remotes.RF.GetProfile:InvokeServer()
     if profile and profile.profile.inventory then
         local result = Remotes.RF.SellItems:InvokeServer(profile.profile.inventory)
@@ -215,29 +148,34 @@ createButton("Sell All Items", 5, function()
     end
 end)
 
-createButton("Give 1000 Coins", 6, function()
-    print("Use console command: _G.MiningGameServices.DataService:AddCurrency(game.Players.LocalPlayer, 'coins', 1000)")
+-- Debug currency amount (easily modifiable)
+local DEBUG_COIN_AMOUNT = 10000
+
+createButton("Give " .. DEBUG_COIN_AMOUNT .. " Coins", 4, function()
+    local result = Remotes.RF.DebugAddCurrency:InvokeServer("coins", DEBUG_COIN_AMOUNT)
+    if result.success then
+        print("Added " .. DEBUG_COIN_AMOUNT .. " coins!")
+        updateStats()
+    else
+        print("Failed to add coins:", result.reason)
+    end
 end)
 
--- Notification display
-local notificationLabel = Instance.new("TextLabel")
-notificationLabel.Size = UDim2.new(0, 400, 0, 50)
-notificationLabel.Position = UDim2.new(0.5, -200, 0, 220)
-notificationLabel.BackgroundColor3 = Color3.new(0, 0, 0)
-notificationLabel.BackgroundTransparency = 0.3
-notificationLabel.TextColor3 = Color3.new(1, 1, 1)
-notificationLabel.TextScaled = false
-notificationLabel.TextSize = 18
-notificationLabel.Font = Enum.Font.SourceSans
-notificationLabel.Text = ""
-notificationLabel.Parent = screenGui
+-- Reset Stats button (with space before it)
+createButton("RESET Stats", 5, function()
+    local result = Remotes.RF.DebugResetStats:InvokeServer()
+    if result.success then
+        print("Stats reset!")
+        updateStats()
+    else
+        print("Reset failed:", result.reason)
+    end
+end)
 
 -- Listen for events
 Remotes.RE.OnNotification.OnClientEvent:Connect(function(notification)
-    notificationLabel.Text = notification.message
-    notificationLabel.TextColor3 = notification.color or Color3.new(1, 1, 1)
-    wait(3)
-    notificationLabel.Text = ""
+    -- Just print notifications to console instead
+    print("[Notification]", notification.message)
 end)
 
 Remotes.RE.OnLootDropped.OnClientEvent:Connect(function(data)
