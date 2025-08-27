@@ -39,6 +39,10 @@ return {
         DebugAddCurrency = mg:WaitForChild("DebugAddCurrency"),
         DebugResetStats = mg:WaitForChild("DebugResetStats"),
         DebugResetCube = mg:WaitForChild("DebugResetCube"),
+        
+        -- Material changes
+        ApplyCubeSurfaceMaterial = mg:WaitForChild("ApplyCubeSurfaceMaterial"),
+        ApplyFloorMaterial = mg:WaitForChild("ApplyFloorMaterial"),
     },
     RE = {
         -- State updates
