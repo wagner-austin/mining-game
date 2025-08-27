@@ -79,6 +79,36 @@ RemotesCreator.RF.DebugAddCurrency.OnServerInvoke = function(player: Player, cur
     return {success = true, added = amount}
 end
 
+RemotesCreator.RF.DebugResetCube.OnServerInvoke = function(player: Player)
+    -- Reset the player's cube to fresh state
+    local cubeData = DataService:GetCubeData(player)
+    if cubeData then
+        -- Clear all chunks (reset to undug state)
+        cubeData.chunks = {}
+        cubeData.totalDug = 0
+        
+        -- Force save
+        DataService:SaveCubeAsync(player)
+        
+        -- Get the player's cube from DigService and destroy it
+        local DigService = require(script.DigService)
+        local playerCubes = DigService.playerCubes
+        if playerCubes and playerCubes[player] then
+            if playerCubes[player].model then
+                playerCubes[player].model:Destroy()
+            end
+            playerCubes[player] = nil
+        end
+        
+        -- Re-initialize the cube (creates fresh terrain)
+        DigService:InitializePlayerCube(player)
+        
+        return {success = true, message = "Cube reset to fresh state"}
+    end
+    
+    return {success = false, reason = "No cube data found"}
+end
+
 RemotesCreator.RF.DebugResetStats.OnServerInvoke = function(player: Player)
     -- Reset player's stats to default
     local data = DataService:GetPlayerData(player)
@@ -87,8 +117,7 @@ RemotesCreator.RF.DebugResetStats.OnServerInvoke = function(player: Player)
         data.coins = 0
         data.gems = 0
         data.upgrades.speed = 0
-        data.upgrades.strength = 0
-        data.upgrades.radius = 0
+        data.upgrades.size = 0
         data.totalBlocksDug = 0
         data.inventory = {}
         data.equipped = {
