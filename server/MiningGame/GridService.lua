@@ -17,6 +17,9 @@ local ChunkCodec = require(Shared:WaitForChild("Utils"):WaitForChild("ChunkCodec
 -- Performance tracking (optional)
 local DigPerformance = require(script.Parent:WaitForChild("DigPerformance"))
 
+-- Visual indicators module
+local CubeVisuals = require(script.Parent:WaitForChild("CubeVisuals"))
+
 local GridService = {}
 
 -- Constants
@@ -294,16 +297,15 @@ function GridService:CreateTerrainCube(cubeOrigin: CFrame, size: number, materia
     bounds.Anchored = true
     bounds.Parent = model
     
-    -- Add selection box for visual reference (Studio only)
-    local RunService = game:GetService("RunService")
-    if RunService:IsStudio() then
-        local selectionBox = Instance.new("SelectionBox")
-        selectionBox.Adornee = bounds
-        selectionBox.LineThickness = 0.1
-        selectionBox.Transparency = 0.8
-        selectionBox.Color3 = Color3.new(1, 1, 1)
-        selectionBox.Parent = bounds
-    end
+    -- Visual indicators
+    CubeVisuals.CreateFloorGlow(model, cubeOrigin, size)
+    CubeVisuals.AddCubeLight(bounds, size)
+    CubeVisuals.CreateStudioSelectionBox(bounds) -- Studio-only debug
+    
+    -- Optional whole cube glow (for monetization/upgrades)
+    -- This can be made player-specific later by checking player data
+    local cubeGlowEnabled = GameConfig.Visuals.CUBE_GLOW_ENABLED
+    CubeVisuals.CreateCubeGlow(model, cubeOrigin, size, cubeGlowEnabled)
     
     return model
 end
