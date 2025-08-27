@@ -83,8 +83,7 @@ local function updateStats()
         table.insert(stats, "")
         table.insert(stats, "=== EFFECTIVE STATS ===")
         table.insert(stats, string.format("Dig Delay: %.2fs", profile.effectiveStats.delay))
-        table.insert(stats, string.format("Dig Depth: %d", profile.effectiveStats.depth))
-        table.insert(stats, string.format("Dig Radius: %d", profile.effectiveStats.radius))
+        table.insert(stats, string.format("Dig Size: %d", profile.effectiveStats.size or 0))
         table.insert(stats, string.format("Luck: %.2fx", profile.effectiveStats.luck))
         
         if profile.profile.inventory then
@@ -113,27 +112,17 @@ createButton("Buy Speed Up", 0, function()
     end
 end)
 
-createButton("Buy Strength Up", 1, function()
-    local result = Remotes.RF.PurchaseUpgrade:InvokeServer("strength")
+createButton("Buy Size Up", 1, function()
+    local result = Remotes.RF.PurchaseUpgrade:InvokeServer("size")
     if result.success then
-        print("Strength upgraded to level", result.newLevel)
+        print("Size upgraded to level", result.newLevel)
         updateStats()
     else
-        print("Strength upgrade failed:", result.reason)
+        print("Size upgrade failed:", result.reason)
     end
 end)
 
-createButton("Buy Radius Up", 2, function()
-    local result = Remotes.RF.PurchaseUpgrade:InvokeServer("radius")
-    if result.success then
-        print("Radius upgraded to level", result.newLevel)
-        updateStats()
-    else
-        print("Radius upgrade failed:", result.reason)
-    end
-end)
-
-createButton("Sell All Items", 3, function()
+createButton("Sell All Items", 2, function()
     local profile = Remotes.RF.GetProfile:InvokeServer()
     if profile and profile.profile.inventory then
         local result = Remotes.RF.SellItems:InvokeServer(profile.profile.inventory)
@@ -151,7 +140,7 @@ end)
 -- Debug currency amount (easily modifiable)
 local DEBUG_COIN_AMOUNT = 10000
 
-createButton("Give " .. DEBUG_COIN_AMOUNT .. " Coins", 4, function()
+createButton("Give " .. DEBUG_COIN_AMOUNT .. " Coins", 3, function()
     local result = Remotes.RF.DebugAddCurrency:InvokeServer("coins", DEBUG_COIN_AMOUNT)
     if result.success then
         print("Added " .. DEBUG_COIN_AMOUNT .. " coins!")
@@ -161,7 +150,17 @@ createButton("Give " .. DEBUG_COIN_AMOUNT .. " Coins", 4, function()
     end
 end)
 
--- Reset Stats button (with space before it)
+-- Reset Cube button
+createButton("RESET Cube", 4, function()
+    local result = Remotes.RF.DebugResetCube:InvokeServer()
+    if result.success then
+        print("Cube reset!")
+    else
+        print("Cube reset failed:", result.reason)
+    end
+end)
+
+-- Reset Stats button
 createButton("RESET Stats", 5, function()
     local result = Remotes.RF.DebugResetStats:InvokeServer()
     if result.success then
@@ -179,7 +178,15 @@ Remotes.RE.OnNotification.OnClientEvent:Connect(function(notification)
 end)
 
 Remotes.RE.OnLootDropped.OnClientEvent:Connect(function(data)
-    print(string.format("Loot: %s (%s rarity)", data.item.id, data.item.rarity))
+    if data.schema == 2 and data.counts then
+        -- New batched format
+        for itemId, count in pairs(data.counts) do
+            print(string.format("Loot: %s x%d", itemId, count))
+        end
+    elseif data.item then
+        -- Legacy single item format
+        print(string.format("Loot: %s (%s rarity)", data.item.id, data.item.rarity))
+    end
 end)
 
 Remotes.RE.OnInventoryChanged.OnClientEvent:Connect(function(change)
