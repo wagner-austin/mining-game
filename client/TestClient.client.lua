@@ -102,9 +102,22 @@ local function getProfile()
         print("    Luck:", profile.effectiveStats.luck)
         
         -- Store cube origin for bounds checking
-        -- Use the same position as CubePositionService on the server
-        local cubeY = GameConfig.Grid.CUBE_SIZE_STUDS / 2
-        playerCubeOrigin = CFrame.new(0, cubeY, 0)
+        if profile.cubeOrigin then
+            -- Accept CFrame directly (or handle legacy formats)
+            if typeof(profile.cubeOrigin) == "CFrame" then
+                playerCubeOrigin = profile.cubeOrigin
+            elseif typeof(profile.cubeOrigin) == "Vector3" then
+                playerCubeOrigin = CFrame.new(profile.cubeOrigin)
+            elseif typeof(profile.cubeOrigin) == "table" then
+                -- Legacy table format
+                playerCubeOrigin = CFrame.new(profile.cubeOrigin.x, profile.cubeOrigin.y, profile.cubeOrigin.z)
+            end
+        else
+            -- Fallback (shouldn't happen with updated server)
+            warn("[TestClient] No cube origin in profile, using fallback")
+            local cubeY = GameConfig.Grid.CUBE_SIZE_STUDS / 2
+            playerCubeOrigin = CFrame.new(0, cubeY, 0)
+        end
         print("[TestClient] Cube origin set to:", playerCubeOrigin.Position)
     else
         print("[TestClient] Failed to get profile")
