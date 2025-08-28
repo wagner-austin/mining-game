@@ -269,11 +269,15 @@ local function setupRemotes()
         -- Get cube stats
         local cubeStats = GridService:GetChunkStats(cubeState)
         
+        -- Get player's cube origin (CFrame)
+        local cubeOrigin = CubePositionService:GetOrigin(player)
+        
         return {
             profile = profile,
             effectiveStats = effectiveStats,
             cubeStats = cubeStats,
             gamepasses = gamepasses,
+            cubeOrigin = cubeOrigin,  -- Send CFrame directly
         }
     end
 end
