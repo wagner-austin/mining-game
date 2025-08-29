@@ -24,6 +24,7 @@ function MainHUD.new()
 end
 
 function MainHUD:init(manager)
+    self.manager = manager  -- Store manager reference
     local colors = Theme.colors
     local fonts = Theme.fonts
     local sizes = Theme.sizes
@@ -87,8 +88,8 @@ function MainHUD:init(manager)
     self.settingsButton = SettingsButton.new({
         parent = settingsSlot,
         onClick = function()
-            if manager then
-                manager:showScene("SettingsPanel")
+            if self.manager then
+                self.manager:showScene("SettingsPanel")
             end
         end
     })
