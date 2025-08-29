@@ -26,7 +26,7 @@ local newGravity = math.clamp(DEFAULT_GRAVITY * gravityMult, 50, 600)
 workspace.Gravity = newGravity
 
 -- Log the gravity change
-print(string.format("[Gravity] Set server gravity to %.1f (%.1fx normal)", newGravity, gravityMult))
+print(string.format("[Gravity] Set server gravity to %.1f (%.2fx normal)", newGravity, gravityMult))
 
 -- Optional: Listen for gravity changes if we want dynamic gravity events later
 -- This could be useful for special zones or events
