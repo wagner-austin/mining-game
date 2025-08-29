@@ -275,7 +275,9 @@ function BasePanel.new(props: Props)
     self._revealBaseline = {}  -- Persistent baseline for element transparencies
     
     -- Setup interactions
-    bind(closeButton.MouseButton1Click, function()
+    bind(closeButton.Activated, function()
+        local SoundManager = require(ReplicatedStorage.MiningGame:WaitForChild("SoundManager"))
+        SoundManager.PlayUI("buttonclick")
         self:close()
     end)
     
