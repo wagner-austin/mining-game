@@ -302,7 +302,7 @@ function GridService:WriteCellsToTerrain(cubeOrigin: CFrame, cells: {{x: number,
 end
 
 -- Create the initial terrain cube
-function GridService:CreateTerrainCube(cubeOrigin: CFrame, size: number, material: Enum.Material): Model
+function GridService:CreateTerrainCube(cubeOrigin: CFrame, size: number, material: Enum.Material, initialFloor: Enum.Material?): Model
     -- Create a model to hold the cube
     local model = Instance.new("Model")
     model.Name = "MiningCube"
@@ -328,8 +328,9 @@ function GridService:CreateTerrainCube(cubeOrigin: CFrame, size: number, materia
     bounds.Anchored = true
     bounds.Parent = model
     
-    -- Visual indicators
-    CubeVisuals.CreateFloorGlow(model, cubeOrigin, size)
+    -- Visual indicators (use initialFloor if provided, otherwise use config default)
+    local floorMaterial = initialFloor or (GameConfig.Visuals and GameConfig.Visuals.FLOOR_GLOW_REPLACEMENT_MATERIAL) or Enum.Material.Concrete
+    CubeVisuals.CreateFloorGlow(model, cubeOrigin, size, floorMaterial)
     CubeVisuals.AddCubeLight(bounds, size)
     CubeVisuals.CreateStudioSelectionBox(bounds) -- Studio-only debug
     
@@ -342,7 +343,7 @@ function GridService:CreateTerrainCube(cubeOrigin: CFrame, size: number, materia
 end
 
 -- Restore cube from saved state
-function GridService:RestoreCube(cubeOrigin: CFrame, state: Types.CubeState): Model
+function GridService:RestoreCube(cubeOrigin: CFrame, state: Types.CubeState, initialFloor: Enum.Material?): Model
     -- Get material (handle both old and new material IDs)
     local materialId = state.materialId or "tier1"
     local materialData = GameConfig.CubeMaterialsById[materialId]
@@ -367,7 +368,8 @@ function GridService:RestoreCube(cubeOrigin: CFrame, state: Types.CubeState): Mo
     local model = self:CreateTerrainCube(
         cubeOrigin,
         GameConfig.Grid.CUBE_SIZE_STUDS,
-        terrainMaterial
+        terrainMaterial,
+        initialFloor
     )
     
     -- Apply dug cells from state
