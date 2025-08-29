@@ -2,6 +2,7 @@
 -- CubeVisuals.lua
 -- Handles visual indicators for mining cubes (neon outlines, lights, etc.)
 
+local CollectionService = game:GetService("CollectionService")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -65,6 +66,9 @@ function CubeVisuals.CreateFloorGlow(model: Model, cubeOrigin: CFrame, size: num
         p.CanQuery = false
         p.CastShadow = false
         p.Parent = indicators
+        
+        -- Tag for MaterialManager to apply lighting
+        CollectionService:AddTag(p, "GlowBar")
         
         -- More detailed logging
         print(string.format("[CubeVisuals] Created edge: Pos=(%.2f, %.2f, %.2f), Size=(%s), Parent=%s, Material=%s, Color=%s, Transparency=%.2f", 
