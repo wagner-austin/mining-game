@@ -13,13 +13,16 @@ local AccountTab = require(script.Parent.Parent:WaitForChild("Components"):WaitF
 local SettingsPanel = {}
 SettingsPanel.__index = SettingsPanel
 
-function SettingsPanel.new()
+type Providers = { accountDataProvider: any? }
+
+function SettingsPanel.new(providers: Providers?)
     local self = setmetatable({
         name = "SettingsPanel",
         _widgets = {},   -- Track tab widgets for cleanup
         panel = nil,     -- cache TabbedPanel instance
         frame = nil,     -- UIManager uses this to know it's initialized
         lastTab = "Materials",  -- Remember last opened tab
+        _providers = providers or {},
     }, SettingsPanel)
     
     return self
@@ -71,6 +74,7 @@ function SettingsPanel:init(manager)
         parent = accountRoot,
         position = UDim2.new(0, 0, 0, 0),
         size = UDim2.new(1, 0, 0, 0),
+        dataProvider = self._providers.accountDataProvider,
     })
     table.insert(self._widgets, self.accountTab)
 end
