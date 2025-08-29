@@ -12,6 +12,7 @@ local Shared = ReplicatedStorage:WaitForChild("MiningGame")
 local GameConfig = require(Shared:WaitForChild("GameConfig"))
 local Types = require(Shared:WaitForChild("Types"))
 local GridMath = require(Shared:WaitForChild("Utils"):WaitForChild("GridMath"))
+local MaterialKeys = require(Shared:WaitForChild("MaterialKeys"))
 
 -- Server siblings
 local DataService = require(script.Parent.DataService)
@@ -20,6 +21,7 @@ local LootService = require(script.Parent.LootService)
 local UpgradeService = require(script.Parent.UpgradeService)
 local InventoryService = require(script.Parent.InventoryService)
 local CubePositionService = require(script.Parent.CubePositionService)
+local SoundBroadcast = require(script.Parent:WaitForChild("SoundBroadcast"))  -- ✅ Moved to top for performance
 
 -- Shared remotes accessor
 local Remotes = require(ReplicatedStorage.MiningGame.Remotes)
@@ -60,9 +62,28 @@ function DigService:InitializePlayerCube(player: Player)
     -- Get cube position from service
     local cubeOrigin = CubePositionService:GetOrigin(player)
     
-    -- Create or restore cube
-    local model = GridService:RestoreCube(cubeOrigin, cubeState)
+    -- Load saved material preferences
+    local materialPrefs = DataService:GetMaterialPrefs(player)
+    local floorMaterial: Enum.Material? = nil
+    if materialPrefs and materialPrefs.floorMaterial then
+        local MaterialKeys = require(ReplicatedStorage.MiningGame:WaitForChild("MaterialKeys"))
+        floorMaterial = MaterialKeys.EnumFromKey[string.lower(materialPrefs.floorMaterial)]
+        print("[DigService] Loading saved floor material:", materialPrefs.floorMaterial, "->", tostring(floorMaterial))
+    end
+    
+    -- Create or restore cube with saved floor material
+    local model = GridService:RestoreCube(cubeOrigin, cubeState, floorMaterial)
     model.Parent = workspace
+    
+    -- Apply saved cube material if present
+    if materialPrefs and materialPrefs.cubeMaterial then
+        print("[DigService] Applying saved cube material:", materialPrefs.cubeMaterial)
+        task.wait(0.1) -- Small delay to ensure cube is fully created
+        local CubeMaterialService = require(script.Parent:WaitForChild("CubeMaterialService"))
+        pcall(function()
+            CubeMaterialService.ApplyCubeSurfaceMaterial(player, materialPrefs.cubeMaterial)
+        end)
+    end
     
     -- Store reference
     playerCubes[player] = {
@@ -161,15 +182,16 @@ function DigService:ProcessDigRequest(player: Player, worldPos: Vector3): Types.
     end
     
     -- Broadcast mining sound based on actual terrain material
-    do
-        local SoundBroadcast = require(script.Parent:WaitForChild("SoundBroadcast"))
-        local materialKey = (soundHint and soundHint.materialKey) or "rock"
-        local soundPos = (soundHint and soundHint.worldPos)
-        if not soundPos then
-            local firstCell = dugCells[1]
-            soundPos = GridMath.cellToWorld(firstCell.x, firstCell.y, firstCell.z, cubeData.origin, GameConfig.Grid.CELL_SIZE_STUDS)
-        end
-        -- Plays "rock", "sand", "water", etc. based on REAL dug terrain
+    -- Compute these OUTSIDE the do-end so we can return them
+    local materialKey = (soundHint and soundHint.materialKey) or "rock"
+    local soundPos = (soundHint and soundHint.worldPos)
+    if not soundPos and #dugCells > 0 then
+        local firstCell = dugCells[1]
+        soundPos = GridMath.cellToWorld(firstCell.x, firstCell.y, firstCell.z, cubeData.origin, GameConfig.Grid.CELL_SIZE_STUDS)
+    end
+    
+    -- Broadcast mining sound
+    if #dugCells > 0 then
         SoundBroadcast.Mining(player, soundPos, materialKey, "hit")
     end
     
@@ -215,7 +237,7 @@ function DigService:ProcessDigRequest(player: Player, worldPos: Vector3): Types.
         cellCount = #dugCells,  -- Just the count for telemetry
         shake = GameConfig.Digging.ENABLE_CAMERA_SHAKE,
         particles = GameConfig.Digging.ENABLE_PARTICLES,
-        sound = GameConfig.Digging.DIG_SOUND_ID,
+        -- sound field removed: now handled by SoundBroadcast and local playback
     })
     
     -- Send batched loot notification (single network event for all drops)
@@ -241,6 +263,8 @@ function DigService:ProcessDigRequest(player: Player, worldPos: Vector3): Types.
         lootCounts = actuallyAdded,    -- New: compact map (only what was actually added)
         nextAllowedAt = now + effectiveStats.delay,
         effectiveStats = effectiveStats,
+        soundMaterialKey = materialKey,   -- ✅ new: exact material used by server
+        soundWorldPos = soundPos,         -- ✅ new: exact position for sound
     }
 end
 
@@ -284,6 +308,10 @@ local function setupRemotes()
         
         -- Get player's cube origin (CFrame)
         local cubeOrigin = CubePositionService:GetOrigin(player)
+        
+        -- Inject session start time from SessionService
+        local SessionService = require(script.Parent:WaitForChild("SessionService"))
+        profile.sessionStartTime = SessionService.getSessionStartTime(player.UserId) or os.time()
         
         return {
             profile = profile,

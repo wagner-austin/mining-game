@@ -85,10 +85,26 @@ local function createDefaultProfile(userId: number): Types.PlayerStats
             aura = nil,
             trail = nil,
         },
+        materialPreferences = {
+            palette = "default",
+            cubeMaterial = "rock",
+            floorMaterial = "concrete",
+        },
         totalBlocksDug = 0,
         playtime = 0,
         lastSaveTime = os.time(),
     }
+end
+
+-- Ensure material preferences exist (for backward compatibility)
+local function ensureMaterialPrefs(profile: Types.PlayerStats)
+    if not profile.materialPreferences then
+        profile.materialPreferences = {
+            palette = "default",
+            cubeMaterial = "rock",
+            floorMaterial = "concrete",
+        }
+    end
 end
 
 -- Generate default cube state
@@ -193,6 +209,9 @@ function DataService:LoadPlayerAsync(player: Player): Types.PlayerStats?
         print("[DataService] Creating NEW profile for", player.Name)
         profile = createDefaultProfile(userId)
     end
+    
+    -- Ensure material preferences exist
+    ensureMaterialPrefs(profile)
     
     -- Cache the data
     playerData[player] = profile
@@ -359,6 +378,35 @@ function DataService:AddCurrency(player: Player, currencyType: string, amount: n
     return true
 end
 
+-- Get material preferences for a player
+function DataService:GetMaterialPrefs(player: Player): Types.MaterialPreferences?
+    local profile = playerData[player]
+    if not profile then return nil end
+    ensureMaterialPrefs(profile)
+    return profile.materialPreferences
+end
+
+-- Update material preferences
+function DataService:UpdateMaterialPrefs(player: Player, patch: {[string]: string}): boolean
+    local profile = playerData[player]
+    if not profile then return false end
+    
+    ensureMaterialPrefs(profile)
+    
+    -- Apply the patch
+    for key, value in pairs(patch) do
+        if profile.materialPreferences then
+            profile.materialPreferences[key] = value
+        end
+    end
+    
+    -- Queue save
+    self:QueueSave(player)
+    profile.lastSaveTime = os.time()
+    
+    return true
+end
+
 -- Ensure player data is loaded (for on-demand initialization)
 function DataService:EnsureLoaded(player: Player): boolean
     -- Already loaded?
@@ -416,6 +464,19 @@ function DataService:CanAfford(player: Player, currencyType: string, amount: num
     end
     
     return false
+end
+
+-- Add playtime to player's lifetime total
+function DataService:AddPlaytime(player: Player, seconds: number)
+    local profile = playerData[player]
+    if not profile then return end
+    
+    seconds = math.max(0, seconds or 0)
+    profile.playtime = (profile.playtime or 0) + seconds
+    profile.lastSaveTime = os.time()
+    
+    self:QueueSave(player)
+    print("[DataService] Added", seconds, "seconds playtime for", player.Name, "- Total:", profile.playtime)
 end
 
 -- Auto-save loop
