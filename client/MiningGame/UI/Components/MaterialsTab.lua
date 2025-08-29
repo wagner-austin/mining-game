@@ -160,16 +160,50 @@ function MaterialsTab.new(config: MaterialsTabConfig)
     -- Optional: Preview frame for future visual feedback
     self.previewFrame = nil -- Can add visual preview later
     
+    -- Hydration flag to prevent triggering saves during initial load
+    self._hydrating = false
+    
+    -- Load saved preferences from server AFTER player data is ready
+    local Players = game:GetService("Players")
+    local player = Players.LocalPlayer
+    
+    task.spawn(function()
+        if not player:GetAttribute("DataLoaded") then
+            player:GetAttributeChangedSignal("DataLoaded"):Wait()
+        end
+        local ok, prefs = pcall(function()
+            return Remotes.RF.GetMaterialPreferences:InvokeServer()
+        end)
+        if ok and prefs then
+            print("[MaterialsTab] Loading saved preferences:", prefs)
+            self._hydrating = true
+            if prefs.palette then self:setPalette(string.lower(prefs.palette)) end
+            if prefs.cubeMaterial then self:setCubeMaterial(prefs.cubeMaterial) end
+            if prefs.floorMaterial then self:setFloorMaterial(prefs.floorMaterial) end
+            self._hydrating = false
+        else
+            print("[MaterialsTab] No saved preferences found or failed to load")
+        end
+    end)
+    
     return self
 end
 
 function MaterialsTab:onPaletteSelect(option)
+    -- Skip if we're hydrating from saved preferences
+    if self._hydrating then return end
+    
     local ok, err = pcall(function()
         MaterialManager.SetPalette(option.id)
     end)
     
     if ok then
         print(("[MaterialsTab] Palette set to: %s"):format(option.label))
+        
+        -- Save the palette preference to server
+        pcall(function()
+            Remotes.RF.SetPalettePreference:InvokeServer(option.id)
+        end)
         
         -- Optional: Update any visual preview
         if self.previewFrame then
@@ -181,6 +215,9 @@ function MaterialsTab:onPaletteSelect(option)
 end
 
 function MaterialsTab:onCubeMaterialSelect(option)
+    -- Skip if we're hydrating from saved preferences
+    if self._hydrating then return end
+    
     -- Update visual system if available
     pcall(function()
         if MaterialManager.SetCubeMaterial then
@@ -188,7 +225,7 @@ function MaterialsTab:onCubeMaterialSelect(option)
         end
     end)
     
-    -- Call server to repaint terrain
+    -- Call server to repaint terrain (which also saves the preference)
     local ok, res = pcall(function()
         return Remotes.RF.ApplyCubeSurfaceMaterial:InvokeServer(option.id)
     end)
@@ -201,6 +238,10 @@ function MaterialsTab:onCubeMaterialSelect(option)
 end
 
 function MaterialsTab:onFloorMaterialSelect(option)
+    -- Skip if we're hydrating from saved preferences
+    if self._hydrating then return end
+    
+    -- Call server to repaint terrain (which also saves the preference)
     local ok, res = pcall(function()
         return Remotes.RF.ApplyFloorMaterial:InvokeServer(option.id)
     end)
