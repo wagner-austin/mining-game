@@ -84,6 +84,8 @@ local remoteFunctions = {
     -- Material changes
     ApplyCubeSurfaceMaterial = createRemoteFunction("ApplyCubeSurfaceMaterial"),
     ApplyFloorMaterial = createRemoteFunction("ApplyFloorMaterial"),
+    GetMaterialPreferences = createRemoteFunction("GetMaterialPreferences"),
+    SetPalettePreference = createRemoteFunction("SetPalettePreference"),
 }
 
 -- Create RemoteEvents (server -> client, no return value)

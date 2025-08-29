@@ -46,6 +46,8 @@ return {
         -- Material changes
         ApplyCubeSurfaceMaterial = mg:WaitForChild("ApplyCubeSurfaceMaterial"),
         ApplyFloorMaterial = mg:WaitForChild("ApplyFloorMaterial"),
+        GetMaterialPreferences = mg:WaitForChild("GetMaterialPreferences"),
+        SetPalettePreference = mg:WaitForChild("SetPalettePreference"),
     },
     RE = {
         -- State updates
