@@ -35,6 +35,9 @@ return {
         -- Settings
         UpdateSettings = mg:WaitForChild("UpdateSettings"),
         
+        -- Teleportation
+        TeleportToHome = mg:WaitForChild("TeleportToHome"),
+        
         -- Debug
         DebugAddCurrency = mg:WaitForChild("DebugAddCurrency"),
         DebugResetStats = mg:WaitForChild("DebugResetStats"),
