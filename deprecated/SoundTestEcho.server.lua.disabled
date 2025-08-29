@@ -1,0 +1,48 @@
+--!strict
+-- SoundTestEcho.server.lua
+-- Server echo for testing sound replication (STUDIO ONLY)
+
+local RunService = game:GetService("RunService")
+local ServerScriptService = game:GetService("ServerScriptService")
+
+-- Only run in Studio for testing
+if not RunService:IsStudio() then
+    script:Destroy()
+    return
+end
+
+local ServerMiningGame = ServerScriptService:WaitForChild("MiningGame")
+local Remotes = require(ServerMiningGame:WaitForChild("Remotes"))
+local SoundBroadcast = require(ServerMiningGame:WaitForChild("SoundBroadcast"))
+
+-- Special test remote function for sound system testing
+Remotes.RF.DebugResetStats.OnServerInvoke = function(player, action: string?, data: any?)
+    if action == "TEST_SOUND_ECHO" and type(data) == "table" then
+        -- Echo the sound back through the broadcast system
+        print("[SoundTestEcho] Received test sound from", player.Name)
+        
+        -- Add a small offset to position to make it clear it's replicated
+        if data.position then
+            data.position = data.position + Vector3.new(0, 5, 0)
+        end
+        
+        -- Broadcast to nearby players (including sender for testing)
+        SoundBroadcast.BroadcastNear(
+            nil, -- Don't set origin so sender also hears it
+            data.position,
+            data,
+            150
+        )
+        
+        return true
+    end
+    return false
+end
+
+print([[
+╔════════════════════════════════════════════╗
+║    SOUND TEST ECHO SERVER INITIALIZED     ║
+╠════════════════════════════════════════════╣
+║ Studio-only server echo for sound testing ║
+╚════════════════════════════════════════════╝
+]])

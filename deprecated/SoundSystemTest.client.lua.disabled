@@ -1,0 +1,406 @@
+--!strict
+-- SoundSystemTest.client.lua
+-- Test script to verify sound system functionality in Studio
+-- DISABLE THIS IN PRODUCTION!
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+
+-- Only run in Studio
+if not RunService:IsStudio() then
+    script:Destroy()
+    return
+end
+
+local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
+local SoundManager = require(MiningGame:WaitForChild("SoundManager"))
+local SoundConfig = require(MiningGame:WaitForChild("SoundConfig"))
+local Remotes = require(MiningGame:WaitForChild("Remotes"))
+
+local LocalPlayer = Players.LocalPlayer
+local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+
+-- Test sound IDs (replace with actual sound IDs for testing)
+local TEST_SOUND_ID = "rbxassetid://9120386436" -- Roblox "Click" sound as default test
+local TEST_MUSIC_ID = "rbxassetid://1837879082" -- Roblox "Carefree" music as test
+
+-- Temporarily inject test sounds into config
+local function injectTestSounds()
+    -- Mining sounds
+    SoundConfig.SoundIDs.mining.rock.hit = TEST_SOUND_ID
+    SoundConfig.SoundIDs.mining.rock["break"] = TEST_SOUND_ID  -- Use bracket notation for reserved keyword
+    SoundConfig.SoundIDs.mining.sand.hit = TEST_SOUND_ID
+    SoundConfig.SoundIDs.mining.sand["break"] = TEST_SOUND_ID  -- Add sand break too
+    
+    -- UI sounds
+    SoundConfig.SoundIDs.ui.buttonclick = TEST_SOUND_ID
+    SoundConfig.SoundIDs.ui.notification = TEST_SOUND_ID
+    
+    -- Movement sounds (inject all footstep types for matrix test)
+    SoundConfig.SoundIDs.movement.footstep.rock = TEST_SOUND_ID
+    SoundConfig.SoundIDs.movement.footstep.grass = TEST_SOUND_ID
+    SoundConfig.SoundIDs.movement.footstep.sand = TEST_SOUND_ID
+    SoundConfig.SoundIDs.movement.footstep.ice = TEST_SOUND_ID
+    SoundConfig.SoundIDs.movement.footstep.wood = TEST_SOUND_ID
+    SoundConfig.SoundIDs.movement.footstep.mud = TEST_SOUND_ID
+    SoundConfig.SoundIDs.movement.footstep.snow = TEST_SOUND_ID
+    SoundConfig.SoundIDs.movement.footstep.water = TEST_SOUND_ID
+    SoundConfig.SoundIDs.movement.jump = TEST_SOUND_ID
+    
+    -- Reward sounds
+    SoundConfig.SoundIDs.rewards.coin = TEST_SOUND_ID
+    SoundConfig.SoundIDs.rewards.levelup = TEST_SOUND_ID
+    
+    -- Ambient sounds
+    SoundConfig.SoundIDs.ambient.wind = TEST_MUSIC_ID
+    
+    -- Music
+    SoundConfig.SoundIDs.music.main = TEST_MUSIC_ID
+    
+    -- Validate injected IDs
+    local validCount = 0
+    local invalidCount = 0
+    
+    if SoundConfig.ValidateSoundID(TEST_SOUND_ID) then
+        validCount += 1
+    else
+        invalidCount += 1
+        warn("[SoundTest] TEST_SOUND_ID is invalid:", TEST_SOUND_ID)
+    end
+    
+    if SoundConfig.ValidateSoundID(TEST_MUSIC_ID) then
+        validCount += 1
+    else
+        invalidCount += 1
+        warn("[SoundTest] TEST_MUSIC_ID is invalid:", TEST_MUSIC_ID)
+    end
+    
+    print(string.format("[SoundTest] Injected test sounds - %d valid, %d invalid", validCount, invalidCount))
+end
+
+-- Create test GUI
+local function createTestGUI()
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = "SoundSystemTest"
+    ScreenGui.ResetOnSpawn = false
+    ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+    
+    local Frame = Instance.new("Frame")
+    Frame.Size = UDim2.new(0, 300, 0, 500)
+    Frame.Position = UDim2.new(0, 10, 0.5, -250)
+    Frame.BackgroundColor3 = Color3.new(0, 0, 0)
+    Frame.BackgroundTransparency = 0.3
+    Frame.BorderSizePixel = 0
+    Frame.Parent = ScreenGui
+    
+    local UIListLayout = Instance.new("UIListLayout")
+    UIListLayout.Padding = UDim.new(0, 5)
+    UIListLayout.Parent = Frame
+    
+    local Title = Instance.new("TextLabel")
+    Title.Size = UDim2.new(1, 0, 0, 30)
+    Title.BackgroundTransparency = 1
+    Title.Text = "🔊 Sound System Test"
+    Title.TextColor3 = Color3.new(1, 1, 1)
+    Title.TextScaled = true
+    Title.Font = Enum.Font.SourceSansBold
+    Title.Parent = Frame
+    
+    local function createButton(text: string, callback: () -> ())
+        local Button = Instance.new("TextButton")
+        Button.Size = UDim2.new(1, -10, 0, 30)
+        Button.Position = UDim2.new(0, 5, 0, 0)
+        Button.BackgroundColor3 = Color3.new(0.2, 0.2, 0.3)
+        Button.Text = text
+        Button.TextColor3 = Color3.new(1, 1, 1)
+        Button.TextScaled = true
+        Button.Font = Enum.Font.SourceSans
+        Button.Parent = Frame
+        
+        Button.MouseButton1Click:Connect(callback)
+        
+        return Button
+    end
+    
+    local function createLabel(text: string)
+        local Label = Instance.new("TextLabel")
+        Label.Size = UDim2.new(1, -10, 0, 20)
+        Label.Position = UDim2.new(0, 5, 0, 0)
+        Label.BackgroundTransparency = 1
+        Label.Text = text
+        Label.TextColor3 = Color3.new(0.8, 0.8, 0.8)
+        Label.TextScaled = true
+        Label.Font = Enum.Font.SourceSans
+        Label.Parent = Frame
+        return Label
+    end
+    
+    -- Test functions
+    local testResults = {}
+    local currentTest = 0
+    
+    local function logTest(name: string, success: boolean, details: string?)
+        currentTest += 1
+        testResults[currentTest] = {
+            name = name,
+            success = success,
+            details = details
+        }
+        print(string.format("[SoundTest #%d] %s: %s %s", 
+            currentTest, 
+            name, 
+            success and "✅ PASS" or "❌ FAIL",
+            details or ""
+        ))
+    end
+    
+    -- Category labels and buttons
+    createLabel("── Mining Sounds ──")
+    
+    createButton("Test Mining Hit (3D)", function()
+        local pos = Character:GetPivot().Position + Vector3.new(5, 0, 0)
+        local sound = SoundManager.PlayMining("rock", "hit", pos)
+        logTest("Mining Hit 3D", sound ~= nil, "rock material, hit subtype")
+    end)
+    
+    createButton("Test Mining Break", function()
+        local pos = Character:GetPivot().Position
+        local sound = SoundManager.PlayMining("sand", "break", pos)
+        logTest("Mining Break", sound ~= nil, "sand material, break subtype")
+    end)
+    
+    createLabel("── UI Sounds ──")
+    
+    createButton("Test UI Click", function()
+        local sound = SoundManager.PlayUI("buttonclick")
+        logTest("UI Click", sound ~= nil, "2D sound, no position")
+    end)
+    
+    createButton("Test UI Notification", function()
+        local sound = SoundManager.PlayUI("notification")
+        logTest("UI Notification", sound ~= nil)
+    end)
+    
+    createLabel("── Movement Sounds ──")
+    
+    createButton("Test Footstep Rock", function()
+        local pos = Character:GetPivot().Position
+        local sound = SoundManager.PlayFootstep("rock", pos)
+        logTest("Footstep Rock", sound ~= nil)
+    end)
+    
+    createButton("Test Footstep Grass", function()
+        local pos = Character:GetPivot().Position
+        local sound = SoundManager.PlayFootstep("grass", pos)
+        logTest("Footstep Grass", sound ~= nil)
+    end)
+    
+    createButton("Test Material Matrix (8 materials)", function()
+        -- Test footstep mapping for various materials
+        local materials = {"rock", "grass", "sand", "ice", "wood", "mud", "snow", "water"}
+        local pos = Character:GetPivot().Position
+        local successCount = 0
+        local failures = {}
+        
+        print("[SoundTest] Starting material matrix test...")
+        for i, mat in ipairs(materials) do
+            task.wait(0.2) -- Small delay between sounds
+            local offset = Vector3.new(i * 2 - 8, 0, 0) -- Spread them out
+            
+            -- Get the mapped footstep type
+            local footstepSound = SoundConfig.GetFootstepSoundForMaterial(mat)
+            print(string.format("  Material '%s' -> footstep sound: %s", mat, tostring(footstepSound)))
+            
+            local sound = SoundManager.PlayFootstep(mat, pos + offset)
+            if sound then
+                successCount += 1
+                print(string.format("    ✓ %s played successfully", mat))
+            else
+                table.insert(failures, mat)
+                print(string.format("    ✗ %s failed to play", mat))
+            end
+        end
+        
+        local testPassed = successCount == #materials
+        local details = string.format("%d/%d played", successCount, #materials)
+        if #failures > 0 then
+            details = details .. " | Failed: " .. table.concat(failures, ", ")
+        end
+        
+        logTest("Material Matrix", testPassed, details)
+    end)
+    
+    createLabel("── Reward Sounds ──")
+    
+    createButton("Test Coin Collect", function()
+        local sound = SoundManager.PlayReward("coin")
+        logTest("Coin Reward", sound ~= nil)
+    end)
+    
+    createButton("Test Level Up", function()
+        local sound = SoundManager.PlayReward("levelup")
+        logTest("Level Up", sound ~= nil)
+    end)
+    
+    createLabel("── Music & Ambient ──")
+    
+    local musicPlaying = false
+    createButton("Toggle Music", function()
+        if musicPlaying then
+            SoundManager.StopMusic(true)
+            musicPlaying = false
+            logTest("Stop Music", true, "With fadeout")
+        else
+            local sound = SoundManager.PlayMusic("main")
+            musicPlaying = sound ~= nil
+            logTest("Play Music", sound ~= nil, "Main theme")
+        end
+    end)
+    
+    local ambientPlaying = false
+    createButton("Toggle Ambient Wind", function()
+        if ambientPlaying then
+            SoundManager.StopAmbient("wind", true)
+            ambientPlaying = false
+            logTest("Stop Ambient", true, "With fadeout")
+        else
+            local sound = SoundManager.PlayAmbient("wind")
+            ambientPlaying = sound ~= nil
+            logTest("Play Ambient", sound ~= nil, "Wind sound")
+        end
+    end)
+    
+    createLabel("── Volume Controls ──")
+    
+    createButton("Master Volume 50%", function()
+        SoundManager.SetMasterVolume(0.5)
+        logTest("Master Volume", true, "Set to 50%")
+    end)
+    
+    createButton("Master Volume 100%", function()
+        SoundManager.SetMasterVolume(1.0)
+        logTest("Master Volume", true, "Set to 100%")
+    end)
+    
+    createButton("SFX Volume 25%", function()
+        SoundManager.SetGroupVolume("SFX", 0.25)
+        logTest("SFX Group Volume", true, "Set to 25%")
+    end)
+    
+    createButton("Reset All Volumes", function()
+        SoundManager.SetMasterVolume(1.0)
+        SoundManager.SetGroupVolume("SFX", 1.0)
+        SoundManager.SetGroupVolume("UI", 1.0)
+        SoundManager.SetGroupVolume("Ambient", 1.0)
+        SoundManager.SetGroupVolume("Music", 1.0)
+        logTest("Reset Volumes", true, "All volumes set to 100%")
+    end)
+    
+    createButton("Test Group Isolation", function()
+        -- Mute all except UI to test group separation
+        SoundManager.SetGroupVolume("SFX", 0)
+        SoundManager.SetGroupVolume("Ambient", 0)
+        SoundManager.SetGroupVolume("Music", 0)
+        SoundManager.SetGroupVolume("UI", 1.0)
+        
+        -- Play a UI sound - should be audible
+        SoundManager.PlayUI("buttonclick")
+        
+        -- Play a mining sound - should be silent
+        SoundManager.PlayMining("rock", "hit", Character:GetPivot().Position)
+        
+        logTest("Group Isolation", true, "UI at 100%, others muted - only UI should play")
+    end)
+    
+    createLabel("── Server Replication ──")
+    
+    createButton("Test Local 3D Sound", function()
+        -- Test 3D positioning without server
+        local pos = Character:GetPivot().Position + Vector3.new(10, 0, 0)
+        local sound = SoundManager.PlayMining("rock", "hit", pos)
+        logTest("3D Positioning", sound ~= nil, "10 studs to the right")
+    end)
+    
+    createButton("Test Server Echo (Round-trip)", function()
+        -- Test actual server replication using debug remote
+        local testData = {
+            category = "mining",
+            materialKey = "rock",
+            subtype = "hit",
+            position = Character:GetPivot().Position + Vector3.new(10, 0, 0),
+        }
+        
+        -- Use debug remote for testing
+        local success = Remotes.RF.DebugResetStats:InvokeServer("TEST_SOUND_ECHO", testData)
+        
+        if success then
+            logTest("Server Replication", true, "Server echo successful - listen for sound")
+            print("[SoundTest] Server echoed the sound - you should hear it from above")
+        else
+            logTest("Server Replication", false, "Server echo failed - is SoundTestEcho.server.lua running?")
+        end
+    end)
+    
+    createLabel("── Test Results ──")
+    
+    createButton("Print Test Summary", function()
+        print("\n" .. string.rep("=", 50))
+        print("SOUND SYSTEM TEST SUMMARY")
+        print(string.rep("=", 50))
+        
+        local passed = 0
+        local failed = 0
+        
+        for i, result in pairs(testResults) do
+            if result.success then
+                passed += 1
+            else
+                failed += 1
+            end
+            print(string.format("%d. %s: %s", 
+                i, 
+                result.name, 
+                result.success and "PASS" or "FAIL"
+            ))
+        end
+        
+        print(string.rep("-", 50))
+        print(string.format("Total: %d tests | Passed: %d | Failed: %d", 
+            passed + failed, passed, failed))
+        print(string.rep("=", 50) .. "\n")
+    end)
+    
+    createButton("Clear Test Results", function()
+        testResults = {}
+        currentTest = 0
+        print("[SoundTest] Test results cleared")
+    end)
+    
+    createLabel("── Cleanup ──")
+    
+    createButton("Stop All & Remove GUI", function()
+        SoundManager.StopMusic(false)
+        SoundManager.StopAllAmbient()
+        ScreenGui:Destroy()
+        print("[SoundTest] Test GUI removed, sounds stopped")
+    end)
+    
+    return ScreenGui
+end
+
+-- Initialize test
+injectTestSounds()
+local gui = createTestGUI()
+
+print([[
+╔════════════════════════════════════════════╗
+║     SOUND SYSTEM TEST INITIALIZED         ║
+╠════════════════════════════════════════════╣
+║ • Test GUI created in left corner         ║
+║ • Using default Roblox sounds for testing ║
+║ • Click buttons to test each feature      ║
+║ • Check output for detailed results       ║
+║ • Replace TEST_SOUND_ID with your sounds  ║
+╚════════════════════════════════════════════╝
+]])

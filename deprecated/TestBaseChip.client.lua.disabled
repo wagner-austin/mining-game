@@ -1,0 +1,81 @@
+--!strict
+-- TestBaseChip.client.lua
+-- Test script to verify BaseChip functionality before refactoring
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+-- Wait for UI modules
+local BaseChip = require(script.Parent:WaitForChild("MiningGame"):WaitForChild("UI"):WaitForChild("Components"):WaitForChild("BaseChip"))
+local Theme = require(ReplicatedStorage:WaitForChild("MiningGame"):WaitForChild("UI"):WaitForChild("Theme"))
+
+-- Create test GUI
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "BaseChipTest"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = playerGui
+
+-- Create container
+local container = Instance.new("Frame")
+container.Size = UDim2.new(1, 0, 1, 0)
+container.BackgroundTransparency = 1
+container.Parent = screenGui
+
+-- Test 1: Basic chip with icon and value (like currency chip)
+local testChip1 = BaseChip.new({
+    parent = container,
+    position = UDim2.new(0.3, 0, 0.5, 0),
+    icon = "💰",
+    value = 1234,
+    pulseOnUpdate = true,
+    squishIntensity = 0.95,  -- Add subtle squish animation
+})
+
+-- Test 2: Chip with text (like home button)
+local testChip2
+testChip2 = BaseChip.new({
+    parent = container,
+    position = UDim2.new(0.5, 0, 0.5, 0),
+    icon = "🏠",
+    text = "HOME",
+    onClick = function()
+        print("Home clicked!")
+        testChip2:pulse()
+    end,
+    squishIntensity = 0.92,
+})
+
+-- Test 3: Gem-style chip
+local testChip3 = BaseChip.new({
+    parent = container,
+    position = UDim2.new(0.7, 0, 0.5, 0),
+    icon = "💎",
+    value = 567,
+    pulseOnUpdate = true,
+    squishIntensity = 0.95,  -- Add subtle squish animation
+})
+
+-- Test value updates and pulses
+task.wait(2)
+print("Testing value update with pulse...")
+testChip1:setValue(5678)
+
+task.wait(2)
+print("Testing manual pulse...")
+testChip3:pulse(1.15)
+
+-- Add label
+local label = Instance.new("TextLabel")
+label.Size = UDim2.new(0, 400, 0, 50)
+label.Position = UDim2.new(0.5, 0, 0.2, 0)
+label.AnchorPoint = Vector2.new(0.5, 0.5)
+label.BackgroundTransparency = 1
+label.Text = "BaseChip Test - Click HOME to test interaction"
+label.TextColor3 = Color3.new(1, 1, 1)
+label.TextScaled = true
+label.Parent = container
+
+print("BaseChip test loaded - Check if they look correct!")
