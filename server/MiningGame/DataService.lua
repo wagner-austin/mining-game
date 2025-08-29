@@ -345,8 +345,12 @@ function DataService:AddCurrency(player: Player, currencyType: string, amount: n
     
     if currencyType == "coins" then
         profile.coins = math.max(0, profile.coins + amount)
+        -- Fire event to update UI
+        Remotes.RE.OnCurrencyChanged:FireClient(player, "coins", profile.coins)
     elseif currencyType == "gems" then
         profile.gems = math.max(0, profile.gems + amount)
+        -- Fire event to update UI
+        Remotes.RE.OnCurrencyChanged:FireClient(player, "gems", profile.gems)
     else
         return false
     end
