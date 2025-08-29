@@ -3,142 +3,154 @@
 -- Sound configuration with lowercase keys and proper structure
 
 local MaterialKeys = require(script.Parent.MaterialKeys)
+local MaterialDefinitions = require(script.Parent.MaterialDefinitions)
+local SoundCategories = require(script.Parent.SoundCategories)
 
 local SoundConfig = {}
 
--- Sound IDs - all lowercase keys, nil for missing assets
-SoundConfig.SoundIDs = {
-    -- Mining sounds for all 22 terrain materials
-    mining = {
-        -- Stone-like materials
-        rock        = { hit = nil, ["break"] = nil, crumble = nil },
-        sandstone   = { hit = nil, ["break"] = nil, crumble = nil },
-        basalt      = { hit = nil, ["break"] = nil, crumble = nil },
-        slate       = { hit = nil, ["break"] = nil, crumble = nil },
-        limestone   = { hit = nil, ["break"] = nil, crumble = nil },
-        cobblestone = { hit = nil, ["break"] = nil, crumble = nil },
-        brick       = { hit = nil, ["break"] = nil, crumble = nil },
-        concrete    = { hit = nil, ["break"] = nil, crumble = nil },
-        asphalt     = { hit = nil, ["break"] = nil, crumble = nil },
-        pavement    = { hit = nil, ["break"] = nil, crumble = nil },
-        
-        -- Ice/Crystal materials
-        glacier     = { hit = nil, ["break"] = nil, shatter = nil },
-        ice         = { hit = nil, ["break"] = nil, shatter = nil },
-        
-        -- Soft/Earth materials
-        grass       = { hit = nil, ["break"] = nil, dig = nil },
-        leafygrass  = { hit = nil, ["break"] = nil, dig = nil },
-        ground      = { hit = nil, ["break"] = nil, dig = nil },
-        mud         = { hit = nil, ["break"] = nil, squish = nil },
-        sand        = { hit = nil, ["break"] = nil, scatter = nil },
-        snow        = { hit = nil, ["break"] = nil, crunch = nil },
-        salt        = { hit = nil, ["break"] = nil, scatter = nil },
-        
-        -- Special materials
-        water       = { hit = nil, splash = nil, flow = nil },
-        crackedlava = { hit = nil, ["break"] = nil, sizzle = nil },
-        woodplanks  = { hit = nil, ["break"] = nil, crack = nil },
-    },
+-- ===========================================================================
+-- SOUND ASSET DICTIONARY
+-- ===========================================================================
+-- Central location for all sound asset IDs
+-- TODO: Replace test sounds with actual game assets
+local SOUND_ASSETS = {
+    -- Test sound for development
+    TEST_CLICK = "rbxassetid://9120386436",  -- Temporary click sound for testing
     
-    -- Movement sounds
+    -- Future sound assets go here:
+    -- MINING_ROCK_HIT = "rbxassetid://YOUR_ID",
+    -- MINING_ROCK_BREAK = "rbxassetid://YOUR_ID",
+    -- UI_BUTTON_CLICK = "rbxassetid://YOUR_ID",
+    -- FOOTSTEP_ROCK = "rbxassetid://YOUR_ID",
+}
+
+-- ===========================================================================
+-- BUILD MINING SOUNDS DYNAMICALLY
+-- ===========================================================================
+-- Generate mining sounds from MaterialDefinitions + SoundCategories
+local miningSounds = {}
+for materialKey, def in pairs(MaterialDefinitions.Materials) do
+    local category = def.properties.soundCategory
+    local events = SoundCategories.GetMiningEvents(category)
+    
+    local soundSet = {}
+    for _, event in ipairs(events) do
+        -- All using test sound for now - replace with real assets later
+        -- Future: SOUND_ASSETS.MINING[category][event] or similar
+        soundSet[event] = SOUND_ASSETS.TEST_CLICK
+    end
+    
+    miningSounds[materialKey] = soundSet
+end
+
+-- ===========================================================================
+-- SOUND CONFIGURATION  
+-- ===========================================================================
+SoundConfig.SoundIDs = {
+    -- Mining sounds (dynamically generated from materials)
+    mining = miningSounds,
+    
+    -- Movement sounds (footsteps use soundCategory from MaterialDefinitions)
+    -- NOTE: Currently using default Roblox movement sounds
     movement = {
         footstep = {
-            rock  = nil,
-            sand  = nil,
-            grass = nil,
-            wood  = nil,
-            metal = nil,
-            ice   = nil,
-            mud   = nil,
-            snow  = nil,
-            water = nil,
+            rock  = SOUND_ASSETS.TEST_CLICK,  -- Maps to rock-category materials
+            sand  = SOUND_ASSETS.TEST_CLICK,
+            grass = SOUND_ASSETS.TEST_CLICK,
+            dirt  = SOUND_ASSETS.TEST_CLICK,  -- Added: used by "ground" material
+            wood  = SOUND_ASSETS.TEST_CLICK,
+            ice   = SOUND_ASSETS.TEST_CLICK,
+            mud   = SOUND_ASSETS.TEST_CLICK,
+            snow  = SOUND_ASSETS.TEST_CLICK,
+            water = SOUND_ASSETS.TEST_CLICK,
+            -- metal = SOUND_ASSETS.TEST_CLICK,  -- Reserved for non-terrain BasePart surfaces
         },
-        jump       = nil,
-        doublejump = nil,
-        land       = nil,
-        landhard   = nil,
-        dash       = nil,
-        slide      = nil,
+        -- These are not currently implemented - using default Roblox sounds
+        jump       = SOUND_ASSETS.TEST_CLICK,
+        doublejump = SOUND_ASSETS.TEST_CLICK,
+        land       = SOUND_ASSETS.TEST_CLICK,
+        landhard   = SOUND_ASSETS.TEST_CLICK,
+        dash       = nil,  -- Not implemented
+        slide      = nil,  -- Not implemented
     },
     
-    -- UI sounds
+    -- UI sounds (actively used by UI components)
     ui = {
-        buttonclick  = nil,
-        buttonhover  = nil,
-        openmenu     = nil,
-        closemenu    = nil,
-        tabswitch    = nil,
-        notification = nil,
-        error        = nil,
-        success      = nil,
-        purchase     = nil,
-        upgrade      = nil,
+        buttonclick  = SOUND_ASSETS.TEST_CLICK,
+        buttonhover  = SOUND_ASSETS.TEST_CLICK,
+        openmenu     = SOUND_ASSETS.TEST_CLICK,
+        closemenu    = SOUND_ASSETS.TEST_CLICK,
+        tabswitch    = SOUND_ASSETS.TEST_CLICK,
+        notification = SOUND_ASSETS.TEST_CLICK,
+        error        = SOUND_ASSETS.TEST_CLICK,
+        success      = SOUND_ASSETS.TEST_CLICK,
+        purchase     = SOUND_ASSETS.TEST_CLICK,
+        upgrade      = SOUND_ASSETS.TEST_CLICK,
     },
     
-    -- Ambient sounds
+    -- Ambient sounds (time-based, see TimeRules below)
     ambient = {
-        wind           = nil,
-        birds_morning  = nil,
-        birds_evening  = nil,
-        trees_rustling = nil,
-        cave           = nil,
-        waterflow      = nil,
-        crickets       = nil,
-        desertwind     = nil,
-        oceanwaves     = nil,
-        lavaflow       = nil,
-        icecracking    = nil,
+        wind           = SOUND_ASSETS.TEST_CLICK,
+        birds_morning  = SOUND_ASSETS.TEST_CLICK,  -- Plays 6am-6pm
+        birds_evening  = SOUND_ASSETS.TEST_CLICK,  -- Plays 5pm-8pm
+        trees_rustling = SOUND_ASSETS.TEST_CLICK,
+        cave           = SOUND_ASSETS.TEST_CLICK,
+        waterflow      = SOUND_ASSETS.TEST_CLICK,
+        crickets       = SOUND_ASSETS.TEST_CLICK,  -- Plays 8pm-6am
+        desertwind     = SOUND_ASSETS.TEST_CLICK,
+        oceanwaves     = SOUND_ASSETS.TEST_CLICK,
+        lavaflow       = SOUND_ASSETS.TEST_CLICK,
+        icecracking    = SOUND_ASSETS.TEST_CLICK,
     },
     
     -- Music tracks
     music = {
-        main    = nil,
-        mining  = nil,
-        cave    = nil,
-        desert  = nil,
-        ice     = nil,
-        lava    = nil,
-        shop    = nil,
-        boss    = nil,
-        victory = nil,
+        main    = SOUND_ASSETS.TEST_CLICK,
+        mining  = SOUND_ASSETS.TEST_CLICK,
+        cave    = SOUND_ASSETS.TEST_CLICK,
+        desert  = SOUND_ASSETS.TEST_CLICK,
+        ice     = SOUND_ASSETS.TEST_CLICK,
+        lava    = SOUND_ASSETS.TEST_CLICK,
+        shop    = SOUND_ASSETS.TEST_CLICK,
+        boss    = SOUND_ASSETS.TEST_CLICK,
+        victory = SOUND_ASSETS.TEST_CLICK,
     },
     
     -- Pet sounds
     pets = {
-        spawn    = nil,
-        happy    = nil,
-        idle     = nil,
-        working  = nil,
-        levelup  = nil,
-        equip    = nil,
-        unequip  = nil,
+        spawn    = SOUND_ASSETS.TEST_CLICK,
+        happy    = SOUND_ASSETS.TEST_CLICK,
+        idle     = SOUND_ASSETS.TEST_CLICK,
+        working  = SOUND_ASSETS.TEST_CLICK,
+        levelup  = SOUND_ASSETS.TEST_CLICK,
+        equip    = SOUND_ASSETS.TEST_CLICK,
+        unequip  = SOUND_ASSETS.TEST_CLICK,
     },
     
-    -- Reward sounds
+    -- Reward sounds (played when collecting items)
     rewards = {
-        coin        = nil,
-        gem         = nil,
-        item        = nil,
-        levelup     = nil,
-        achievement = nil,
-        chest       = nil,
-        rare        = nil,
-        epic        = nil,
-        legendary   = nil,
-        daily       = nil,
-        milestone   = nil,
+        coin        = SOUND_ASSETS.TEST_CLICK,
+        gem         = SOUND_ASSETS.TEST_CLICK,
+        item        = SOUND_ASSETS.TEST_CLICK,
+        levelup     = SOUND_ASSETS.TEST_CLICK,
+        achievement = SOUND_ASSETS.TEST_CLICK,
+        chest       = SOUND_ASSETS.TEST_CLICK,
+        rare        = SOUND_ASSETS.TEST_CLICK,
+        epic        = SOUND_ASSETS.TEST_CLICK,
+        legendary   = SOUND_ASSETS.TEST_CLICK,
+        daily       = SOUND_ASSETS.TEST_CLICK,
+        milestone   = SOUND_ASSETS.TEST_CLICK,
     },
     
     -- Environmental sounds
     environment = {
-        thunder    = nil,
-        rain       = nil,
-        explosion  = nil,
-        earthquake = nil,
-        fire       = nil,
-        rockfall   = nil,
-        steam      = nil,
+        thunder    = SOUND_ASSETS.TEST_CLICK,
+        rain       = SOUND_ASSETS.TEST_CLICK,
+        explosion  = SOUND_ASSETS.TEST_CLICK,
+        earthquake = SOUND_ASSETS.TEST_CLICK,
+        fire       = SOUND_ASSETS.TEST_CLICK,
+        rockfall   = SOUND_ASSETS.TEST_CLICK,
+        steam      = SOUND_ASSETS.TEST_CLICK,
     },
 }
 
@@ -376,38 +388,14 @@ function SoundConfig.ShouldSoundPlay(soundKey: string, currentTime: number?, cur
     return true, soundKey
 end
 
--- Footstep mapping - all lowercase
-local FOOTSTEP_MAP = {
-    -- Stone group
-    rock        = "rock",
-    sandstone   = "rock",
-    basalt      = "rock",
-    slate       = "rock",
-    limestone   = "rock",
-    cobblestone = "rock",
-    brick       = "rock",
-    concrete    = "rock",
-    asphalt     = "rock",
-    pavement    = "rock",
-    
-    -- Ice group
-    glacier = "ice",
-    ice     = "ice",
-    
-    -- Earth group
-    grass      = "grass",
-    leafygrass = "grass",
-    ground     = "grass",
-    mud        = "mud",
-    sand       = "sand",
-    snow       = "snow",
-    salt       = "sand",
-    
-    -- Special
-    water       = "water",
-    crackedlava = "rock",
-    woodplanks  = "wood",
-}
+-- Build footstep mapping from MaterialDefinitions (single source of truth)
+local FOOTSTEP_MAP = {}
+for key, def in pairs(MaterialDefinitions.Materials) do
+    FOOTSTEP_MAP[key] = def.properties.soundCategory or "rock"
+end
+
+-- Special overrides if needed (e.g., for specific footstep variations)
+-- Currently, soundCategory in MaterialDefinitions handles all cases
 
 -- Helper functions
 function SoundConfig.GetMiningSoundForMaterial(materialKey: string)
@@ -433,6 +421,44 @@ end
 
 function SoundConfig.ValidateSoundID(soundId: string?): boolean
     return soundId ~= nil and soundId ~= "" and soundId ~= "rbxassetid://0"
+end
+
+-- ===========================================================================
+-- VALIDATION AT STARTUP
+-- ===========================================================================
+do
+    -- Ensure every material has mining sounds
+    for materialKey, def in pairs(MaterialDefinitions.Materials) do
+        local category = def.properties.soundCategory
+        assert(
+            SoundConfig.SoundIDs.mining[materialKey],
+            ("[SoundConfig] Missing mining sounds for material '%s' (category '%s')")
+                :format(materialKey, category)
+        )
+        
+        -- Ensure expected events exist
+        local expectedEvents = SoundCategories.GetMiningEvents(category)
+        for _, event in ipairs(expectedEvents) do
+            assert(
+                SoundConfig.SoundIDs.mining[materialKey][event] ~= nil,
+                ("[SoundConfig] Missing mining event '%s' for material '%s' (category '%s')")
+                    :format(event, materialKey, category)
+            )
+        end
+    end
+    
+    -- Ensure every used sound category has a footstep sound
+    local usedCategories = {}
+    for _, def in pairs(MaterialDefinitions.Materials) do
+        usedCategories[def.properties.soundCategory] = true
+    end
+    
+    for category, _ in pairs(usedCategories) do
+        assert(
+            SoundConfig.SoundIDs.movement.footstep[category],
+            ("[SoundConfig] Missing footstep sound for category '%s'"):format(category)
+        )
+    end
 end
 
 return SoundConfig

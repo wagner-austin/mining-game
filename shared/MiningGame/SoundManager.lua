@@ -167,7 +167,11 @@ local function attach3D(opts: PlayOpts): Instance
 end
 
 local function safeId(id: string?): string?
-    return (id and SoundConfig.ValidateSoundID(id)) and id or nil
+    local isValid = id and SoundConfig.ValidateSoundID(id)
+    if not isValid then
+        print("[SoundManager] Sound ID validation failed for:", id)
+    end
+    return isValid and id or nil
 end
 
 -- === Public API ===
@@ -182,16 +186,27 @@ end
 
 function SoundManager.PlayMining(materialKey: string, subtype: string?, position: Vector3?, opts: PlayOpts?)
     local k = string.lower(materialKey or "rock")
+    print("[SoundManager] PlayMining called - material:", k, "subtype:", subtype or "hit")
+    
     local entry = SoundConfig.SoundIDs.mining[k]
-    if not entry then return end
+    if not entry then 
+        warn("[SoundManager] No mining sounds configured for material:", k)
+        return 
+    end
     
     local id = entry[string.lower(subtype or "hit")] or entry.hit
-    if not safeId(id) then return end
+    print("[SoundManager] Sound ID for", k, ":", id)
+    
+    if not safeId(id) then 
+        warn("[SoundManager] Invalid or missing sound ID:", id)
+        return 
+    end
     
     opts = opts or {}
     opts.category = "Mining"
     opts.subtype = subtype
     opts.position = position
+    print("[SoundManager] Playing mining sound at position:", position)
     return SoundManager.PlayId(id, opts)
 end
 
@@ -235,11 +250,14 @@ function SoundManager.PlayEnvironment(soundType: string, position: Vector3?, opt
 end
 
 function SoundManager.PlayId(id: string, opts: PlayOpts?)
+    print("[SoundManager] PlayId called with ID:", id)
     opts = opts or {}
     local catTitle = TitleCase(opts.category or "SFX")
     local groupName = GROUP_FOR_CATEGORY[catTitle] or "SFX"
 
     local parent = attach3D(opts)
+    print("[SoundManager] Parent for sound:", parent:GetFullName())
+    
     local s = getSound(id, groupName)
     s.Parent = parent
     applyCategoryDefaults(s, catTitle)
@@ -247,7 +265,48 @@ function SoundManager.PlayId(id: string, opts: PlayOpts?)
     if opts.volume then s.Volume = opts.volume end
     if opts.pitch then s.PlaybackSpeed = opts.pitch end
 
+    -- Log detailed sound properties
+    print("[SoundManager] Playing sound:")
+    print("  - SoundId:", s.SoundId)
+    print("  - Volume:", s.Volume, "(0-1 scale, where 1 is max)")
+    print("  - Parent:", s.Parent:GetFullName())
+    print("  - RollOffMode:", tostring(s.RollOffMode))
+    print("  - RollOffMinDistance:", s.RollOffMinDistance, "studs")
+    print("  - RollOffMaxDistance:", s.RollOffMaxDistance, "studs")
+    print("  - EmitterSize:", s.EmitterSize)
+    print("  - PlaybackSpeed:", s.PlaybackSpeed)
+    
+    -- If 3D positioned, calculate distance to player
+    if opts.position then
+        local Players = game:GetService("Players")
+        local LocalPlayer = Players.LocalPlayer
+        if LocalPlayer and LocalPlayer.Character then
+            local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local distance = (hrp.Position - opts.position).Magnitude
+                print("  - Distance from player:", math.floor(distance), "studs")
+                print("  - Position:", opts.position)
+                
+                -- Calculate approximate volume at player position
+                if s.RollOffMode == Enum.RollOffMode.Linear then
+                    local minDist = s.RollOffMinDistance
+                    local maxDist = s.RollOffMaxDistance
+                    local effectiveVolume = s.Volume
+                    if distance > minDist then
+                        local falloff = math.max(0, 1 - (distance - minDist) / (maxDist - minDist))
+                        effectiveVolume = s.Volume * falloff
+                    end
+                    print("  - Effective volume at player:", string.format("%.3f", effectiveVolume))
+                    print("  - Audible:", effectiveVolume > 0.01 and "YES" or "NO (too far/quiet)")
+                end
+            end
+        end
+    else
+        print("  - Position: NONE (2D sound, plays everywhere)")
+    end
+    
     s:Play()
+    print("[SoundManager] Sound IsPlaying:", s.IsPlaying)
 
     -- Cleanup (looped sounds should be managed by caller)
     if not s.Looped then
