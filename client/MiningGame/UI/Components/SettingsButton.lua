@@ -117,8 +117,10 @@ function SettingsButton:setupInteractions()
         TweenService:Create(button, Theme.animations.Quick, { TextTransparency = 0 }):Play()
     end)
     
-    -- Click: just execute callback, no animation
-    button.MouseButton1Click:Connect(function()
+    -- Click: play sound and execute callback
+    button.Activated:Connect(function()
+        local SoundManager = require(ReplicatedStorage.MiningGame:WaitForChild("SoundManager"))
+        SoundManager.PlayUI("buttonclick")
         if self.onClick then
             self.onClick()
         end
