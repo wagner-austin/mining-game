@@ -1,8 +1,10 @@
 # Mining Game API Documentation
 
-## For Claude Opus (UI Implementation)
+⚠️ **NOTE: This document needs updating to match actual implementation**
 
-This document describes the complete Remote API for implementing the UI. All communication between client and server happens through these RemoteEvents and RemoteFunctions.
+## Remote API Overview
+
+This document describes the Remote API for client-server communication. All communication happens through RemoteEvents and RemoteFunctions in `ReplicatedStorage.Remotes.MiningGame`.
 
 ## Remote Functions (Client → Server with return)
 
@@ -222,37 +224,22 @@ payload = {
 ### `OnCameraShake(intensity: number, duration: number)`
 Trigger camera shake.
 
-## UI Components Needed
+## UI Implementation Status
 
-### Main HUD
-- **Dig Button**: Large, mobile-friendly button at `GameConfig.MobileUI.DIG_BUTTON_POSITION`
-- **Currency Display**: Coins and gems at top
-- **Stats Bar**: Current dig delay, size, luck
-- **Boost Timers**: Active boosts with countdown
+### ✅ Currently Implemented
+- **Currency Display**: Coins and gems (top-right)
+- **Settings Panel**: Basic settings menu
+- **Home Button**: Teleport to cube functionality
+- **Material Selection**: Through settings panel
 
-### Menus (Mobile-Optimized)
-1. **Inventory**
-   - Grid view of items
-   - Tap to select, hold for info
-   - Sell button
-   - Equipment slots
-
-2. **Shop**
-   - Upgrades tab (speed/size)
-   - Materials tab
-   - Boosts tab (Robux products)
-   - Gamepasses tab
-
-3. **Pets**
-   - Pet grid
-   - Equip/unequip buttons
-   - Star levels display
-
-4. **Settings**
-   - Sound toggle
-   - Particle quality
-   - Camera shake toggle
-   - Haptics toggle (when available)
+### ❌ NOT Implemented (but API exists)
+1. **Inventory UI** - Backend exists, no UI
+2. **Shop/Upgrades UI** - Backend exists, no UI  
+3. **Pets UI** - Backend exists, no UI
+4. **Stats Display** - Data available, no UI
+5. **Boost Timers** - System exists, no display
+6. **Dig Button** - Uses click-to-dig, no button
+7. **Equipment UI** - Backend exists, no UI
 
 ### Visual Effects
 - **Dig Preview**: Show affected cells before digging
@@ -329,23 +316,26 @@ end
 - [ ] Performance on low-end devices
 - [ ] Network lag handling
 
-## Notes for Claude Opus
+## Implementation Notes
 
-1. **All values in GameConfig are tunable** - Use them for UI positioning, colors, limits, etc.
+### ⚠️ Important Context
+- **Most UI features are NOT built** despite backend support
+- **No extraction/quota system** exists (despite documentation)
+- **No AFK system** implemented
+- **Sound system has no asset IDs** (all nil)
 
-2. **Server is authoritative** - Never trust client input, always validate server-side.
+### Development Guidelines
+1. **Server is authoritative** - Always validate server-side
+2. **Mobile-first design** - Large touch targets (120x120px minimum)
+3. **Error handling** - Check `success`/`ok` fields
+4. **Use existing Theme system** - Located in `shared/MiningGame/UI/Theme.lua`
 
-3. **Mobile-first design** - Buttons should be at least 120x120 pixels, important actions near thumb reach.
-
-4. **Haptic feedback** - Use `HapticService` when available (check capability first).
-
-5. **Batch updates** - Group multiple UI updates in same frame for performance.
-
-6. **Error handling** - Always check `success`/`ok` fields before processing results.
-
-7. **Asset preloading** - Preload particle effects, sounds, and UI assets on join.
-
-8. **Responsive feedback** - Show immediate visual feedback even before server responds (then reconcile).
+### What Actually Works
+- Basic cube mining (click to remove voxels)
+- Currency system (coins, gems)
+- Material switching
+- Basic loot drops
+- Multiplayer cube positioning
 
 ## Integration Steps
 
