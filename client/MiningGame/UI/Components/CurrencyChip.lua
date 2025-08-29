@@ -39,7 +39,7 @@ function CurrencyChip.new(props: Props)
         -- Behavior
         onClick = props.onClick,
         pulseOnUpdate = true,  -- Pulse when value increases
-        squishIntensity = props.onClick and 0.92 or 0.95,  -- Subtle squish even without onClick
+        squishIntensity = props.squishIntensity or 0.92,  -- Default to 0.92, same as HomeButton
     })
     
     -- Store references

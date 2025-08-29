@@ -10,6 +10,7 @@ local Dropdown = require(script.Parent:WaitForChild("Dropdown"))
 local MaterialManager = require(MiningGame:WaitForChild("MaterialManager"))
 local MaterialPalettes = require(MiningGame:WaitForChild("MaterialPalettes"))
 local MaterialKeys = require(MiningGame:WaitForChild("MaterialKeys"))
+local MaterialDefinitions = require(MiningGame:WaitForChild("MaterialDefinitions"))
 local Remotes = require(MiningGame:WaitForChild("Remotes"))
 
 local MaterialsTab = {}
@@ -68,12 +69,22 @@ function MaterialsTab.new(config: MaterialsTabConfig)
         })
     end
     
-    -- Build material options from keys
+    -- Helper function to get color from MaterialDefinitions
+    local function colorForKey(key: string): Color3?
+        local def = MaterialDefinitions.Materials[key]
+        return def and def.properties and def.properties.color or nil
+    end
+    
+    -- Build material options from keys with colors
     local function optsFromKeys(keys)
         local out = {}
         for _, key in ipairs(keys) do
             local label = (MaterialKeys.DisplayNames and MaterialKeys.DisplayNames[key]) or key
-            table.insert(out, { id = key, label = label })
+            table.insert(out, { 
+                id = key, 
+                label = label,
+                color = colorForKey(key) -- Get color from MaterialDefinitions
+            })
         end
         table.sort(out, function(a,b) return a.label < b.label end)
         return out

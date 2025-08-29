@@ -95,6 +95,7 @@ function Dropdown.new(config: DropdownConfig)
     padding.Parent = button
     button.TextXAlignment = Enum.TextXAlignment.Left
     
+    
     -- Dropdown arrow indicator
     local arrow = Instance.new("TextLabel")
     arrow.Size = UDim2.new(0, 30, 1, 0)
@@ -128,7 +129,9 @@ function Dropdown.new(config: DropdownConfig)
     shield.Parent = rootParent
     self.shield = shield
     
-    table.insert(self.connections, shield.MouseButton1Click:Connect(function()
+    table.insert(self.connections, shield.Activated:Connect(function()
+        local SoundManager = require(ReplicatedStorage.MiningGame:WaitForChild("SoundManager"))
+        SoundManager.PlayUI("buttonclick")
         self:close()
     end))
     
@@ -255,7 +258,9 @@ function Dropdown.new(config: DropdownConfig)
             optBtn.BackgroundColor3 = colors.Surface
         end))
         
-        table.insert(conns, optBtn.MouseButton1Click:Connect(function()
+        table.insert(conns, optBtn.Activated:Connect(function()
+            local SoundManager = require(ReplicatedStorage.MiningGame:WaitForChild("SoundManager"))
+            SoundManager.PlayUI("buttonclick")
             self:select(i)
         end))
         
@@ -265,11 +270,13 @@ function Dropdown.new(config: DropdownConfig)
     
     -- Set initial selection
     if self.currentIndex > 0 and self.options[self.currentIndex] then
-        button.Text = self.options[self.currentIndex].label
+        self:select(self.currentIndex)
     end
     
     -- Toggle dropdown
-    table.insert(self.connections, button.MouseButton1Click:Connect(function()
+    table.insert(self.connections, button.Activated:Connect(function()
+        local SoundManager = require(ReplicatedStorage.MiningGame:WaitForChild("SoundManager"))
+        SoundManager.PlayUI("buttonclick")
         self:toggle()
     end))
     
@@ -395,7 +402,9 @@ function Dropdown:setOptions(options: {Option})
             optBtn.BackgroundColor3 = colors.Surface
         end))
         
-        table.insert(conns, optBtn.MouseButton1Click:Connect(function()
+        table.insert(conns, optBtn.Activated:Connect(function()
+            local SoundManager = require(ReplicatedStorage.MiningGame:WaitForChild("SoundManager"))
+            SoundManager.PlayUI("buttonclick")
             self:select(i)
         end))
         

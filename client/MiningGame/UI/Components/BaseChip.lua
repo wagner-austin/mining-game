@@ -143,6 +143,8 @@ function BaseChip.new(props: ChipProps)
         container.InputBegan:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or
                input.UserInputType == Enum.UserInputType.Touch then
+                local SoundManager = require(ReplicatedStorage.MiningGame:WaitForChild("SoundManager"))
+                SoundManager.PlayUI("buttonclick")
                 props.onClick()
             end
         end)
