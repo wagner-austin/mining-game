@@ -2,6 +2,12 @@
 -- Types.lua
 -- Type definitions for the mining game system
 
+export type MaterialPreferences = {
+    palette: string,        -- Palette key (e.g., "default", "industrial")
+    cubeMaterial: string,   -- MaterialKeys key (e.g., "rock", "basalt")
+    floorMaterial: string,  -- MaterialKeys key (e.g., "concrete", "slate")
+}
+
 export type PlayerStats = {
     coins: number,
     gems: number,
@@ -12,9 +18,11 @@ export type PlayerStats = {
     pets: { [string]: PetData },    -- pet instance id -> pet data
     inventory: { [string]: number }, -- item id -> count
     equipped: EquippedItems,
+    materialPreferences: MaterialPreferences?, -- Optional for backward compatibility
     totalBlocksDug: number,
     playtime: number,
     lastSaveTime: number,
+    sessionStartTime: number?, -- Session-scoped, sent to clients in GetProfile
 }
 
 export type PetData = {
@@ -60,8 +68,11 @@ export type DigResult = {
     reason: string?,
     cellsDug: number?,
     lootGranted: {string}?,
+    lootCounts: {[string]: number}?,
     nextAllowedAt: number?,
     effectiveStats: EffectiveStats?,
+    soundMaterialKey: string?,   -- new: exact material used by server
+    soundWorldPos: Vector3?,     -- new: exact position for sound
 }
 
 export type EffectiveStats = {
