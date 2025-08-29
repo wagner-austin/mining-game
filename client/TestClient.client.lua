@@ -29,12 +29,52 @@ local CELL_SIZE = GameConfig.Grid.CELL_SIZE_STUDS
 local Remotes = require(MiningGame:WaitForChild("Remotes"))
 print("[TestClient] Remotes loaded")
 
+-- Get SoundManager for local sound playback
+local SoundManager = require(MiningGame:WaitForChild("SoundManager"))
+
 -- Track last dig time for visual feedback
 local lastDigTime = 0
 local digCooldown = 1 -- Start with 1 second cooldown
 
 -- Store player's cube origin when profile loads
 local playerCubeOrigin = nil
+
+-- Get material at position for local sound playback
+local function getMaterialAtPosition(position: Vector3): string
+    -- Sample the terrain to determine what material we're hitting
+    local region = Region3.new(position - Vector3.new(2, 2, 2), position + Vector3.new(2, 2, 2))
+    region = region:ExpandToGrid(4)
+    
+    local materials, _ = workspace.Terrain:ReadVoxels(region, 4)
+    local size = materials.Size
+    
+    -- Find the most common non-air material in the region
+    local materialCounts = {}
+    for x = 1, size.X do
+        for y = 1, size.Y do
+            for z = 1, size.Z do
+                local mat = materials[x][y][z]
+                if mat ~= Enum.Material.Air then
+                    materialCounts[mat] = (materialCounts[mat] or 0) + 1
+                end
+            end
+        end
+    end
+    
+    -- Find dominant material
+    local dominantMaterial = Enum.Material.Rock
+    local maxCount = 0
+    for mat, count in pairs(materialCounts) do
+        if count > maxCount then
+            dominantMaterial = mat
+            maxCount = count
+        end
+    end
+    
+    -- Map to material key using MaterialKeys module for consistency with server
+    local MaterialKeys = require(MiningGame:WaitForChild("MaterialKeys"))
+    return MaterialKeys.KeyFromEnum[dominantMaterial] or "rock"
+end
 
 -- Quick client-side bounds check with tolerance for terrain texture overflow
 local function insideCube(worldPos: Vector3, origin: CFrame): boolean
@@ -50,11 +90,7 @@ end
 
 -- Function to request a dig at specific position
 local function requestDigAt(position: Vector3)
-    local now = tick()
-    if now - lastDigTime < digCooldown then
-        print(string.format("[TestClient] On cooldown (%.1fs remaining)", digCooldown - (now - lastDigTime)))
-        return
-    end
+    local now = tick()  -- ✅ ensure 'now' exists
     
     -- Client-side bounds check for better UX
     if not insideCube(position, playerCubeOrigin) then
@@ -62,24 +98,43 @@ local function requestDigAt(position: Vector3)
         return
     end
     
+    -- ✅ local cooldown guard (mirrors server; prevents fails/no-sound cases)
+    if (now - lastDigTime) < (digCooldown - 1/60) then
+        print(string.format("[TestClient] On cooldown (%.2fs left)",
+            math.max(0, digCooldown - (now - lastDigTime))))
+        return
+    end
+    
     print("[TestClient] Requesting dig at:", position)
     
-    -- Request dig from server
+    -- ✅ ask the server FIRST
     local result = Remotes.RF.RequestDig:InvokeServer(position)
     
-    if result.ok then
+    if result and result.ok then
         print(string.format("[TestClient] Dig successful! Dug %d cells", result.cellsDug))
+        
+        -- ✅ play sound ONLY on success
+        -- Prefer the server's material if provided; fallback to local probe
+        local matKey = (result.soundMaterialKey :: string?) or getMaterialAtPosition(position) or "rock"
+        local sfxPos = result.soundWorldPos or position
+        print("[TestClient] Playing local sound for material:", matKey, "at position:", sfxPos)
+        SoundManager.PlayMining(matKey, "hit", sfxPos)
+        
+        if result.effectiveStats then
+            digCooldown = result.effectiveStats.delay
+        end
+        lastDigTime = now
+        
         if result.lootGranted and #result.lootGranted > 0 then
             print("[TestClient] Loot received:", table.concat(result.lootGranted, ", "))
         end
-        if result.effectiveStats then
-            digCooldown = result.effectiveStats.delay
-            print(string.format("[TestClient] Next dig in %.2fs", digCooldown))
-        end
-        lastDigTime = now
-    else
-        print("[TestClient] Dig failed:", result.reason or "Unknown reason")
         if result.nextAllowedAt then
+            print(string.format("[TestClient] Next dig allowed at %.2f", result.nextAllowedAt))
+        end
+    else
+        print("[TestClient] Dig failed:", (result and result.reason) or "Unknown reason")
+        -- No sound on failures ✅
+        if result and result.nextAllowedAt then
             local timeLeft = result.nextAllowedAt - now
             print(string.format("[TestClient] Can dig again in %.2fs", timeLeft))
         end
