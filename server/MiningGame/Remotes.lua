@@ -90,6 +90,7 @@ local remoteFunctions = {
 local remoteEvents = {
     -- State updates
     OnProfileUpdate = createRemoteEvent("OnProfileUpdate"),
+    OnCurrencyChanged = createRemoteEvent("OnCurrencyChanged"),
     OnInventoryChanged = createRemoteEvent("OnInventoryChanged"),
     OnUpgradesChanged = createRemoteEvent("OnUpgradesChanged"),
     OnBoostsChanged = createRemoteEvent("OnBoostsChanged"),

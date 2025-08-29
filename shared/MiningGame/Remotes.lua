@@ -50,6 +50,7 @@ return {
     RE = {
         -- State updates
         OnProfileUpdate = mg:WaitForChild("OnProfileUpdate"),
+        OnCurrencyChanged = mg:WaitForChild("OnCurrencyChanged"),
         OnInventoryChanged = mg:WaitForChild("OnInventoryChanged"),
         OnUpgradesChanged = mg:WaitForChild("OnUpgradesChanged"),
         OnBoostsChanged = mg:WaitForChild("OnBoostsChanged"),
