@@ -177,11 +177,12 @@ function GridService:ApplyDig(
     end
     
     -- Single pass terrain write
+    local soundHint
     DigPerformance.measureSection("TerrainWrite", function()
-        self:WriteCellsToTerrain(cubeOrigin, cellsToWrite, state.materialId)
+        soundHint = self:WriteCellsToTerrain(cubeOrigin, cellsToWrite, state.materialId)
     end)
     
-    return dugCells
+    return dugCells, soundHint
 end
 
 -- Write cells to terrain using a single Read/Write pass
@@ -241,6 +242,10 @@ function GridService:WriteCellsToTerrain(cubeOrigin: CFrame, cells: {{x: number,
     local maxVX, maxVY, maxVZ = size.X, size.Y, size.Z
     local invVoxel = 0.25  -- 1/4 for voxel size
     
+    -- Track materials for sound system
+    local materialCounts = {}
+    local firstWorldPosForSound = nil
+    
     for i = 1, #cells do
         local c = cells[i]
         
@@ -259,6 +264,15 @@ function GridService:WriteCellsToTerrain(cubeOrigin: CFrame, cells: {{x: number,
         local vz = (rel.Z * invVoxel) // 1 + 1
         
         if vx >= 1 and vx <= maxVX and vy >= 1 and vy <= maxVY and vz >= 1 and vz <= maxVZ then
+            -- Track material before clearing (for sound system)
+            local mat = materials[vx][vy][vz]
+            if mat ~= Enum.Material.Air then
+                materialCounts[mat] = (materialCounts[mat] or 0) + 1
+                if not firstWorldPosForSound then
+                    firstWorldPosForSound = wCenter
+                end
+            end
+            
             occupancy[vx][vy][vz] = 0
             materials[vx][vy][vz] = Enum.Material.Air
         end
@@ -268,6 +282,23 @@ function GridService:WriteCellsToTerrain(cubeOrigin: CFrame, cells: {{x: number,
     DigPerformance.measureSection("WriteVoxels", function()
         Terrain:WriteVoxels(region, 4, materials, occupancy)
     end)
+    
+    -- 6) Determine dominant material for sound
+    local dominantMaterial, maxCount = nil, 0
+    for mat, count in pairs(materialCounts) do
+        if count > maxCount then
+            dominantMaterial, maxCount = mat, count
+        end
+    end
+    
+    -- Use canonical mapping to get the terrain key
+    local MaterialKeys = require(ReplicatedStorage.MiningGame:WaitForChild("MaterialKeys"))
+    local soundKey = dominantMaterial and MaterialKeys.KeyFromEnum[dominantMaterial] or nil
+    
+    return {
+        materialKey = soundKey or "rock",   -- fallback only if somehow nil
+        worldPos = firstWorldPosForSound
+    }
 end
 
 -- Create the initial terrain cube
@@ -321,19 +352,13 @@ function GridService:RestoreCube(cubeOrigin: CFrame, state: Types.CubeState): Mo
         materialData = GameConfig.CubeMaterialsById["tier1"]
     end
     
-    -- Get the terrain material enum from the terrainKey
+    -- Get the terrain material enum from the terrainKey via the canonical map
+    local MaterialKeys = require(ReplicatedStorage.MiningGame:WaitForChild("MaterialKeys"))
     local terrainMaterial: Enum.Material = Enum.Material.Rock
     if materialData and materialData.terrainKey then
-        local terrainKeyMap = {
-            rock = Enum.Material.Rock,
-            sandstone = Enum.Material.Sandstone,
-            basalt = Enum.Material.Basalt,
-            slate = Enum.Material.Slate,
-            limestone = Enum.Material.Limestone,
-            glacier = Enum.Material.Glacier,
-        }
-        terrainMaterial = terrainKeyMap[materialData.terrainKey] or Enum.Material.Rock
-        print("[GridService] Material resolved:", materialId, "->", materialData.terrainKey, "->", tostring(terrainMaterial))
+        terrainMaterial = MaterialKeys.EnumFromKey[materialData.terrainKey] or Enum.Material.Rock
+        print(("[GridService] Material resolved: %s -> %s -> %s")
+            :format(materialId, tostring(materialData.terrainKey), tostring(terrainMaterial)))
     else
         warn("[GridService] No terrainKey for material:", materialId, "- defaulting to Rock")
     end
