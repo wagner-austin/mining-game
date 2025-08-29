@@ -143,7 +143,7 @@ function DigService:ProcessDigRequest(player: Player, worldPos: Vector3): Types.
     -- No separate isInBounds check needed now; clamped values are valid
     
     -- Apply dig to grid
-    local dugCells = GridService:ApplyDig(
+    local dugCells, soundHint = GridService:ApplyDig(
         player,
         cubeData.origin,
         cubeState,
@@ -158,6 +158,19 @@ function DigService:ProcessDigRequest(player: Player, worldPos: Vector3): Types.
             ok = false,
             reason = "No cells dug",
         }
+    end
+    
+    -- Broadcast mining sound based on actual terrain material
+    do
+        local SoundBroadcast = require(script.Parent:WaitForChild("SoundBroadcast"))
+        local materialKey = (soundHint and soundHint.materialKey) or "rock"
+        local soundPos = (soundHint and soundHint.worldPos)
+        if not soundPos then
+            local firstCell = dugCells[1]
+            soundPos = GridMath.cellToWorld(firstCell.x, firstCell.y, firstCell.z, cubeData.origin, GameConfig.Grid.CELL_SIZE_STUDS)
+        end
+        -- Plays "rock", "sand", "water", etc. based on REAL dug terrain
+        SoundBroadcast.Mining(player, soundPos, materialKey, "hit")
     end
     
     -- Roll for loot
