@@ -288,7 +288,7 @@ end
 -- Multiplayer & Neighborhood
 GameConfig.Multiplayer = {
     MAX_PLAYERS_PER_NEIGHBORHOOD = 6,
-    CUBE_SPACING = 300, -- Studs between player cubes (extra spacing for visibility)
+    CUBE_SPACING = 225, -- Studs between player cubes (balanced proximity)
     VISIT_PERMISSIONS = "FRIENDS", -- "ALL", "FRIENDS", "NONE"
     SHOW_PLAYER_NAMES = true,
     SHOW_PLAYER_STATS = true,
