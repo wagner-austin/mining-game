@@ -119,7 +119,9 @@ function TabContainer.new(props: Props)
         self.tabContents[tab.name] = tabContent
         
         -- Tab button interaction
-        local conn = tabButton.MouseButton1Click:Connect(function()
+        local conn = tabButton.Activated:Connect(function()
+            local SoundManager = require(ReplicatedStorage.MiningGame:WaitForChild("SoundManager"))
+            SoundManager.PlayUI("buttonclick")
             self:switchTab(tab.name)
         end)
         table.insert(self._connections, conn)
