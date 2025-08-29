@@ -74,6 +74,14 @@ _G.MiningGameServices = {
     Remotes = RemotesCreator,
 }
 
+-- Set up teleportation handler
+RemotesCreator.RF.TeleportToHome.OnServerInvoke = function(player: Player)
+    -- Use SpawnService to teleport player to their spawn point
+    SpawnService:Respawn(player)
+    
+    return {success = true}
+end
+
 -- Set up debug remote handlers
 RemotesCreator.RF.DebugAddCurrency.OnServerInvoke = function(player: Player, currencyType: string, amount: number)
     -- Validate inputs
