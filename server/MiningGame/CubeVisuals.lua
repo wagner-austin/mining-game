@@ -18,10 +18,11 @@ local function clearExistingIndicators(model: Model)
 end
 
 -- Create the glowing neon floor outline with lighting
-function CubeVisuals.CreateFloorGlow(model: Model, cubeOrigin: CFrame, size: number)
+function CubeVisuals.CreateFloorGlow(model: Model, cubeOrigin: CFrame, size: number, floorMaterial: Enum.Material?)
     clearExistingIndicators(model)
     
-    print(string.format("[CubeVisuals] Creating floor glow - Cube origin Y: %.2f, Size: %.2f", cubeOrigin.Position.Y, size))
+    print(string.format("[CubeVisuals] Creating floor glow - Cube origin Y: %.2f, Size: %.2f, FloorMaterial: %s", 
+        cubeOrigin.Position.Y, size, tostring(floorMaterial)))
     
     -- Create folder for organization
     local indicators = Instance.new("Folder")
@@ -32,7 +33,6 @@ function CubeVisuals.CreateFloorGlow(model: Model, cubeOrigin: CFrame, size: num
     local config = GameConfig.Visuals
     local thickness = config and config.FLOOR_GLOW_THICKNESS or 0.5
     local width = config and config.FLOOR_GLOW_WIDTH or 4
-    local clearance = config and config.FLOOR_GLOW_GROUND_CLEARANCE or 9.75
     local marginMin = config and config.FLOOR_GLOW_MARGIN_MIN or 2
     local marginMax = config and config.FLOOR_GLOW_MARGIN_MAX or 4
     local glowColor = config and config.FLOOR_GLOW_COLOR or Color3.fromRGB(0, 255, 255)
@@ -41,11 +41,16 @@ function CubeVisuals.CreateFloorGlow(model: Model, cubeOrigin: CFrame, size: num
     local margin = math.clamp(math.floor(size * 0.1), marginMin, marginMax)  -- 10% of size for longer bars
     local glowSize = size + (margin * 2)
     
-    -- Position the edges at the specified clearance height
-    local edgeY = clearance
+    -- Position the edges using the configured ground clearance
+    local groundClearance = config and config.FLOOR_GLOW_GROUND_CLEARANCE or 9.83
+    local edgeY = groundClearance
+    local floorY = cubeOrigin.Position.Y - (size/2)
+    local barBottomY = edgeY - (thickness/2)
     
-    print(string.format("[CubeVisuals] Edge Y: %.2f, Width: %.2f, Thickness: %.2f, margin: %d, glowSize: %.2f", 
-        edgeY, width, thickness, margin, glowSize))
+    print(string.format("[CubeVisuals] Positions - CubeY: %.2f, FloorY: %.2f, BarBottomY: %.2f, EdgeY: %.2f", 
+        cubeOrigin.Position.Y, floorY, barBottomY, edgeY))
+    print(string.format("[CubeVisuals] Dimensions - Width: %.2f, Thickness: %.2f, margin: %d, glowSize: %.2f", 
+        width, thickness, margin, glowSize))
     
     local function makeEdge(xOffset: number, zOffset: number, edgeSize: Vector3)
         local p = Instance.new("Part")
@@ -102,17 +107,60 @@ function CubeVisuals.CreateFloorGlow(model: Model, cubeOrigin: CFrame, size: num
     
     -- Swap terrain under each neon bar, preserving shape
     local Terrain = workspace.Terrain
-    local RESOLUTION = 4
-    local matsToSwap = (config and config.FLOOR_GLOW_REPLACE_MATERIALS) 
-                        or { Enum.Material.Grass, Enum.Material.LeafyGrass, Enum.Material.Ground }
-    local replacementMat = (config and config.FLOOR_GLOW_REPLACEMENT_MATERIAL)
-                           or Enum.Material.Concrete
+    local RESOLUTION = GameConfig.Grid.CELL_SIZE_STUDS
     
+    -- Get all terrain materials with fallback
+    local MaterialDefinitions = require(Shared:WaitForChild("MaterialDefinitions"))
+    local allTerrainMaterials = MaterialDefinitions.AllTerrainEnums
+    if not allTerrainMaterials then
+        -- Fallback: build from MaterialKeys if AllTerrainEnums is missing
+        local MaterialKeys = require(Shared:WaitForChild("MaterialKeys"))
+        allTerrainMaterials = {}
+        for _, key in ipairs(MaterialKeys.TerrainKeys) do
+            local em = MaterialKeys.EnumFromKey[key]
+            if em then table.insert(allTerrainMaterials, em) end
+        end
+        warn("[CubeVisuals] AllTerrainEnums missing, using fallback from MaterialKeys")
+    end
+    
+    -- USE THE PASSED PARAM if provided; otherwise config default
+    local replacementMat = floorMaterial or (config and config.FLOOR_GLOW_REPLACEMENT_MATERIAL) or Enum.Material.Concrete
+    
+    -- First, replace floor under the entire cube footprint at spawn
+    local half = size / 2
+    local floorDepth = RESOLUTION * 3 -- 12 studs deep to match glow bar depth
+    local cubeFloorRegion = Region3.new(
+        Vector3.new(cubeOrigin.Position.X - half, floorY - floorDepth, cubeOrigin.Position.Z - half),
+        Vector3.new(cubeOrigin.Position.X + half, floorY, cubeOrigin.Position.Z + half)
+    ):ExpandToGrid(RESOLUTION)
+    
+    print(string.format("[CubeVisuals] Replacing cube footprint with %s", tostring(replacementMat)))
+    
+    if replacementMat == Enum.Material.Water then
+        local mats, occs = Terrain:ReadVoxels(cubeFloorRegion, RESOLUTION)
+        local sx, sy, sz = mats.Size.X, mats.Size.Y, mats.Size.Z
+        for x = 1, sx do
+            for y = 1, sy do
+                for z = 1, sz do
+                    if occs[x][y][z] > 0 and mats[x][y][z] ~= Enum.Material.Air then
+                        mats[x][y][z] = Enum.Material.Water
+                        if occs[x][y][z] < 0.3 then occs[x][y][z] = 0.3 end
+                    end
+                end
+            end
+        end
+        Terrain:WriteVoxels(cubeFloorRegion, RESOLUTION, mats, occs)
+    else
+        for _, src in ipairs(allTerrainMaterials) do
+            Terrain:ReplaceMaterial(cubeFloorRegion, RESOLUTION, src, replacementMat)
+        end
+    end
+    
+    -- Then, do each glow bar region with CONSISTENT depth and base Y
     local function replaceUnderEdge(edge: BasePart)
-        -- A shallow slab that covers the bar footprint (slightly padded)
         local pad = 1
-        local depth = 2 -- medium depth below the bar
-        local y0 = edge.Position.Y - (thickness/2) -- bar bottom
+        local depth = RESOLUTION * 3 -- 12 studs deep to ensure no grass peeks through
+        local y0 = barBottomY -- bottom of bar, consistent reference
         local region = Region3.new(
             Vector3.new(edge.Position.X - edge.Size.X/2 - pad, y0 - depth, edge.Position.Z - edge.Size.Z/2 - pad),
             Vector3.new(edge.Position.X + edge.Size.X/2 + pad, y0,         edge.Position.Z + edge.Size.Z/2 + pad)
@@ -121,9 +169,25 @@ function CubeVisuals.CreateFloorGlow(model: Model, cubeOrigin: CFrame, size: num
         print(string.format("[CubeVisuals] Replacing materials under edge at Y=%.2f (region Y: %.2f to %.2f)", 
             edge.Position.Y, y0 - depth, y0))
         
-        -- Replace each material type with the replacement material
-        for _, srcMaterial in ipairs(matsToSwap) do
-            Terrain:ReplaceMaterial(region, RESOLUTION, srcMaterial, replacementMat)
+        -- Handle water specially, otherwise replace all terrain materials
+        if replacementMat == Enum.Material.Water then
+            local mats, occs = Terrain:ReadVoxels(region, RESOLUTION)
+            local sx, sy, sz = mats.Size.X, mats.Size.Y, mats.Size.Z
+            for x = 1, sx do
+                for y = 1, sy do
+                    for z = 1, sz do
+                        if occs[x][y][z] > 0 and mats[x][y][z] ~= Enum.Material.Air then
+                            mats[x][y][z] = Enum.Material.Water
+                            if occs[x][y][z] < 0.3 then occs[x][y][z] = 0.3 end
+                        end
+                    end
+                end
+            end
+            Terrain:WriteVoxels(region, RESOLUTION, mats, occs)
+        else
+            for _, src in ipairs(allTerrainMaterials) do
+                Terrain:ReplaceMaterial(region, RESOLUTION, src, replacementMat)
+            end
         end
     end
     
@@ -146,7 +210,7 @@ function CubeVisuals.CreateFloorGlow(model: Model, cubeOrigin: CFrame, size: num
         -- clearAboveEdge(edge)
     end
     
-    print(string.format("[CubeVisuals] Floor glow created with %d edges", 4))
+    print(string.format("[CubeVisuals] Floor glow created with %d edges; floor=%s", 4, tostring(replacementMat)))
     
     return indicators
 end
