@@ -73,6 +73,9 @@ local remoteFunctions = {
     -- Settings
     UpdateSettings = createRemoteFunction("UpdateSettings"),
     
+    -- Teleportation
+    TeleportToHome = createRemoteFunction("TeleportToHome"),
+    
     -- Debug
     DebugAddCurrency = createRemoteFunction("DebugAddCurrency"),
     DebugResetStats = createRemoteFunction("DebugResetStats"),
