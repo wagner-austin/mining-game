@@ -20,6 +20,8 @@ function MainHUD.new()
         name = "MainHUD",
         frame = nil :: Frame?,
         _cons = {},
+        _activeTweens = {}, -- Track active tweens to cancel them
+        _hideTask = nil,    -- Track hide delay task
     }, MainHUD)
 end
 
@@ -185,6 +187,42 @@ function MainHUD:_snapshotTransparency(root: Instance)
     end
 end
 
+-- Cancel the delayed visibility-off task, if any
+function MainHUD:_cancelHideTask()
+    if self._hideTask then
+        task.cancel(self._hideTask)
+        self._hideTask = nil
+    end
+end
+
+-- Cancel all active tweens created by this HUD
+function MainHUD:_cancelAllTweens()
+    if not self._activeTweens then return end
+    for _, tw in pairs(self._activeTweens) do
+        pcall(function() tw:Cancel() end)
+    end
+    table.clear(self._activeTweens)
+end
+
+-- Create a tween that replaces any older tween on the same instance
+function MainHUD:_playTween(inst: Instance, info: TweenInfo, props: {[string]: any})
+    if not self._activeTweens then self._activeTweens = {} end
+    local prev = self._activeTweens[inst]
+    if prev then pcall(function() prev:Cancel() end) end
+    
+    local tw = TweenService:Create(inst, info, props)
+    self._activeTweens[inst] = tw
+    
+    tw.Completed:Connect(function()
+        -- only clear if this is still the current tween for this instance
+        if self._activeTweens and self._activeTweens[inst] == tw then
+            self._activeTweens[inst] = nil
+        end
+    end)
+    
+    tw:Play()
+end
+
 -- Tween all relevant descendants to hidden (1) or restored (saved attrs)
 function MainHUD:_tweenTransparency(root: Instance, toHidden: boolean)
     local info = Theme.animations.Standard
@@ -194,17 +232,17 @@ function MainHUD:_tweenTransparency(root: Instance, toHidden: boolean)
         if inst:IsA("Frame") or inst:IsA("ScrollingFrame") then
             local target = toHidden and 1 or (inst:GetAttribute("orig_bg_t") or inst.BackgroundTransparency)
             if inst.BackgroundTransparency ~= nil then
-                TweenService:Create(inst, info, { BackgroundTransparency = target }):Play()
+                self:_playTween(inst, info, { BackgroundTransparency = target })
             end
         elseif inst:IsA("TextLabel") or inst:IsA("TextButton") then
             local target = toHidden and 1 or (inst:GetAttribute("orig_text_t") or 0)
-            TweenService:Create(inst, info, { TextTransparency = target }):Play()
+            self:_playTween(inst, info, { TextTransparency = target })
         elseif inst:IsA("ImageLabel") or inst:IsA("ImageButton") then
             local target = toHidden and 1 or (inst:GetAttribute("orig_img_t") or 0)
-            TweenService:Create(inst, info, { ImageTransparency = target }):Play()
+            self:_playTween(inst, info, { ImageTransparency = target })
         elseif inst:IsA("UIStroke") then
             local target = toHidden and 1 or (inst:GetAttribute("orig_stroke_t") or 0)
-            TweenService:Create(inst, info, { Transparency = target }):Play()
+            self:_playTween(inst, info, { Transparency = target })
         end
     end
 end
@@ -228,6 +266,10 @@ function MainHUD:fadeInChips()
 end
 
 function MainHUD:show()
+    -- Kill any pending hide logic and in-flight tweens
+    self:_cancelHideTask()
+    self:_cancelAllTweens()
+    
     if self.frame then
         self.frame.Visible = true
         self:fadeInChips()
@@ -236,17 +278,27 @@ end
 
 function MainHUD:hide()
     if not self.frame then return end
+    
+    -- Prevent overlap with previous hide attempts
+    self:_cancelHideTask()
+    self:_cancelAllTweens()
+    
     -- Cross-fade with the next panel; hide after tween completes
     self:fadeOutChips()
     local t = Theme.animations.Standard.Time + Theme.animations.Standard.DelayTime
-    task.delay(t, function()
+    self._hideTask = task.delay(t, function()
         if self and self.frame then
             self.frame.Visible = false
         end
+        self._hideTask = nil
     end)
 end
 
 function MainHUD:cleanup()
+    -- Cancel any pending animations/tasks
+    self:_cancelHideTask()
+    self:_cancelAllTweens()
+    
     for _, c in ipairs(self._cons) do 
         if c.Disconnect then 
             c:Disconnect() 
