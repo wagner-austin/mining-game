@@ -10,8 +10,6 @@ local RunService = game:GetService("RunService")
 local player = Players.LocalPlayer
 local mouse = player:GetMouse()
 
-print("[TestClient] Starting...")
-
 -- Wait for character
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
@@ -19,7 +17,13 @@ local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 -- Wait for MiningGame to load
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame", 30)
 assert(MiningGame, "MiningGame not found in ReplicatedStorage")
-print("[TestClient] Found MiningGame")
+
+-- Get Logger
+local Logger = require(MiningGame:WaitForChild("Logger"))
+local log = Logger.new("TestClient")
+
+log:info("Starting...")
+log:debug("Found MiningGame")
 
 -- Get config
 local GameConfig = require(MiningGame:WaitForChild("GameConfig"))
@@ -27,7 +31,7 @@ local CELL_SIZE = GameConfig.Grid.CELL_SIZE_STUDS
 
 -- Get remotes using the Remotes accessor module
 local Remotes = require(MiningGame:WaitForChild("Remotes"))
-print("[TestClient] Remotes loaded")
+log:debug("Remotes loaded")
 
 -- Get SoundManager for local sound playback
 local SoundManager = require(MiningGame:WaitForChild("SoundManager"))
@@ -94,30 +98,30 @@ local function requestDigAt(position: Vector3)
     
     -- Client-side bounds check for better UX
     if not insideCube(position, playerCubeOrigin) then
-        print("[TestClient] Click outside cube bounds - ignoring")
+        log:debug("Click outside cube bounds - ignoring")
         return
     end
     
     -- ✅ local cooldown guard (mirrors server; prevents fails/no-sound cases)
     if (now - lastDigTime) < (digCooldown - 1/60) then
-        print(string.format("[TestClient] On cooldown (%.2fs left)",
-            math.max(0, digCooldown - (now - lastDigTime))))
+        log:debug("On cooldown (%.2fs left)",
+            math.max(0, digCooldown - (now - lastDigTime)))
         return
     end
     
-    print("[TestClient] Requesting dig at:", position)
+    log:debug("Requesting dig at: %s", tostring(position))
     
     -- ✅ ask the server FIRST
     local result = Remotes.RF.RequestDig:InvokeServer(position)
     
     if result and result.ok then
-        print(string.format("[TestClient] Dig successful! Dug %d cells", result.cellsDug))
+        log:info("Dig successful! Dug %d cells", result.cellsDug)
         
         -- ✅ play sound ONLY on success
         -- Prefer the server's material if provided; fallback to local probe
         local matKey = (result.soundMaterialKey :: string?) or getMaterialAtPosition(position) or "rock"
         local sfxPos = result.soundWorldPos or position
-        print("[TestClient] Playing local sound for material:", matKey, "at position:", sfxPos)
+        log:debug("Playing local sound for material: %s at position: %s", matKey, tostring(sfxPos))
         SoundManager.PlayMining(matKey, "hit", sfxPos)
         
         if result.effectiveStats then
@@ -126,28 +130,28 @@ local function requestDigAt(position: Vector3)
         lastDigTime = now
         
         if result.lootGranted and #result.lootGranted > 0 then
-            print("[TestClient] Loot received:", table.concat(result.lootGranted, ", "))
+            log:info("Loot received: %s", table.concat(result.lootGranted, ", "))
         end
         if result.nextAllowedAt then
-            print(string.format("[TestClient] Next dig allowed at %.2f", result.nextAllowedAt))
+            log:debug("Next dig allowed at %.2f", result.nextAllowedAt)
         end
     else
-        print("[TestClient] Dig failed:", (result and result.reason) or "Unknown reason")
+        log:warn("Dig failed: %s", (result and result.reason) or "Unknown reason")
         -- No sound on failures ✅
         if result and result.nextAllowedAt then
             local timeLeft = result.nextAllowedAt - now
-            print(string.format("[TestClient] Can dig again in %.2fs", timeLeft))
+            log:debug("Can dig again in %.2fs", timeLeft)
         end
     end
 end
 
 -- Function to get profile
 local function getProfile()
-    print("[TestClient] Requesting profile...")
+    log:debug("Requesting profile...")
     local profile = Remotes.RF.GetProfile:InvokeServer()
     
     if profile then
-        print("[TestClient] Profile loaded:")
+        log:info("Profile loaded:")
         print("  Coins:", profile.profile.coins)
         print("  Gems:", profile.profile.gems)
         print("  Total blocks dug:", profile.profile.totalBlocksDug)
@@ -173,15 +177,15 @@ local function getProfile()
             local cubeY = GameConfig.Grid.CUBE_SIZE_STUDS / 2
             playerCubeOrigin = CFrame.new(0, cubeY, 0)
         end
-        print("[TestClient] Cube origin set to:", playerCubeOrigin.Position)
+        log:debug("Cube origin set to: %s", tostring(playerCubeOrigin.Position))
     else
-        print("[TestClient] Failed to get profile")
+        log:error("Failed to get profile")
     end
 end
 
 -- Listen for feedback events
 Remotes.RE.OnDigFeedback.OnClientEvent:Connect(function(feedback)
-    print("[TestClient] Dig feedback received:")
+    log:debug("Dig feedback received:")
     print("  Cells dug:", feedback.cellCount or "unknown")
     print("  Size:", feedback.size or "unknown")
     print("  Shake:", feedback.shake)
@@ -189,12 +193,12 @@ Remotes.RE.OnDigFeedback.OnClientEvent:Connect(function(feedback)
 end)
 
 Remotes.RE.OnLootDropped.OnClientEvent:Connect(function(data)
-    print("[TestClient] Loot dropped!")
+    log:debug("Loot dropped!")
     if data.schema == 2 and data.counts then
         -- New batched format
-        print("  Items received (batched):")
+        log:debug("  Items received (batched):")
         for itemId, count in pairs(data.counts) do
-            print("    -", itemId, "x" .. count)
+            log:debug("    - %s x%d", itemId, count)
         end
     elseif data.item then
         -- Legacy single item format
@@ -205,7 +209,7 @@ Remotes.RE.OnLootDropped.OnClientEvent:Connect(function(data)
 end)
 
 Remotes.RE.OnInventoryChanged.OnClientEvent:Connect(function(change)
-    print("[TestClient] Inventory changed:")
+    log:debug("Inventory changed:")
     print("  Action:", change.action)
     print("  Item:", change.itemId)
     print("  Count:", change.count)
@@ -213,11 +217,11 @@ Remotes.RE.OnInventoryChanged.OnClientEvent:Connect(function(change)
 end)
 
 Remotes.RE.OnNotification.OnClientEvent:Connect(function(notification)
-    print(string.format("[TestClient] Notification: %s", notification.message))
+    log:info("Notification: %s", notification.message)
 end)
 
 -- Controls
-print("[TestClient] Controls:")
+log:debug("Controls:")
 print("  Press E to dig below player")
 print("  Press P to view profile")
 print("  Click to dig at mouse position")
@@ -265,4 +269,4 @@ end)
 wait(2) -- Wait for data to load
 getProfile()
 
-print("[TestClient] Test client ready! Press E to dig, P for profile")
+log:info("Test client ready! Press E to dig, P for profile")
