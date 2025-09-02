@@ -7,8 +7,13 @@ local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 
-local Theme = require(ReplicatedStorage:WaitForChild("MiningGame"):WaitForChild("UI"):WaitForChild("Theme"))
+local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
+local Theme = require(MiningGame:WaitForChild("UI"):WaitForChild("Theme"))
+local Logger = require(MiningGame:WaitForChild("Logger"))
+
+local log = Logger.new(Logger.CAT.Panel)
 local UIUtils = require(ReplicatedStorage:WaitForChild("MiningGame"):WaitForChild("UI"):WaitForChild("UIUtils"))
+local ThemeRefresher = require(ReplicatedStorage:WaitForChild("MiningGame"):WaitForChild("UI"):WaitForChild("ThemeRefresher"))
 
 local BasePanel = {}
 BasePanel.__index = BasePanel
@@ -106,7 +111,7 @@ function BasePanel.new(props: Props)
     backgroundLayer.AnchorPoint = Vector2.new(0.5, 0.5)
     backgroundLayer.Position = UDim2.fromScale(0.5, 0.5)
     backgroundLayer.BackgroundColor3 = props.tintColor or colors.Surface
-    backgroundLayer.BackgroundTransparency = 0.3  -- Slightly less transparent for better visibility
+    backgroundLayer.BackgroundTransparency = Theme.effects.frosted.backgroundTransparency  -- Slightly less transparent for better visibility
     backgroundLayer.ClipsDescendants = true
     backgroundLayer.ZIndex = 1
     backgroundLayer.Parent = container
@@ -142,26 +147,35 @@ function BasePanel.new(props: Props)
     -- Glass edge
     UIUtils.applyGlassEdge(backgroundLayer)
     
-    -- Frosted gradient (reduced transparency for better visibility)
+    -- Frosted gradient (configurable via Theme.effects.frosted)
     local gradient = Instance.new("UIGradient")
     gradient.Rotation = 90
     gradient.Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.new(1, 1, 1))
+    local frosted = Theme.effects.frosted
     gradient.Transparency = NumberSequence.new({
-        NumberSequenceKeypoint.new(0, 0.3),  -- More opaque at top
-        NumberSequenceKeypoint.new(1, 0.5)   -- Less transparent at bottom
+        NumberSequenceKeypoint.new(0, frosted.gradientTopT),  -- More opaque at top
+        NumberSequenceKeypoint.new(1, frosted.gradientBottomT)   -- Less transparent at bottom
     })
     gradient.Parent = backgroundLayer
     
-    -- Noise texture for glass effect (less transparent for better visibility)
+    -- Noise texture for glass effect (configurable via Theme.effects.frosted)
     local noise = Instance.new("ImageLabel")
     noise.BackgroundTransparency = 1
-    noise.ImageColor3 = Color3.new(1, 1, 1)
-    noise.ImageTransparency = 0.85  -- More visible noise texture
+    -- Tint the noise toward the active theme color for a colored frost
+    local frost = Theme.effects.frosted
+    local base = Theme.colors[frost.noiseColorKey] or Theme.colors.Background
+    local t = math.clamp(frost.noiseLighten or 0, 0, 1)
+    local tinted = t > 0 and base:Lerp(Color3.new(1, 1, 1), t) or base
+    noise.ImageColor3 = tinted
+    noise.ImageTransparency = frost.noiseTransparency
     noise.ScaleType = Enum.ScaleType.Tile
     noise.TileSize = UDim2.fromOffset(64, 64)
     noise.Size = UDim2.fromScale(1, 1)
     noise.ZIndex = 0
     noise.Parent = backgroundLayer
+
+    -- Register this frosted surface for live theme refreshes
+    UIUtils.registerFrosted(backgroundLayer, gradient, noise)
     
     -- Header bar (in content layer so text doesn't scale)
     local header = Instance.new("Frame")
@@ -220,7 +234,7 @@ function BasePanel.new(props: Props)
     divider.Size = UDim2.new(1, -panelConfig.contentPadding*2, 0, panelConfig.dividerThickness)
     divider.Position = UDim2.new(0, panelConfig.contentPadding, 1, -panelConfig.dividerThickness)
     divider.BackgroundColor3 = colors.Text
-    divider.BackgroundTransparency = 0.8
+    divider.BackgroundTransparency = Theme.ui.dividerTransparency
     divider.BorderSizePixel = 0
     divider.Parent = header
     
@@ -266,6 +280,7 @@ function BasePanel.new(props: Props)
     self.content = contentContainer
     self.scale = scale
     self.title = title
+    self.divider = divider
     self.closeButton = closeButton
     self.onClose = props.onClose
     self.isOpen = false
@@ -273,6 +288,11 @@ function BasePanel.new(props: Props)
     self._textReveal = nil  -- Track gradient reveal state
     self._closing = false
     self._revealBaseline = {}  -- Persistent baseline for element transparencies
+    
+    -- Bind to theme refresher for automatic updates
+    ThemeRefresher.Bind(backgroundLayer, { BackgroundColor3 = "Surface" })
+    ThemeRefresher.Bind(title, { TextColor3 = "Text" })
+    ThemeRefresher.Bind(divider, { BackgroundColor3 = "Text" })
     
     -- Setup interactions
     bind(closeButton.Activated, function()
@@ -367,10 +387,10 @@ end
 
 -- Helper: cancel any in-flight reveal cleanly
 function BasePanel:_cancelTextReveal(setTo)
-    print("[_cancelTextReveal] Called with setTo:", setTo)
+    log:debug("[_cancelTextReveal] Called with setTo: %s", tostring(setTo))
     local tr = self._textReveal
     if tr then
-        print("[_cancelTextReveal] Canceling existing reveal")
+        log:debug("[_cancelTextReveal] Canceling existing reveal")
         if tr.tween then tr.tween:Cancel() end
         if tr.conn then tr.conn:Disconnect() end
         if tr.progress then tr.progress:Destroy() end
@@ -396,14 +416,14 @@ end
 
 -- Helper: true top→bottom gradient reveal driven by one tween
 function BasePanel:_startTextReveal(duration, delay, bandPx)
-    print("[_startTextReveal] Called, isOpen:", self.isOpen, "_closing:", self._closing)
+    log:debug("[_startTextReveal] Called, isOpen: %s, _closing: %s", tostring(self.isOpen), tostring(self._closing))
     
     -- Let layout/AbsolutePosition settle for one frame
     RunService.Heartbeat:Wait()
     
     -- Guard: don't animate if panel was closed while waiting
     if not self.isOpen then 
-        print("[_startTextReveal] Panel not open after heartbeat, returning")
+        log:debug("[_startTextReveal] Panel not open after heartbeat, returning")
         return 
     end
     
@@ -417,7 +437,7 @@ function BasePanel:_startTextReveal(duration, delay, bandPx)
     local elems = {}
     local minY, maxY = math.huge, -math.huge
     
-    print("[_startTextReveal] Using baseline for elements")
+    log:debug("[_startTextReveal] Using baseline for elements")
     local elementCount = 0
     
     for _, c in ipairs(self.contentLayer:GetDescendants()) do
@@ -451,10 +471,10 @@ function BasePanel:_startTextReveal(duration, delay, bandPx)
         end
     end
     
-    print("[_startTextReveal] Found", elementCount, "elements, minY:", minY, "maxY:", maxY)
+    log:debug("[_startTextReveal] Found %d elements, minY: %.1f, maxY: %.1f", elementCount, minY, maxY)
     
     if #elems == 0 or not (maxY > minY) then
-        print("[_startTextReveal] Fallback: no elements or invalid range, restoring from baseline")
+        log:debug("[_startTextReveal] Fallback: no elements or invalid range, restoring from baseline")
         -- Fallback: restore from baseline
         for inst, rec in pairs(baseline) do
             if inst:IsDescendantOf(self.contentLayer) then
@@ -492,7 +512,7 @@ function BasePanel:_startTextReveal(duration, delay, bandPx)
     local function update()
         -- The reveal "front" sweeps downward
         local front = minY + progress.Value * (range + band)
-        print("[update] Progress:", progress.Value, "Front:", front, "Elements to update:", #elems)
+        log:debug("update progress=%.3f front=%.2f elements=%d", progress.Value, front, #elems)
         for _, d in ipairs(elems) do
             local rec = d.rec
             -- Map each element to [0..1] based on how far the front has passed its Y
@@ -527,15 +547,15 @@ function BasePanel:_startTextReveal(duration, delay, bandPx)
     tr.conn = progress.Changed:Connect(update)
     
     task.delay(delay or 0.08, function()
-        print("[_startTextReveal] Delay finished, checking state - isOpen:", self.isOpen, "textReveal match:", self._textReveal == tr)
+        log:debug("[_startTextReveal] Delay finished, checking state - isOpen: %s, textReveal match: %s", tostring(self.isOpen), tostring(self._textReveal == tr))
         -- Canceled while we waited or panel closed?
         if not self.isOpen or self._textReveal ~= tr then
-            print("[_startTextReveal] Aborting tween - isOpen:", self.isOpen, "textReveal match:", self._textReveal == tr)
+            log:debug("[_startTextReveal] Aborting tween - isOpen: %s, textReveal match: %s", tostring(self.isOpen), tostring(self._textReveal == tr))
             progress:Destroy()
             return
         end
         
-        print("[_startTextReveal] Creating and playing reveal tween")
+        log:debug("[_startTextReveal] Creating and playing reveal tween")
         local tween = TweenService:Create(
             progress,
             TweenInfo.new(duration or 0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
@@ -544,7 +564,7 @@ function BasePanel:_startTextReveal(duration, delay, bandPx)
         tr.tween = tween
         
         tween.Completed:Connect(function()
-            print("[_startTextReveal] Tween completed")
+            log:debug("[_startTextReveal] Tween completed")
             update()
             if self._textReveal == tr then
                 if tr.conn then tr.conn:Disconnect() end
@@ -560,21 +580,21 @@ function BasePanel:_startTextReveal(duration, delay, bandPx)
 end
 
 function BasePanel:show()
-    print("[BasePanel:show] Called, isOpen:", self.isOpen, "_closing:", self._closing)
+    log:debug("[show] isOpen=%s closing=%s", tostring(self.isOpen), tostring(self._closing))
     
     -- If currently closing, abort that and reset
     if self._closing then
-        print("[BasePanel:show] Aborting close animation")
+        log:debug("[show] Aborting close animation")
         self._closing = false
         self:_cancelTextReveal()
     end
     
     if self.isOpen then 
-        print("[BasePanel:show] Already open, returning")
+        log:debug("[show] Already open, returning")
         return 
     end
     self.isOpen = true
-    print("[BasePanel:show] Setting isOpen = true")
+    log:debug("[show] Setting isOpen = true")
     
     -- No scrim to show anymore (allows camera controls)
     
@@ -602,7 +622,7 @@ function BasePanel:show()
     end
     
     TweenService:Create(self.backgroundLayer, Theme.animations.Standard, {
-        BackgroundTransparency = 0.3
+        BackgroundTransparency = Theme.effects.frosted.backgroundTransparency
     }):Play()
     
     -- Also restore the glass edge stroke visibility
@@ -612,7 +632,7 @@ function BasePanel:show()
     end
     
     -- Start the smooth gradient reveal
-    print("[BasePanel:show] Starting text reveal")
+    log:debug("[show] Starting text reveal")
     task.spawn(function()
         self:_startTextReveal(0.42, 0.08, nil)  -- Faster duration, quicker start, adaptive band
     end)
@@ -628,17 +648,17 @@ function BasePanel:close()
 end
 
 function BasePanel:hide()
-    print("[BasePanel:hide] Called, isOpen:", self.isOpen, "_closing:", self._closing)
+    log:debug("[hide] isOpen=%s closing=%s", tostring(self.isOpen), tostring(self._closing))
     if not self.isOpen then 
-        print("[BasePanel:hide] Not open, returning")
+        log:debug("[hide] Not open, returning")
         return 
     end
     self.isOpen = false
     self._closing = true  -- Mark as closing here
-    print("[BasePanel:hide] Setting isOpen = false, _closing = true")
+    log:debug("[hide] Setting isOpen = false, _closing = true")
     
     -- Stop the gradient tween safely
-    print("[BasePanel:hide] Canceling text reveal")
+    log:debug("[hide] Canceling text reveal")
     self:_cancelTextReveal()
     
     -- Don't call _cancelTextReveal(1) here - it breaks the next show!
@@ -706,10 +726,10 @@ function BasePanel:hide()
     
     -- Simpler completion handling
     local function finishHide()
-        print("[BasePanel:hide] finishHide called, resetting _closing")
+        log:debug("[hide] finishHide called, resetting _closing")
         self.container.Visible = false
         self._closing = false  -- Reset here after animations complete
-        print("[BasePanel:hide] _closing reset to false")
+        log:debug("[hide] _closing reset to false")
     end
     
     if moveTween then 
@@ -719,7 +739,7 @@ function BasePanel:hide()
     fadeTween:Play()
     
     -- Use the longer of the two animations
-    print("[BasePanel:hide] Waiting for animations to complete")
+    log:debug("[hide] Waiting for animations to complete")
     task.wait(Theme.animations.Standard.Time or 0.2)
     finishHide()
 end
