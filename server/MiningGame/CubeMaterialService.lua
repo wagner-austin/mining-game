@@ -8,6 +8,8 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local Terrain = workspace.Terrain
 
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
+local Logger = require(MiningGame:WaitForChild("Logger"))
+local log = Logger.new("CubeMaterialService")
 local ServerMiningGame = ServerScriptService:WaitForChild("MiningGame")
 local GameConfig = require(MiningGame:WaitForChild("GameConfig"))
 local MaterialKeys = require(MiningGame:WaitForChild("MaterialKeys"))
@@ -260,6 +262,6 @@ Remotes.RF.ApplyFloorMaterial.OnServerInvoke = Service.ApplyFloorMaterial
 Remotes.RF.GetMaterialPreferences.OnServerInvoke = Service.GetMaterialPreferences
 Remotes.RF.SetPalettePreference.OnServerInvoke = Service.SetPalettePreference
 
-print("[CubeMaterialService] Initialized")
+log:info("Initialized")
 
 return Service
