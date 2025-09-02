@@ -351,6 +351,7 @@ GameConfig.DataStore = {
     -- DataStore keys
     PLAYER_DATA_KEY = "PlayerMiningData_v1",
     CUBE_DATA_KEY = "CubeData_v1",
+    RECEIPT_QUEUE_KEY = "ReceiptQueue_v1", -- Durable purchase queue
     
     -- Auto-save intervals
     AUTO_SAVE_INTERVAL = 60, -- Seconds
