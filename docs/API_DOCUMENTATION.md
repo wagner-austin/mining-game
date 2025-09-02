@@ -151,6 +151,66 @@ Return to your own cube.
 ### `GetNeighborhood()`
 Get list of players in neighborhood.
 
+### `GetMetrics()`
+Get comprehensive user metrics and statistics.
+
+**Returns:**
+```lua
+{
+    gameplay = {
+        totalBlocksDug = number,
+        dugThisSession = number,
+        blocksPerMinute = number
+    },
+    economy = {
+        coins = number,
+        gems = number,
+        totalCoinsEarned = number,
+        totalCoinsSpent = number,
+        totalGemsEarned = number,
+        totalGemsSpent = number,
+        netWorth = number
+    },
+    session = {
+        sessionStartTime = number,  -- Unix timestamp
+        sessionDurationSec = number,
+        totalPlaytimeSec = number,
+        totalSessions = number,
+        avgSessionLengthSec = number
+    },
+    progression = {
+        speedLevel = number,
+        sizeLevel = number,
+        petsOwned = number,
+        activePets = number,
+        materialTier = number
+    },
+    world = {
+        currentMaterial = string,
+        cubeSize = number,
+        totalChunks = number,
+        dugCells = number
+    }
+}
+```
+
+### `GetServerMetrics()`
+Get server-wide metrics (permission gated).
+
+**Returns:**
+```lua
+{
+    totalPlayers = number,
+    serverUptimeSec = number,
+    -- Additional fields for authorized users:
+    activeDiggers = number?,
+    totalBlocksDugServer = number?,
+    avgSessionLength = number?,
+    peakPlayers = number?,
+    totalSessions = number?
+}
+```
+
 ## Remote Events (Server → Client)
 
 ### `OnProfileUpdate(profile: PlayerStats)`
