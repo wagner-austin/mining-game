@@ -6,6 +6,8 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
+local Logger = require(MiningGame:WaitForChild("Logger"))
+local log = Logger.new("SessionService")
 
 local DataService
 local ok, ds = pcall(function()
@@ -32,6 +34,9 @@ local function init()
     Players.PlayerAdded:Connect(function(player)
         sessionStartByUserId[player.UserId] = os.time()
         print("[SessionService] Player", player.Name, "session started at", sessionStartByUserId[player.UserId])
+        
+        -- Session tracking is now handled in DataService:LoadPlayerAsync
+        -- We only need to track the session start time here for playtime calculation
     end)
 
     -- Update lifetime playtime when players leave
@@ -39,7 +44,7 @@ local function init()
         local startTime = sessionStartByUserId[player.UserId]
         if startTime then
             local sessionDuration = math.max(0, os.time() - startTime)
-            print(("[SessionService] %s played for %d seconds this session"):format(player.Name, sessionDuration))
+            log:info("%s played for %d seconds this session", player.Name, sessionDuration)
             
             -- Add to lifetime playtime
             if DataService and typeof(DataService.AddPlaytime) == "function" then
@@ -60,7 +65,7 @@ local function init()
         end
     end
     
-    print("[SessionService] Initialized - tracking player sessions")
+    log:info("Initialized - tracking player sessions")
 end
 
 -- Auto-initialize

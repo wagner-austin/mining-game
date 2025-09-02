@@ -6,6 +6,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 -- Shared modules
 local Shared = ReplicatedStorage:WaitForChild("MiningGame")
+local Logger = require(Shared:WaitForChild("Logger"))
+local log = Logger.new("InventoryService")
 local GameConfig = require(Shared:WaitForChild("GameConfig"))
 local Types = require(Shared:WaitForChild("Types"))
 
@@ -381,6 +383,6 @@ end
 -- Initialize
 setupRemotes()
 
-print("[InventoryService] Initialized")
+log:info("Initialized")
 
 return InventoryService

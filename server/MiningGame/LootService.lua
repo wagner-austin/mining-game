@@ -4,6 +4,8 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("MiningGame")
+local Logger = require(Shared:WaitForChild("Logger"))
+local log = Logger.new("LootService")
 
 local GameConfig = require(Shared:WaitForChild("GameConfig"))
 local Types = require(Shared:WaitForChild("Types"))
@@ -209,6 +211,6 @@ function LootService:GetRarityMultiplier(rarity: string): number
     return rarityWeights[rarity] and rarityWeights[rarity].value_mult or 1
 end
 
-print("[LootService] Initialized")
+log:info("Initialized")
 
 return LootService

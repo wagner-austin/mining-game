@@ -7,6 +7,8 @@ local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame", 30)
+local Logger = require(MiningGame:WaitForChild("Logger"))
+local log = Logger.new("SpawnService")
 local GameConfig = require(MiningGame:WaitForChild("GameConfig"))
 
 local CubePositionService = require(script.Parent.CubePositionService)
@@ -102,6 +104,6 @@ for _, plr in ipairs(Players:GetPlayers()) do
     if plr.Character then onCharacterAdded(plr.Character) end
 end
 
-print("[SpawnService] Initialized")
+log:info("Initialized")
 
 return SpawnService
