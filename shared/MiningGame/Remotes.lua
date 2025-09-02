@@ -48,6 +48,10 @@ return {
         ApplyFloorMaterial = mg:WaitForChild("ApplyFloorMaterial"),
         GetMaterialPreferences = mg:WaitForChild("GetMaterialPreferences"),
         SetPalettePreference = mg:WaitForChild("SetPalettePreference"),
+        
+        -- Theme settings
+        GetThemeSettings = mg:WaitForChild("GetThemeSettings"),
+        UpdateThemeSettings = mg:WaitForChild("UpdateThemeSettings"),
     },
     RE = {
         -- State updates
@@ -62,6 +66,7 @@ return {
         OnDigFeedback = mg:WaitForChild("OnDigFeedback"),
         OnTerrainUpdate = mg:WaitForChild("OnTerrainUpdate"),
         OnLootDropped = mg:WaitForChild("OnLootDropped"),
+        OnFirstDig = mg:WaitForChild("OnFirstDig"),
         
         -- UI notifications
         OnNotification = mg:WaitForChild("OnNotification"),
