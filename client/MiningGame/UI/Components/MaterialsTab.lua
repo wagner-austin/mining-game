@@ -51,7 +51,7 @@ function MaterialsTab.new(config: MaterialsTabConfig)
         lbl.TextColor3 = colors.Text
         lbl.TextXAlignment = Enum.TextXAlignment.Left
         lbl.Font = Theme.fonts.Primary
-        lbl.TextSize = 18
+        lbl.TextSize = 20  -- Bigger for better readability
         lbl.Parent = parent
         return lbl
     end
@@ -141,21 +141,9 @@ function MaterialsTab.new(config: MaterialsTabConfig)
         end
     })
     table.insert(self.widgets, self.floorDropdown)
-    y = y + 35 + 36 + 20
+    y = y + 35 + 36 + 12  -- Reduced padding since we're removing info text
     
-    -- Info text
-    local infoLabel = Instance.new("TextLabel")
-    infoLabel.Size = UDim2.new(1, -20, 0, 60)
-    infoLabel.Position = UDim2.new(0, 10, 0, y)
-    infoLabel.BackgroundTransparency = 1
-    infoLabel.Text = "Material changes affect your mining cube's appearance.\nPalette themes change lighting and visual atmosphere."
-    infoLabel.TextColor3 = colors.TextDim
-    infoLabel.TextXAlignment = Enum.TextXAlignment.Left
-    infoLabel.TextYAlignment = Enum.TextYAlignment.Top
-    infoLabel.Font = Theme.fonts.Secondary
-    infoLabel.TextSize = 14
-    infoLabel.TextWrapped = true
-    infoLabel.Parent = container
+    -- Info text removed for better readability
     
     -- Optional: Preview frame for future visual feedback
     self.previewFrame = nil -- Can add visual preview later
