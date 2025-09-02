@@ -91,7 +91,7 @@ function AccountTab:_sectionCard(height: number?): Frame
     card.Size = height and UDim2.new(1, 0, 0, height) or UDim2.new(1, 0, 0, 0)
     card.AutomaticSize = height and Enum.AutomaticSize.None or Enum.AutomaticSize.Y
     card.BackgroundColor3 = colors.Surface
-    card.BackgroundTransparency = 0.85
+    card.BackgroundTransparency = Theme.card.backgroundTransparency
     card.Parent = self.container
 
     local corner = Instance.new("UICorner")
@@ -150,10 +150,10 @@ function AccountTab:_createStatsSection()
     title.Size = UDim2.new(1, 0, 0, 24)
     title.BackgroundTransparency = 1
     title.Text = "Account Statistics"
-    title.TextColor3 = colors.TextDim
+    title.TextColor3 = colors.Text  -- Use primary text for better visibility
     title.TextXAlignment = Enum.TextXAlignment.Left
     title.Font = Theme.fonts.Primary
-    title.TextSize = 16
+    title.TextSize = 18  -- Slightly bigger
     title.Parent = section
 
     local grid = Instance.new("Frame")
@@ -179,7 +179,7 @@ function AccountTab:_createStatsSection()
     local stats = {
         { key = "playTime",   label = "Session Time",  value = "0m", icon = "⏱️" },
         { key = "lifetime",   label = "Total Playtime", value = "—", icon = "📈" },
-        { key = "coins",      label = "Coins",         value = "0",  icon = "🪙" },
+        { key = "coins",      label = "Coins",         value = "0",  icon = "💰" },
         { key = "blocksDug",  label = "Blocks Dug",    value = "0",  icon = "⛏️" },
     }
 
@@ -202,10 +202,10 @@ function AccountTab:_createStatsSection()
         label.Position = UDim2.new(0, 34, 0, 0)
         label.BackgroundTransparency = 1
         label.Text = stat.label
-        label.TextColor3 = colors.TextDim
+        label.TextColor3 = colors.Text  -- Use primary text for better visibility
         label.TextXAlignment = Enum.TextXAlignment.Left
         label.Font = Theme.fonts.Primary
-        label.TextSize = 14
+        label.TextSize = 16  -- Bigger for readability
         label.Parent = item
 
         local value = Instance.new("TextLabel")
@@ -234,7 +234,7 @@ function AccountTab:_actionButton(parent: Instance, text: string, icon: string, 
     btn.Name = "ActionButton"
     btn.Size = UDim2.new(1, 0, 0, 44)
     btn.BackgroundColor3 = colors.Surface
-    btn.BackgroundTransparency = 0.85
+    btn.BackgroundTransparency = Theme.button.surfaceTransparency
     btn.Text = ""
     btn.AutoButtonColor = false
     btn.Parent = parent
@@ -278,10 +278,10 @@ function AccountTab:_actionButton(parent: Instance, text: string, icon: string, 
     t.Parent = row
 
     btn.MouseEnter:Connect(function()
-        TweenService:Create(btn, TweenInfo.new(0.15), { BackgroundTransparency = 0.7 }):Play()
+        TweenService:Create(btn, TweenInfo.new(0.15), { BackgroundTransparency = Theme.button.surfaceHoverTransparency }):Play()
     end)
     btn.MouseLeave:Connect(function()
-        TweenService:Create(btn, TweenInfo.new(0.15), { BackgroundTransparency = 0.85 }):Play()
+        TweenService:Create(btn, TweenInfo.new(0.15), { BackgroundTransparency = Theme.button.surfaceTransparency }):Play()
     end)
     btn.Activated:Connect(function()
         local mg = ReplicatedStorage:FindFirstChild("MiningGame")
@@ -316,19 +316,27 @@ end
 function AccountTab:_applySnapshot(snapshot: {profile: {[string]: any}, cubeStats: any?, sessionStartTime: number?, lastUpdated: number?, isLoading: boolean?})
     local profile = snapshot.profile or {}
     
+    -- Helper for safe formatting
+    local function fmt(n: number): string
+        if UIUtils and UIUtils.formatNumber then
+            return UIUtils.formatNumber(n)
+        end
+        return tostring(n)
+    end
+    
     -- Update coins
     if self._labels.coins then
-        self._labels.coins.Text = UIUtils.formatNumber(profile.coins or 0)
+        self._labels.coins.Text = fmt(profile.coins or 0)
     end
     
     -- Update blocks dug
     if self._labels.blocksDug then
-        self._labels.blocksDug.Text = UIUtils.formatNumber(profile.totalBlocksDug or 0)
+        self._labels.blocksDug.Text = fmt(profile.totalBlocksDug or 0)
     end
     
     -- Update cubes dug (from cubeStats if available)  
     if self._labels.dugCells and snapshot.cubeStats then
-        self._labels.dugCells.Text = UIUtils.formatNumber(snapshot.cubeStats.dugCells or 0)
+        self._labels.dugCells.Text = fmt(snapshot.cubeStats.dugCells or 0)
     elseif self._labels.dugCells then
         self._labels.dugCells.Text = "0"
     end
