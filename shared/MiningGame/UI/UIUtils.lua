@@ -8,8 +8,47 @@ local TweenService = game:GetService("TweenService")
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
 local UI = MiningGame:WaitForChild("UI")
 local Theme = require(UI:WaitForChild("Theme"))
+local ThemeRefresher = require(UI:WaitForChild("ThemeRefresher"))
 
 local UIUtils = {}
+
+-- Registry of frosted backgrounds for live theme refreshing
+local _frosted = setmetatable({}, { __mode = "k" }) :: {[Frame]: { gradient: UIGradient?, noise: ImageLabel? }}
+
+function UIUtils.registerFrosted(background: Frame, gradient: UIGradient?, noise: ImageLabel?)
+    _frosted[background] = { gradient = gradient, noise = noise }
+    background.AncestryChanged:Connect(function()
+        if not background.Parent then
+            _frosted[background] = nil
+        end
+    end)
+end
+
+function UIUtils.refreshFrosting()
+    local frost = Theme.effects.frosted
+    for background, parts in pairs(_frosted) do
+        if background and background.Parent then
+            background.BackgroundTransparency = frost.backgroundTransparency
+            local grad = parts.gradient
+            if grad and grad.Parent then
+                grad.Transparency = NumberSequence.new({
+                    NumberSequenceKeypoint.new(0, frost.gradientTopT),
+                    NumberSequenceKeypoint.new(1, frost.gradientBottomT),
+                })
+            end
+            local noise = parts.noise
+            if noise and noise.Parent then
+                local base = Theme.colors[frost.noiseColorKey] or Theme.colors.Background
+                local t = math.clamp(frost.noiseLighten or 0, 0, 1)
+                local tinted = t > 0 and base:Lerp(Color3.new(1,1,1), t) or base
+                noise.ImageColor3 = tinted
+                noise.ImageTransparency = frost.noiseTransparency
+            end
+        else
+            _frosted[background] = nil
+        end
+    end
+end
 
 -- Format number with K/M/B suffixes
 function UIUtils.formatNumber(n: number): string
@@ -55,6 +94,8 @@ function UIUtils.applyGlassEdge(parent: GuiObject): UIStroke
     stroke.ApplyStrokeMode = Theme.glassEdge.applyStrokeMode
     stroke.LineJoinMode = Theme.glassEdge.lineJoinMode
     stroke.Parent = parent
+    -- Bind to theme so glass edge updates on theme change
+    ThemeRefresher.Bind(stroke, { Stroke = "glassEdge" })
     return stroke
 end
 
@@ -121,7 +162,9 @@ function UIUtils.createLayeredButton(props: {
     background.AnchorPoint = Vector2.new(0.5, 0.5)
     background.Position = UDim2.fromScale(0.5, 0.5)
     background.BackgroundColor3 = (props.backgroundProps and props.backgroundProps.color) or Theme.colors.Surface
-    background.BackgroundTransparency = (props.backgroundProps and props.backgroundProps.transparency) or 0.25
+    background.BackgroundTransparency = (props.backgroundProps and props.backgroundProps.transparency) ~= nil
+        and props.backgroundProps.transparency
+        or Theme.effects.frosted.backgroundTransparency
     background.ClipsDescendants = true
     background.Parent = container
 
@@ -135,30 +178,42 @@ function UIUtils.createLayeredButton(props: {
         UIUtils.applyGlassEdge(background)
     end
     
+    local gradient: UIGradient? = nil
     if props.backgroundProps and props.backgroundProps.gradient then
-        local gradient = Instance.new("UIGradient")
+        gradient = Instance.new("UIGradient")
         gradient.Rotation = 90
         gradient.Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.new(1, 1, 1))
+        local gt = Theme.effects.frosted.gradientTopT
+        local gb = Theme.effects.frosted.gradientBottomT
         gradient.Transparency = NumberSequence.new({
-            NumberSequenceKeypoint.new(0, 0.85),
-            NumberSequenceKeypoint.new(1, 1),
+            NumberSequenceKeypoint.new(0, gt),
+            NumberSequenceKeypoint.new(1, gb),
         })
         gradient.Parent = background
     end
     
     -- Noise texture for frosted glass effect
+    local noise: ImageLabel? = nil
     if props.backgroundProps and props.backgroundProps.noise then
-        local noise = Instance.new("ImageLabel")
+        noise = Instance.new("ImageLabel")
         noise.BackgroundTransparency = 1
         noise.Image = "rbxasset://textures/ui/GuiImagePlaceholder.png"
-        noise.ImageColor3 = Color3.new(1, 1, 1)
-        noise.ImageTransparency = 0.92
+        -- Tint the noise toward the active theme color for a colored frost
+        local frost = Theme.effects.frosted
+        local base = Theme.colors[frost.noiseColorKey] or Theme.colors.Background
+        local t = math.clamp(frost.noiseLighten or 0, 0, 1)
+        local tinted = t > 0 and base:Lerp(Color3.new(1, 1, 1), t) or base
+        noise.ImageColor3 = tinted
+        noise.ImageTransparency = frost.noiseTransparency
         noise.ScaleType = Enum.ScaleType.Tile
         noise.TileSize = UDim2.fromOffset(64, 64)
         noise.Size = UDim2.fromScale(1, 1)
         noise.ZIndex = 1
         noise.Parent = background
     end
+
+    -- Track frosted elements so we can refresh them on theme flips
+    UIUtils.registerFrosted(background, gradient, noise)
 
     -- Content (never scaled)
     local content = Instance.new("Frame")
