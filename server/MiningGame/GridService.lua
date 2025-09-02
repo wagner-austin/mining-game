@@ -8,6 +8,8 @@ local RunService = game:GetService("RunService")
 
 local Terrain = Workspace.Terrain
 local Shared = ReplicatedStorage:WaitForChild("MiningGame")
+local Logger = require(Shared:WaitForChild("Logger"))
+local log = Logger.new("GridService")
 
 local GameConfig = require(Shared:WaitForChild("GameConfig"))
 local Types = require(Shared:WaitForChild("Types"))
@@ -358,8 +360,8 @@ function GridService:RestoreCube(cubeOrigin: CFrame, state: Types.CubeState, ini
     local terrainMaterial: Enum.Material = Enum.Material.Rock
     if materialData and materialData.terrainKey then
         terrainMaterial = MaterialKeys.EnumFromKey[materialData.terrainKey] or Enum.Material.Rock
-        print(("[GridService] Material resolved: %s -> %s -> %s")
-            :format(materialId, tostring(materialData.terrainKey), tostring(terrainMaterial)))
+        log:debug("Material resolved: %s -> %s -> %s",
+            materialId, tostring(materialData.terrainKey), tostring(terrainMaterial))
     else
         warn("[GridService] No terrainKey for material:", materialId, "- defaulting to Rock")
     end
@@ -456,7 +458,7 @@ end
 -- Connect cleanup
 game.Players.PlayerRemoving:Connect(cleanupPlayer)
 
-print("[GridService] Initialized")
+log:info("Initialized")
 
 -- Debug command to print performance report
 game:GetService("RunService").Heartbeat:Connect(function()
@@ -464,7 +466,7 @@ game:GetService("RunService").Heartbeat:Connect(function()
     if perfReport and #perfReport > 50 then  -- Only print if there's data
         -- Print every 30 seconds if there's new data
         if tick() % 30 < 0.1 then
-            print(perfReport)
+            log:debug(perfReport)
         end
     end
 end)
