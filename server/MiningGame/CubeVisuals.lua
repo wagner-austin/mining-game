@@ -8,6 +8,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("MiningGame")
 local GameConfig = require(Shared:WaitForChild("GameConfig"))
+local Logger = require(Shared:WaitForChild("Logger"))
+local log = Logger.new("CubeVisuals")
 
 local CubeVisuals = {}
 
@@ -21,8 +23,8 @@ end
 function CubeVisuals.CreateFloorGlow(model: Model, cubeOrigin: CFrame, size: number, floorMaterial: Enum.Material?)
     clearExistingIndicators(model)
     
-    print(string.format("[CubeVisuals] Creating floor glow - Cube origin Y: %.2f, Size: %.2f, FloorMaterial: %s", 
-        cubeOrigin.Position.Y, size, tostring(floorMaterial)))
+    log:debug("Creating floor glow - Cube origin Y: %.2f, Size: %.2f, FloorMaterial: %s", 
+        cubeOrigin.Position.Y, size, tostring(floorMaterial))
     
     -- Create folder for organization
     local indicators = Instance.new("Folder")
@@ -47,10 +49,10 @@ function CubeVisuals.CreateFloorGlow(model: Model, cubeOrigin: CFrame, size: num
     local floorY = cubeOrigin.Position.Y - (size/2)
     local barBottomY = edgeY - (thickness/2)
     
-    print(string.format("[CubeVisuals] Positions - CubeY: %.2f, FloorY: %.2f, BarBottomY: %.2f, EdgeY: %.2f", 
-        cubeOrigin.Position.Y, floorY, barBottomY, edgeY))
-    print(string.format("[CubeVisuals] Dimensions - Width: %.2f, Thickness: %.2f, margin: %d, glowSize: %.2f", 
-        width, thickness, margin, glowSize))
+    log:debug("Positions - CubeY: %.2f, FloorY: %.2f, BarBottomY: %.2f, EdgeY: %.2f", 
+        cubeOrigin.Position.Y, floorY, barBottomY, edgeY)
+    log:debug("Dimensions - Width: %.2f, Thickness: %.2f, margin: %d, glowSize: %.2f", 
+        width, thickness, margin, glowSize)
     
     local function makeEdge(xOffset: number, zOffset: number, edgeSize: Vector3)
         local p = Instance.new("Part")
@@ -76,17 +78,17 @@ function CubeVisuals.CreateFloorGlow(model: Model, cubeOrigin: CFrame, size: num
         CollectionService:AddTag(p, "GlowBar")
         
         -- More detailed logging
-        print(string.format("[CubeVisuals] Created edge: Pos=(%.2f, %.2f, %.2f), Size=(%s), Parent=%s, Material=%s, Color=%s, Transparency=%.2f", 
+        log:debug("Created edge: Pos=(%.2f, %.2f, %.2f), Size=(%s), Parent=%s, Material=%s, Color=%s, Transparency=%.2f", 
             p.Position.X, p.Position.Y, p.Position.Z, 
             tostring(edgeSize), 
             tostring(p.Parent and p.Parent:GetFullName() or "nil"),
             tostring(p.Material),
             tostring(p.Color),
-            p.Transparency))
+            p.Transparency)
         
         -- Check if part is actually in workspace
         local inWorkspace = p:IsDescendantOf(game.Workspace)
-        print(string.format("[CubeVisuals] Edge in Workspace: %s", tostring(inWorkspace)))
+        log:debug("Edge in Workspace: %s", tostring(inWorkspace))
         
         return p
     end
@@ -96,12 +98,12 @@ function CubeVisuals.CreateFloorGlow(model: Model, cubeOrigin: CFrame, size: num
     local barLength = glowSize + 2  -- Add extra length to the bars themselves
     
     -- Front and back edges (parallel to X axis) - width goes in Z direction
-    print(string.format("[CubeVisuals] Creating front/back edges - Size: (%.2f, %.2f, %.2f)", barLength, thickness, width))
+    log:debug("Creating front/back edges - Size: (%.2f, %.2f, %.2f)", barLength, thickness, width)
     local edge1 = makeEdge(0, glowSize/2, Vector3.new(barLength, thickness, width))
     local edge2 = makeEdge(0, -glowSize/2, Vector3.new(barLength, thickness, width))
     
     -- Left and right edges (parallel to Z axis) - width goes in X direction  
-    print(string.format("[CubeVisuals] Creating left/right edges - Size: (%.2f, %.2f, %.2f)", width, thickness, barLength))
+    log:debug("Creating left/right edges - Size: (%.2f, %.2f, %.2f)", width, thickness, barLength)
     local edge3 = makeEdge(glowSize/2, 0, Vector3.new(width, thickness, barLength))
     local edge4 = makeEdge(-glowSize/2, 0, Vector3.new(width, thickness, barLength))
     
@@ -134,7 +136,7 @@ function CubeVisuals.CreateFloorGlow(model: Model, cubeOrigin: CFrame, size: num
         Vector3.new(cubeOrigin.Position.X + half, floorY, cubeOrigin.Position.Z + half)
     ):ExpandToGrid(RESOLUTION)
     
-    print(string.format("[CubeVisuals] Replacing cube footprint with %s", tostring(replacementMat)))
+    log:debug("Replacing cube footprint with %s", tostring(replacementMat))
     
     if replacementMat == Enum.Material.Water then
         local mats, occs = Terrain:ReadVoxels(cubeFloorRegion, RESOLUTION)
@@ -166,8 +168,8 @@ function CubeVisuals.CreateFloorGlow(model: Model, cubeOrigin: CFrame, size: num
             Vector3.new(edge.Position.X + edge.Size.X/2 + pad, y0,         edge.Position.Z + edge.Size.Z/2 + pad)
         ):ExpandToGrid(RESOLUTION)
         
-        print(string.format("[CubeVisuals] Replacing materials under edge at Y=%.2f (region Y: %.2f to %.2f)", 
-            edge.Position.Y, y0 - depth, y0))
+        log:debug("Replacing materials under edge at Y=%.2f (region Y: %.2f to %.2f)", 
+            edge.Position.Y, y0 - depth, y0)
         
         -- Handle water specially, otherwise replace all terrain materials
         if replacementMat == Enum.Material.Water then
@@ -210,7 +212,7 @@ function CubeVisuals.CreateFloorGlow(model: Model, cubeOrigin: CFrame, size: num
         -- clearAboveEdge(edge)
     end
     
-    print(string.format("[CubeVisuals] Floor glow created with %d edges; floor=%s", 4, tostring(replacementMat)))
+    log:info("Floor glow created with %d edges; floor=%s", 4, tostring(replacementMat))
     
     return indicators
 end
@@ -265,7 +267,7 @@ function CubeVisuals.CreateCubeGlow(model: Model, cubeOrigin: CFrame, size: numb
     local cubeGlowColor = config and config.CUBE_GLOW_COLOR or Color3.fromRGB(100, 255, 255)
     local cubeGlowTransparency = config and config.CUBE_GLOW_TRANSPARENCY or 0.7
     
-    print(string.format("[CubeVisuals] Creating cube glow effect - Size: %.2f", size))
+    log:debug("Creating cube glow effect - Size: %.2f", size)
     
     -- Create a semi-transparent neon cube overlay
     local glowCube = Instance.new("Part")
