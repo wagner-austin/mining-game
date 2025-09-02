@@ -15,17 +15,14 @@ end
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
 local AmbientController = require(MiningGame:WaitForChild("AmbientController"))
 local SoundManager = require(MiningGame:WaitForChild("SoundManager"))
+local Logger = require(MiningGame:WaitForChild("Logger"))
+
+local log = Logger.new("AmbientLogging")
 
 -- Wait for initialization
 task.wait(3)
 
-print([[
-╔════════════════════════════════════════════╗
-║     AMBIENT LOGGING SYSTEM ACTIVE         ║
-╠════════════════════════════════════════════╣
-║ Patching modules to add detailed logging  ║
-╚════════════════════════════════════════════╝
-]])
+log:info("Ambient logging system active - patching modules for detailed logging")
 
 -- Track previous state for change detection
 local prevTargets = {}
@@ -34,12 +31,12 @@ local prevActive = {}
 -- Patch AmbientController to add logging
 local originalStart = AmbientController.Start
 function AmbientController.Start(...)
-    print("[AmbientLog] 🚀 AmbientController.Start() called")
+    log:info("AmbientController.Start() called")
     
     -- Check if it's actually starting the heartbeat
     task.spawn(function()
         task.wait(0.5)
-        print("[AmbientLog] Checking if AmbientController heartbeat is running...")
+        log:debug("Checking if AmbientController heartbeat is running...")
         
         -- Monitor for applyTargets calls
         local checkCount = 0
@@ -55,7 +52,7 @@ end
 
 local originalStop = AmbientController.Stop
 function AmbientController.Stop(...)
-    print("[AmbientLog] 🛑 AmbientController.Stop() called")
+    log:info("AmbientController.Stop() called")
     return originalStop(...)
 end
 
@@ -63,7 +60,7 @@ end
 local originalRegister = AmbientController.RegisterProvider
 if originalRegister then
     function AmbientController.RegisterProvider(provider: any)
-        print(string.format("[AmbientLog] 📦 Registering provider: %s", provider.id or "unknown"))
+        log:info("Registering provider: %s", provider.id or "unknown")
         return originalRegister(provider)
     end
 end
@@ -72,16 +69,16 @@ end
 local originalPlayAmbient = SoundManager.PlayAmbient
 function SoundManager.PlayAmbient(name: string, opts: any)
     local volume = opts and opts.volume or "default"
-    print(string.format("[AmbientLog] 🎵 PlayAmbient('%s', volume=%.3f)", name, typeof(volume) == "number" and volume or 0))
+    log:debug("PlayAmbient('%s', volume=%.3f)", name, typeof(volume) == "number" and volume or 0)
     
     local result = originalPlayAmbient(name, opts)
     
     if result then
-        print(string.format("  ✅ Sound created/updated: %s", result.Name or "unknown"))
-        print(string.format("     IsPlaying: %s | Volume: %.3f | Looped: %s", 
-            tostring(result.IsPlaying), result.Volume, tostring(result.Looped)))
+        log:debug("  ✅ Sound created/updated: %s", result.Name or "unknown")
+        log:debug("     IsPlaying: %s | Volume: %.3f | Looped: %s", 
+            tostring(result.IsPlaying), result.Volume, tostring(result.Looped))
     else
-        print("  ❌ Failed to create/update sound!")
+        log:debug("  ❌ Failed to create/update sound!")
     end
     
     return result
@@ -89,7 +86,7 @@ end
 
 local originalStopAmbient = SoundManager.StopAmbient
 function SoundManager.StopAmbient(name: string, fadeOut: any)
-    print(string.format("[AmbientLog] 🔇 StopAmbient('%s', fadeOut=%s)", name, tostring(fadeOut)))
+    log:debug("StopAmbient('%s', fadeOut=%s)", name, tostring(fadeOut))
     return originalStopAmbient(name, fadeOut)
 end
 
@@ -108,7 +105,7 @@ RunService.Heartbeat:Connect(function()
     local cam = workspace.CurrentCamera
     local ear = cam and cam.CFrame.Position
     if not ear then
-        print("[AmbientLog] ⚠️ No camera position available")
+        log:warn("No camera position available")
         return
     end
     
@@ -198,30 +195,30 @@ RunService.Heartbeat:Connect(function()
     
     -- Log if there are changes or every 5 seconds for heartbeat
     if #changes > 0 or logCounter % 5 == 0 then
-        print(string.format("\n[AmbientLog] === Update #%d (%.1fs) ===", logCounter, now))
-        print(string.format("  📍 Position: (%.0f, %.0f, %.0f)", ear.X, ear.Y, ear.Z))
+        log:debug("=== Update #%d (%.1fs) ===", logCounter, now)
+        log:debug("  📍 Position: (%.0f, %.0f, %.0f)", ear.X, ear.Y, ear.Z)
         
         if #zonesInRange > 0 then
-            print(string.format("  📡 In range of %d zones:", #zonesInRange))
+            log:debug("  📡 In range of %d zones:", #zonesInRange)
             for i, zone in ipairs(zonesInRange) do
                 local marker = i <= 2 and "🎯" or "⏸️"
-                print(string.format("    %s %s: dist=%d/%d vol=%.3f pri=%d", 
-                    marker, zone.key, zone.distance, zone.radius, zone.volume, zone.priority))
+                log:debug("    %s %s: dist=%d/%d vol=%.3f pri=%d", 
+                    marker, zone.key, zone.distance, zone.radius, zone.volume, zone.priority)
             end
         else
-            print("  📡 No zones in range")
+            log:debug("  📡 No zones in range")
         end
         
         if #activeAmbients > 0 then
-            print(string.format("  🎵 Playing %d sounds: %s", #activeAmbients, table.concat(activeAmbients, ", ")))
+            log:debug("  🎵 Playing %d sounds: %s", #activeAmbients, table.concat(activeAmbients, ", "))
         else
-            print("  🎵 No ambient sounds playing")
+            log:debug("  🎵 No ambient sounds playing")
         end
         
         if #changes > 0 then
-            print("  🔄 CHANGES:")
+            log:info("  🔄 CHANGES:")
             for _, change in ipairs(changes) do
-                print("    " .. change)
+                log:info("    " .. change)
             end
         end
     end
@@ -245,7 +242,7 @@ task.spawn(function()
             if hrp then
                 local pos = hrp.Position
                 if (pos - lastPos).Magnitude > MOVE_THRESHOLD then
-                    print(string.format("[AmbientLog] 🏃 Player moved %.0f studs", (pos - lastPos).Magnitude))
+                    log:info("Player moved %.0f studs", (pos - lastPos).Magnitude)
                     lastPos = pos
                 end
             end
