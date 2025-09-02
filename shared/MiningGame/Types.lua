@@ -2,10 +2,23 @@
 -- Types.lua
 -- Type definitions for the mining game system
 
+export type PurchaseEntry = {
+    kind: "DevProduct" | "GamePass",
+    id: number,
+    priceRobux: number,
+    at: number,
+    source: ("Prompt" | "Backfill")?,
+}
+
 export type MaterialPreferences = {
     palette: string,        -- Palette key (e.g., "default", "industrial")
     cubeMaterial: string,   -- MaterialKeys key (e.g., "rock", "basalt")
     floorMaterial: string,  -- MaterialKeys key (e.g., "concrete", "slate")
+}
+
+export type ThemeSettings = {
+    uiTheme: string,        -- UI theme key (e.g., "default", "ocean", "forest")
+    soundPack: string,      -- Sound pack key (e.g., "default", "retro")
 }
 
 export type PlayerStats = {
@@ -19,10 +32,34 @@ export type PlayerStats = {
     inventory: { [string]: number }, -- item id -> count
     equipped: EquippedItems,
     materialPreferences: MaterialPreferences?, -- Optional for backward compatibility
+    themeSettings: ThemeSettings?, -- Optional for backward compatibility
     totalBlocksDug: number,
     playtime: number,
     lastSaveTime: number,
     sessionStartTime: number?, -- Session-scoped, sent to clients in GetProfile
+    totalCoinsEarned: number?,   -- running lifetime counter
+    totalCoinsSpent: number?,    -- running lifetime counter
+    totalGemsEarned: number?,    -- running lifetime counter
+    totalGemsSpent: number?,     -- running lifetime counter
+    totalSessions: number?,      -- lifetime sessions count
+    lastLoginTime: number?,      -- unix
+    sessionStartBlocks: number?, -- baseline for this session
+    firstPlayTime: number?,      -- unix timestamp of first-ever join
+    firstDigTime: number?,       -- unix timestamp of first-ever dig
+    
+    -- Monetization tracking
+    robuxSpentLifetime: number?,
+    robuxSpentDevProducts: number?,
+    robuxSpentGamePasses: number?,
+    purchasesCount: number?,
+    firstPurchaseTime: number?,
+    lastPurchaseTime: number?,
+    sessionStartRobuxSpent: number?, -- baseline for session tracking
+    
+    -- Server-only fields (not sent to clients)
+    processedReceiptIds: { [string]: boolean }?, -- bounded map for idempotency (max 500)
+    ownedGamePasses: { [number]: boolean }?, -- snapshot to diff new purchases
+    purchaseLog: { PurchaseEntry }?, -- bounded log (max 20 recent purchases)
 }
 
 export type PetData = {
