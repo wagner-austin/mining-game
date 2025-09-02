@@ -10,6 +10,9 @@ local Lighting = game:GetService("Lighting")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
 local WorldTime = require(MiningGame:WaitForChild("WorldTime"))
+local Logger = require(MiningGame:WaitForChild("Logger"))
+
+local log = Logger.new("DayNightCycle")
 
 -- Wait for server Unix time remote
 local GetServerUnix = ReplicatedStorage:WaitForChild("GetServerUnix", 10) :: RemoteFunction?
@@ -25,10 +28,10 @@ if GetServerUnix then
 	serverUnixOffset = serverUnix - localServerTime
 	calibrationMethod = "Server remote"
 	
-	print(string.format("[DayNightCycle] Calibrated with server"))
-	print(string.format("  - Server Unix: %d", serverUnix))
-	print(string.format("  - Local server time: %.2f", localServerTime))
-	print(string.format("  - Offset: %.2f", serverUnixOffset))
+	log:info("Calibrated with server")
+	log:info("  - Server Unix: %d", serverUnix)
+	log:info("  - Local server time: %.2f", localServerTime)
+	log:info("  - Offset: %.2f", serverUnixOffset)
 else
 	-- Fallback: assume server and client have similar system time
 	warn("[DayNightCycle] GetServerUnix remote not found, using local time estimation")
@@ -60,13 +63,13 @@ RunService.RenderStepped:Connect(function()
 			lastLogTime = math.floor(newClockTime)
 			local period = WorldTime.getTimePeriod(newClockTime)
 			local isDay = WorldTime.isDay(newClockTime)
-			print(string.format("[DayNightCycle] Time: %.2f:00 (%s - %s) | Updates: %d", 
-				newClockTime, period, isDay and "Day" or "Night", updateCount))
+			log:debug("Time: %.2f:00 (%s - %s) | Updates: %d", 
+				newClockTime, period, isDay and "Day" or "Night", updateCount)
 		end
 	end
 end)
 
-print("[DayNightCycle] Initialized")
-print("  - Day length:", WorldTime.MINUTES_PER_DAY, "minutes")
-print("  - Calibration:", calibrationMethod)
-print("  - Initial time:", string.format("%.2f:00", WorldTime.clockTimeFromUnix(os.time())))
+log:info("Initialized")
+log:info("  - Day length: %d minutes", WorldTime.MINUTES_PER_DAY)
+log:info("  - Calibration: %s", calibrationMethod)
+log:info("  - Initial time: %.2f:00", WorldTime.clockTimeFromUnix(os.time()))
