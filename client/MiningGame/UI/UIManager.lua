@@ -8,14 +8,20 @@ local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 
 -- Import Theme and UIUtils
-local Theme = require(ReplicatedStorage:WaitForChild("MiningGame"):WaitForChild("UI"):WaitForChild("Theme"))
-local UIUtils = require(ReplicatedStorage:WaitForChild("MiningGame"):WaitForChild("UI"):WaitForChild("UIUtils"))
+local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
+local UIFolder = MiningGame:WaitForChild("UI")
+local Theme = require(UIFolder:WaitForChild("Theme"))
+local UIUtils = require(UIFolder:WaitForChild("UIUtils"))
+local ThemeManager = require(UIFolder:WaitForChild("ThemeManager"))
+local ThemeRefresher = require(UIFolder:WaitForChild("ThemeRefresher"))
+local Logger = require(MiningGame:WaitForChild("Logger"))
+local log = Logger.new("UIManager")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
 -- Use Theme colors
-local UI_COLORS = Theme.colors
+local UI_COLORS = Theme.colors  -- Will be updated in refreshTheme
 local RARITY_COLORS = Theme.rarityColors
 
 -- Types
@@ -41,6 +47,10 @@ function UIManager.new()
     self.mainHUD = nil :: Frame?
     self.isInitialized = false
     self._cons = {} :: {RBXScriptConnection}
+    self._transitionUnlockAt = 0 :: number  -- Timestamp for transition cooldown
+    self._watchdogNextCheckAt = 0 :: number  -- Next watchdog check time
+    self._watchdogLastVisibleAt = 0 :: number  -- Last time UI was visible
+    self._isRecovering = false :: boolean  -- Prevent re-entry during recovery
     
     -- Animation defaults from Theme
     self.tweenInfo = Theme.animations.Standard
@@ -82,6 +92,10 @@ function UIManager:init()
     self.overlayGui.IgnoreGuiInset = true
     self.overlayGui.Parent = playerGui
     
+    -- Bind the whole UI to ThemeRefresher so theme flips repaint everything
+    ThemeRefresher.BindTree(self.screenGui)
+    ThemeRefresher.BindTree(self.overlayGui)
+    
     -- Removed UIScale - we want full screen UI without scaling
     
     -- Toast stack container (now inside main container, dynamically positioned)
@@ -97,6 +111,7 @@ function UIManager:init()
     stackLayout.VerticalAlignment = Enum.VerticalAlignment.Top
     stackLayout.SortOrder = Enum.SortOrder.LayoutOrder
     stackLayout.Parent = self.toastStack
+    self.toastLayout = stackLayout
     
     -- Function to update toast position dynamically
     self.updateToastPosition = function()
@@ -115,13 +130,69 @@ function UIManager:init()
         end
     end
     
-    -- Set initial position
-    self.updateToastPosition()
+    -- React to runtime theme changes
+    table.insert(self._cons, ThemeManager.Changed():Connect(function()
+        -- Repaint all bound instances, then update frosted surfaces and do any layout tweaks
+        ThemeRefresher.Refresh()
+        UIUtils.refreshFrosting()
+        if self.refreshTheme then self:refreshTheme() end
+    end))
+    
+    -- Keep ScreenGuis attached to PlayerGui
+    self:_bindAncestryGuard(self.screenGui)
+    self:_bindAncestryGuard(self.overlayGui)
+    
+    -- Watchdog: scan ~2x/sec; recover if nothing visible for >1.5s
+    self._watchdogLastVisibleAt = time()
+    self._lastWatchdogLog = 0
+    table.insert(self._cons, RunService.Heartbeat:Connect(function()
+        local now = time()
+        if now < self._watchdogNextCheckAt then return end
+        self._watchdogNextCheckAt = now + 0.5
+        
+        local hasUI = self:_anyUIVisible()
+        if hasUI then
+            self._watchdogLastVisibleAt = now
+            return
+        end
+        
+        -- Log once per second when UI is missing
+        if math.floor(now) ~= self._lastWatchdogLog then
+            self._lastWatchdogLog = math.floor(now)
+            log:debug("Watchdog: No UI visible, will recover in %.1fs", 
+                 math.max(0, 1.5 - (now - self._watchdogLastVisibleAt)))
+        end
+        
+        if (now - self._watchdogLastVisibleAt) > 1.5 then
+            log:debug("Watchdog triggered recovery!")
+            self:_showMainHUDNow()
+            self._watchdogLastVisibleAt = now
+        end
+    end))
+    
+    -- Desktop hotkey escape hatch (F10 to recover)
+    local UserInputService = game:GetService("UserInputService")
+    if UserInputService.KeyboardEnabled then
+        table.insert(self._cons, UserInputService.InputBegan:Connect(function(input, gp)
+            if gp then return end
+            if input.KeyCode == Enum.KeyCode.F10 then
+                self:_showMainHUDNow()
+                log:info("F10 triggered UI recovery")
+            end
+        end))
+    end
+    
+    -- Apply initial theme + position
+    if self.refreshTheme then 
+        self:refreshTheme() 
+    else 
+        self.updateToastPosition() 
+    end
     
     self.container = container
     self.isInitialized = true
     
-    print("[UIManager] Initialized with mobile-safe settings")
+    log:info("Initialized with mobile-safe settings")
 end
 
 -- UIScale removed - no longer needed
@@ -133,26 +204,64 @@ function UIManager:refreshLayout()
     end
 end
 
+function UIManager:refreshTheme()
+    -- Update the global colors reference
+    UI_COLORS = Theme.colors
+    RARITY_COLORS = Theme.rarityColors
+    
+    -- 1) If themes change gap/width/anchor, update those:
+    if self.toastLayout then
+        self.toastLayout.Padding = UDim.new(0, Theme.toast.gap)
+    end
+    self.toastStack.Size = UDim2.new(0, Theme.toast.maxWidth, 0.5, 0)
+    
+    -- 2) Recompute exact position with chip height offset etc.
+    if self.updateToastPosition then
+        self.updateToastPosition()
+    end
+    
+    -- 3) Refresh all active scenes to pick up new colors
+    for _, scene in pairs(self.scenes) do
+        if scene.frame and typeof(scene.refreshTheme) == "function" then
+            scene:refreshTheme()
+        end
+    end
+end
+
 function UIManager:registerScene(scene: Scene)
     -- Validate scene interface
     UIUtils.validateScene(scene)
     
     self.scenes[scene.name] = scene
-    print(string.format("[UIManager] Registered scene: %s", scene.name))
+    log:debug("Registered scene: %s", scene.name)
+end
+
+-- Helper to get cooldown duration based on Theme animations
+local function getCooldownSeconds()
+    local t1 = Theme.animations.Standard.Time or 0.25
+    local t2 = Theme.animations.Quick.Time or 0.15
+    local t3 = Theme.animations.Smooth.Time or 0.35
+    return math.max(t1, t2, t3) * 0.9  -- Slight under-shoot to keep UI snappy
 end
 
 function UIManager:showScene(sceneName: string, ...: any)
     local scene = self.scenes[sceneName]
     if not scene then
-        warn(string.format("[UIManager] Scene not found: %s", sceneName))
+        log:warn("Scene not found: %s", sceneName)
         return
     end
     
-    -- Toggle behavior: if scene is already active, hide it
+    -- Allow immediate hide if the scene is already active (don't block closes)
     if self.activeScene == scene then
         self:hideScene(sceneName)
         return
     end
+    
+    -- Only guard opening during animation cooldown
+    if time() < (self._transitionUnlockAt or 0) then
+        return
+    end
+    self._transitionUnlockAt = time() + getCooldownSeconds()
     
     -- Initialize scene if needed - pass manager reference
     if not scene.frame then
@@ -177,13 +286,14 @@ function UIManager:showScene(sceneName: string, ...: any)
     scene:show(...)
     self.activeScene = scene
     
-    print(string.format("[UIManager] Showing scene: %s", sceneName))
+    log:info("Showing scene: %s", sceneName)
 end
 
 function UIManager:hideScene(sceneName: string)
     local scene = self.scenes[sceneName]
     if not scene then return end
     
+    -- Never block hides - users can always close what's open
     scene:hide()
     
     -- If we hid the active scene, pop back to previous
@@ -193,10 +303,15 @@ function UIManager:hideScene(sceneName: string)
         if prev then
             prev:show()
             self.activeScene = prev
-            print(string.format("[UIManager] Returning to scene: %s", prev.name))
+            log:info("Returning to scene: %s", prev.name)
         elseif self.scenes["MainHUD"] then
-            -- Fallback to MainHUD if no previous scene
-            self:showScene("MainHUD")
+            -- Re-open MainHUD. We're hiding, so skip the open guard.
+            local hud = self.scenes["MainHUD"]
+            if not hud.frame then 
+                hud:init(self) 
+            end
+            hud:show()
+            self.activeScene = hud
         end
     else
         -- Remove from stack if it was there (to avoid stale refs)
@@ -207,6 +322,14 @@ function UIManager:hideScene(sceneName: string)
             end
         end
     end
+    
+    -- Defensive check: if no UI is visible after hide, recover immediately
+    task.defer(function()
+        if not self:_anyUIVisible() then
+            log:debug("No UI visible after hideScene, recovering immediately")
+            self:_showMainHUDNow()
+        end
+    end)
 end
 
 function UIManager:hideAllScenes()
@@ -519,10 +642,259 @@ function UIManager:getRarityColor(rarity: string): Color3
     return RARITY_COLORS[key] or UI_COLORS.Text
 end
 
+-- Helper to bind ancestry guard to a GUI
+function UIManager:_bindAncestryGuard(gui: Instance)
+    table.insert(self._cons, gui.AncestryChanged:Connect(function(_, parent)
+        if parent ~= playerGui then
+            local ok = pcall(function() gui.Parent = playerGui end)
+            if ok then
+                log:info("Reparented UI GUI back to PlayerGui")
+            end
+        end
+    end))
+end
+
+-- Is this GuiObject effectively visible? (self.Visible + all GuiObject parents Visible, and root ScreenGui Enabled)
+local function _isEffectivelyVisible(inst: GuiObject, stopAt: Instance?)
+    if not inst.Visible then return false end
+    local p = inst.Parent
+    while p and p ~= stopAt do
+        if p:IsA("GuiObject") and (p.Visible == false) then return false end
+        p = p.Parent
+    end
+    return true
+end
+
+-- A GuiObject is "visually meaningful" (not a transparent container / empty image/text)
+local function _isMeaningfullyDrawn(inst: GuiObject): boolean
+    -- Ignore explicit scrims/backdrops
+    if inst:GetAttribute("isScrim") == true or inst.Name == "Scrim" then
+        return false
+    end
+    
+    local w, h = inst.AbsoluteSize.X, inst.AbsoluteSize.Y
+    if w <= 2 or h <= 2 then return false end
+    
+    if inst:IsA("Frame") then
+        -- Pure container? (nearly fully transparent)
+        return (inst.BackgroundTransparency or 0) < 0.99
+    elseif inst:IsA("TextLabel") or inst:IsA("TextButton") then
+        local tt = inst.TextTransparency or 0
+        local bt = inst.BackgroundTransparency or 0
+        return (tt < 0.99) or (bt < 0.99)
+    elseif inst:IsA("ImageLabel") or inst:IsA("ImageButton") then
+        local it = inst.ImageTransparency or 0
+        local bt = inst.BackgroundTransparency or 0
+        return (it < 0.99) or (bt < 0.99)
+    else
+        -- Other GuiObjects (ViewportFrame, etc.) – assume meaningful if not tiny
+        return true
+    end
+end
+
+local function _anyVisibleUnder(root: Instance?): boolean
+    if not root then return false end
+    for _, inst in ipairs(root:GetDescendants()) do
+        if inst:IsA("GuiObject") then
+            if _isEffectivelyVisible(inst, root) and _isMeaningfullyDrawn(inst) then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+-- Alias for cleanup
+function UIManager:destroy()
+    self:cleanup()
+end
+
+function UIManager:_anyUIVisible(): boolean
+    -- ScreenGui must exist and be enabled
+    if not self.screenGui or not self.screenGui.Parent then return false end
+    if (self.screenGui.Enabled ~= nil) and (self.screenGui.Enabled == false) then return false end
+    
+    -- Special check: if MainHUD is active and its frame exists, consider UI visible
+    -- (even if elements are still fading in)
+    if self.activeScene and self.activeScene.name == "MainHUD" and self.activeScene.frame then
+        return true
+    end
+    
+    -- Overlay also must not be globally disabled (rare, but cheap to check)
+    if self.overlayGui and (self.overlayGui.Enabled ~= nil) and (self.overlayGui.Enabled == false) then
+        -- ignore overlay if disabled
+        return _anyVisibleUnder(self.container)
+    end
+    
+    -- Visible if container has content, or overlay has content that isn't just a scrim
+    return _anyVisibleUnder(self.container) or _anyVisibleUnder(self.overlayGui)
+end
+
+function UIManager:_ensureRootsExist()
+    -- Try to reparent screenGui first, only recreate if that fails
+    if self.screenGui then
+        local ok = pcall(function()
+            if self.screenGui.Parent ~= playerGui then
+                self.screenGui.Parent = playerGui
+            end
+        end)
+        if not ok then
+            self.screenGui = nil
+        end
+    end
+    
+    if not self.screenGui then
+        self.screenGui = Instance.new("ScreenGui")
+        self.screenGui.Name = "MiningGameUI"
+        self.screenGui.ResetOnSpawn = false
+        self.screenGui.DisplayOrder = 1
+        self.screenGui.ScreenInsets = Enum.ScreenInsets.DeviceSafeInsets
+        self.screenGui.ClipToDeviceSafeArea = true
+        self.screenGui.SafeAreaCompatibility = Enum.SafeAreaCompatibility.None
+        self.screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        self.screenGui.IgnoreGuiInset = true
+        self.screenGui.Parent = playerGui
+        
+        ThemeRefresher.BindTree(self.screenGui)
+        self:_bindAncestryGuard(self.screenGui)
+    end
+    
+    -- Ensure container exists
+    if not self.container or not self.container.Parent then
+        local container = Instance.new("Frame")
+        container.Name = "Container"
+        container.Size = UDim2.new(1, 0, 1, 0)
+        container.BackgroundTransparency = 1
+        container.Parent = self.screenGui
+        self.container = container
+    end
+    
+    -- Try to reparent overlayGui first, only recreate if that fails
+    if self.overlayGui then
+        local ok = pcall(function()
+            if self.overlayGui.Parent ~= playerGui then
+                self.overlayGui.Parent = playerGui
+            end
+        end)
+        if not ok then
+            self.overlayGui = nil
+        end
+    end
+    
+    if not self.overlayGui then
+        self.overlayGui = Instance.new("ScreenGui")
+        self.overlayGui.Name = "MiningGameUI_Overlay"
+        self.overlayGui.ResetOnSpawn = false
+        self.overlayGui.DisplayOrder = 100
+        self.overlayGui.ScreenInsets = Enum.ScreenInsets.DeviceSafeInsets
+        self.overlayGui.ClipToDeviceSafeArea = true
+        self.overlayGui.SafeAreaCompatibility = Enum.SafeAreaCompatibility.None
+        self.overlayGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        self.overlayGui.IgnoreGuiInset = true
+        self.overlayGui.Parent = playerGui
+        
+        ThemeRefresher.BindTree(self.overlayGui)
+        self:_bindAncestryGuard(self.overlayGui)
+    end
+    
+    -- Recreate toast stack if needed
+    if not self.toastStack or not self.toastStack.Parent then
+        self.toastStack = Instance.new("Frame")
+        self.toastStack.Name = "ToastStack"
+        self.toastStack.BackgroundTransparency = 1
+        self.toastStack.Parent = self.container
+        
+        local stackLayout = Instance.new("UIListLayout")
+        stackLayout.FillDirection = Enum.FillDirection.Vertical
+        stackLayout.Padding = UDim.new(0, Theme.toast.gap)
+        stackLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
+        stackLayout.VerticalAlignment = Enum.VerticalAlignment.Top
+        stackLayout.SortOrder = Enum.SortOrder.LayoutOrder
+        stackLayout.Parent = self.toastStack
+        self.toastLayout = stackLayout
+        
+        if self.updateToastPosition then
+            self.updateToastPosition()
+        end
+    end
+end
+
+function UIManager:_showMainHUDNow()
+    -- Prevent re-entry during recovery
+    if self._isRecovering then return end
+    self._isRecovering = true
+    
+    -- Ensure root elements exist
+    self:_ensureRootsExist()
+    
+    -- Clear any modal/scrim leftovers
+    if self.overlayGui then
+        for _, child in ipairs(self.overlayGui:GetChildren()) do
+            child:Destroy()
+        end
+    end
+    
+    -- Hide everything else (don't mutate stack with showScene/hideScene)
+    for name, scene in pairs(self.scenes) do
+        local s = scene
+        if s and s.hide then
+            pcall(function() s:hide() end)
+        end
+    end
+    self.sceneStack = {}
+    self.activeScene = nil
+    
+    local hud = self.scenes["MainHUD"]
+    if hud then
+        if not hud.frame then
+            pcall(function() hud:init(self) end)
+        end
+        pcall(function() hud:show() end)
+        self.activeScene = hud
+        -- Let future opens proceed immediately
+        self._transitionUnlockAt = 0
+        -- Keep toasts in the right spot again
+        if self.updateToastPosition then self.updateToastPosition() end
+        
+        -- Clean up any recovery buttons
+        for _, child in ipairs(self.screenGui:GetChildren()) do
+            if child:IsA("TextButton") and child.Text == "Tap to recover UI" then
+                child:Destroy()
+            end
+        end
+        
+        -- Reset watchdog timer to give UI time to appear
+        self._watchdogLastVisibleAt = time() + 2 -- Give 2 seconds for animations
+        
+        log:debug("Watchdog recovered UI by showing MainHUD")
+    else
+        -- As a last resort, show a tiny recovery prompt
+        local btn = Instance.new("TextButton")
+        btn.Text = "Tap to recover UI"
+        btn.Size = UDim2.fromOffset(220, 48)
+        btn.AnchorPoint = Vector2.new(0.5, 0.5)
+        btn.Position = UDim2.fromScale(0.5, 0.5)
+        btn.BackgroundColor3 = Theme.colors.Surface
+        btn.TextColor3 = Theme.colors.Text
+        btn.Font = Theme.fonts.Primary
+        btn.TextSize = 20
+        btn.Parent = self.screenGui
+        btn.Activated:Connect(function()
+            btn:Destroy()
+            -- Try again (maybe MainHUD registered a moment later)
+            self:_showMainHUDNow()
+        end)
+        log:warn("No MainHUD scene registered; showing recovery button")
+    end
+    
+    -- Clear recovery flag after a frame
+    task.defer(function() self._isRecovering = false end)
+end
+
 function UIManager:cleanup()
-    -- Disconnect all connections
+    -- Disconnect all connections (including theme listener)
     for _, c in ipairs(self._cons) do 
-        if c.Disconnect then 
+        if c.Connected then 
             c:Disconnect() 
         end 
     end
