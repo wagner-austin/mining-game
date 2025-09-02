@@ -57,6 +57,15 @@ PlayerProfile = {
     sessionStartTime = nil, -- Injected at runtime (not persisted)
     lastSaveTime = os.time(),
     
+    -- Metrics Tracking (Added for comprehensive metrics system)
+    totalCoinsEarned = 0,   -- Lifetime coins earned
+    totalCoinsSpent = 0,    -- Lifetime coins spent
+    totalGemsEarned = 0,    -- Lifetime gems earned
+    totalGemsSpent = 0,     -- Lifetime gems spent
+    totalSessions = 0,      -- Number of sessions played
+    lastLoginTime = os.time(), -- Last login timestamp
+    sessionStartBlocks = 0, -- Blocks at session start (baseline)
+    
     -- Progression
     materialId = "tier1",   -- Current cube material
     cubeSeed = 0,           -- Unique cube generation seed
@@ -84,7 +93,6 @@ PlayerProfile = {
     -- Pets
     pets = {},
     activePetSlots = {}
-}
 
 CubeState = {
     dugCells = {},  -- Array of dug cell positions
@@ -160,7 +168,7 @@ DataService:QueueSave(player)
 
 ## SessionService
 
-Tracks player session times and updates lifetime playtime.
+Tracks player session times and updates lifetime playtime. Also tracks session baselines for metrics.
 
 ### API
 
@@ -175,6 +183,11 @@ local elapsed = SessionService.getSessionElapsed(userId)
 ### Integration with DataService
 
 ```lua
+-- On PlayerAdded (sets baseline metrics)
+profile.totalSessions = (profile.totalSessions or 0) + 1
+profile.lastLoginTime = os.time()
+profile.sessionStartBlocks = profile.totalBlocksDug or 0
+
 -- On PlayerRemoving
 local sessionDuration = os.time() - sessionStartTime
 DataService:AddPlaytime(player, sessionDuration)
@@ -500,9 +513,91 @@ end
 6. **Compression**: Consider compressing large cube states
 7. **Connection Cleanup**: Always disconnect provider subscriptions
 
+## Metrics System Integration
+
+The account system now includes comprehensive metrics tracking through UserMetricsService.
+
+### UserMetricsService
+
+Provides cached, aggregated metrics for players with automatic invalidation.
+
+```lua
+-- Get player metrics
+local metrics = UserMetricsService:GetMetrics(player)
+
+-- Invalidate cache (called automatically on data changes)
+UserMetricsService:Invalidate(player)
+
+-- Get server-wide metrics (permission gated)
+local serverMetrics = UserMetricsService:GetServerMetrics()
+```
+
+### Metrics Structure
+
+```lua
+UserMetrics = {
+    gameplay = {
+        totalBlocksDug: number,
+        dugThisSession: number,
+        blocksPerMinute: number
+    },
+    economy = {
+        coins: number,
+        gems: number,
+        totalCoinsEarned: number,
+        totalCoinsSpent: number,
+        totalGemsEarned: number,
+        totalGemsSpent: number,
+        netWorth: number
+    },
+    session = {
+        sessionStartTime: number,
+        sessionDurationSec: number,
+        totalPlaytimeSec: number,
+        totalSessions: number,
+        avgSessionLengthSec: number
+    },
+    progression = {
+        speedLevel: number,
+        sizeLevel: number,
+        petsOwned: number,
+        activePets: number,
+        materialTier: number
+    },
+    world = {
+        currentMaterial: string,
+        cubeSize: number,
+        totalChunks: number,
+        dugCells: number
+    }
+}
+```
+
+### Delta-Based Currency Tracking
+
+The system uses delta-based tracking to accurately monitor earned vs spent:
+
+```lua
+-- In DataService:AddCurrency
+local delta = after - before
+if delta >= 0 then
+    profile.totalCoinsEarned = (profile.totalCoinsEarned or 0) + delta
+else
+    profile.totalCoinsSpent = (profile.totalCoinsSpent or 0) + (-delta)
+end
+```
+
+### Performance Features
+
+- **5-second cache TTL**: Reduces computation overhead
+- **Lazy module loading**: Avoids circular dependencies
+- **Automatic cache invalidation**: On dig actions and currency changes
+- **Profile loading fallback**: Ensures data availability
+
 ## Security
 
 1. **Server Validation**: Always validate data changes server-side
 2. **Rate Limiting**: Limit save frequency per player
 3. **Data Sanitization**: Clean input before saving
 4. **Access Control**: Verify player owns data being accessed
+5. **Permission Gating**: Server metrics restricted to authorized users
