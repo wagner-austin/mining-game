@@ -6,6 +6,8 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("MiningGame")
+local Logger = require(Shared:WaitForChild("Logger"))
+local log = Logger.new("CubePositionService")
 local GameConfig = require(Shared:WaitForChild("GameConfig"))
 
 local CubePositionService = {}
@@ -50,6 +52,6 @@ Players.PlayerRemoving:Connect(function(player)
     playerOrigins[player] = nil
 end)
 
-print("[CubePositionService] Initialized")
+log:info("Initialized")
 
 return CubePositionService
