@@ -13,6 +13,11 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Movement = ReplicatedStorage:WaitForChild("Movement")
 local Config = require(Movement:WaitForChild("Config"))
 
+-- Get Logger
+local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
+local Logger = require(MiningGame:WaitForChild("Logger"))
+local log = Logger.new("Gravity")
+
 -- Default Roblox gravity is 196.2 studs/second²
 local DEFAULT_GRAVITY = 196.2
 
@@ -26,10 +31,10 @@ local newGravity = math.clamp(DEFAULT_GRAVITY * gravityMult, 50, 600)
 workspace.Gravity = newGravity
 
 -- Log the gravity change
-print(string.format("[Gravity] Set server gravity to %.1f (%.2fx normal)", newGravity, gravityMult))
+log:info("Set server gravity to %.1f (%.2fx normal)", newGravity, gravityMult)
 
 -- Optional: Listen for gravity changes if we want dynamic gravity events later
 -- This could be useful for special zones or events
 workspace:GetPropertyChangedSignal("Gravity"):Connect(function()
-    print(string.format("[Gravity] Gravity changed to %.1f", workspace.Gravity))
+    log:debug("Gravity changed to %.1f", workspace.Gravity)
 end)

@@ -6,6 +6,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local MarketplaceService = game:GetService("MarketplaceService")
 
 local Shared = ReplicatedStorage:WaitForChild("MiningGame")
+local Logger = require(Shared:WaitForChild("Logger"))
+local log = Logger.new("UpgradeService")
 local GameConfig = require(Shared:WaitForChild("GameConfig"))
 local Types = require(Shared:WaitForChild("Types"))
 
@@ -178,7 +180,8 @@ function UpgradeService:PurchaseUpgrade(
     end
     
     -- Deduct cost and apply upgrade
-    profile.coins = profile.coins - nextLevel.cost
+    local DataService = require(script.Parent.DataService)
+    DataService:AddCurrency(player, "coins", -nextLevel.cost)
     profile.upgrades[upgradeType] = nextLevel.level
     
     -- Find cost of next level after this one
@@ -276,6 +279,6 @@ function UpgradeService:GetUpgradeProgress(profile: Types.PlayerStats): {[string
     return progress
 end
 
-print("[UpgradeService] Initialized")
+log:info("Initialized")
 
 return UpgradeService

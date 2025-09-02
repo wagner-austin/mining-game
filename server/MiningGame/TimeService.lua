@@ -9,6 +9,8 @@ local HttpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
 local WorldTime = require(MiningGame:WaitForChild("WorldTime"))
+local Logger = require(MiningGame:WaitForChild("Logger"))
+local log = Logger.new("TimeService")
 
 local TimeService = {}
 TimeService.__index = TimeService
@@ -56,8 +58,8 @@ local function loopDaily(eventId: string)
 		ev = scheduledEvents[eventId]
 		if not ev or not ev.running then return end
 		
-		print(string.format("[TimeService] Firing event at %d:00 (current time: %.2f)", 
-			ev.hour, WorldTime.clockTimeFromUnix(os.time())))
+		log:debug("Firing event at %d:00 (current time: %.2f)", 
+			ev.hour, WorldTime.clockTimeFromUnix(os.time()))
 		
 		local ok, err = pcall(ev.callback)
 		if not ok then
@@ -66,11 +68,11 @@ local function loopDaily(eventId: string)
 		
 		if ev.recurring then
 			ev.nextUnix += WorldTime.secondsPerGameDay()
-			print(string.format("[TimeService] Rescheduled recurring event at %d:00 for next cycle", ev.hour))
+			log:debug("Rescheduled recurring event at %d:00 for next cycle", ev.hour)
 		else
 			ev.running = false
 			scheduledEvents[eventId] = nil
-			print(string.format("[TimeService] Completed one-time event at %d:00", ev.hour))
+			log:debug("Completed one-time event at %d:00", ev.hour)
 			return
 		end
 	end
@@ -92,8 +94,8 @@ function TimeService:ScheduleEvent(hour: number, callback: () -> (), recurring: 
 	
 	-- Log scheduling
 	local eventType = recurring and "recurring" or "one-time"
-	print(string.format("[TimeService] Scheduled %s event at %d:00 - fires in %.1f seconds (%.2f minutes)", 
-		eventType, hour, secondsUntil, secondsUntil / 60))
+	log:info("Scheduled %s event at %d:00 - fires in %.1f seconds (%.2f minutes)", 
+		eventType, hour, secondsUntil, secondsUntil / 60)
 	
 	task.spawn(loopDaily, id)
 	return id
@@ -132,10 +134,10 @@ function TimeService:Initialize()
 	local period = self:GetTimePeriod()
 	local dayNight = self:IsDay() and "Day" or "Night"
 	
-	print(string.format("[TimeService] Initialized"))
-	print(string.format("  - Current time: %.2f:00 (%s - %s)", currentTime, period, dayNight))
-	print(string.format("  - Day length: %d real minutes", WorldTime.MINUTES_PER_DAY))
-	print(string.format("  - Unix epoch: %d", WorldTime.EPOCH_UNIX))
+	log:info("Initialized")
+	log:info("  - Current time: %.2f:00 (%s - %s)", currentTime, period, dayNight)
+	log:info("  - Day length: %d real minutes", WorldTime.MINUTES_PER_DAY)
+	log:info("  - Unix epoch: %d", WorldTime.EPOCH_UNIX)
 	
 	-- Clean up on server shutdown
 	game:BindToClose(function()

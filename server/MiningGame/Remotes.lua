@@ -5,6 +5,10 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
+local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
+local Logger = require(MiningGame:WaitForChild("Logger"))
+local log = Logger.new("Remotes")
+
 -- Wait for initialization in Studio
 if RunService:IsStudio() then
     wait(0.1)
@@ -73,6 +77,10 @@ local remoteFunctions = {
     -- Settings
     UpdateSettings = createRemoteFunction("UpdateSettings"),
     
+    -- Theme settings
+    UpdateThemeSettings = createRemoteFunction("UpdateThemeSettings"),
+    GetThemeSettings = createRemoteFunction("GetThemeSettings"),
+    
     -- Teleportation
     TeleportToHome = createRemoteFunction("TeleportToHome"),
     
@@ -86,6 +94,10 @@ local remoteFunctions = {
     ApplyFloorMaterial = createRemoteFunction("ApplyFloorMaterial"),
     GetMaterialPreferences = createRemoteFunction("GetMaterialPreferences"),
     SetPalettePreference = createRemoteFunction("SetPalettePreference"),
+    
+    -- Metrics
+    GetMetrics = createRemoteFunction("GetMetrics"),
+    GetServerMetrics = createRemoteFunction("GetServerMetrics"),
 }
 
 -- Create RemoteEvents (server -> client, no return value)
@@ -102,6 +114,7 @@ local remoteEvents = {
     OnDigFeedback = createRemoteEvent("OnDigFeedback"),
     OnTerrainUpdate = createRemoteEvent("OnTerrainUpdate"),
     OnLootDropped = createRemoteEvent("OnLootDropped"),
+    OnFirstDig = createRemoteEvent("OnFirstDig"),
     
     -- UI notifications
     OnNotification = createRemoteEvent("OnNotification"),
@@ -122,7 +135,7 @@ local remoteEvents = {
     OnTerrainPoke = createRemoteEvent("OnTerrainPoke"),
 }
 
-print("[Remotes] Initialized all RemoteEvents and RemoteFunctions")
+log:info("Initialized all RemoteEvents and RemoteFunctions")
 
 -- Return the remotes table
 return {
