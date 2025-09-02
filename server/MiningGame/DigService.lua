@@ -18,6 +18,9 @@ local MaterialKeys = require(Shared:WaitForChild("MaterialKeys"))
 local DataService = require(script.Parent.DataService)
 local GridService = require(script.Parent.GridService)
 local LootService = require(script.Parent.LootService)
+
+-- Lazy-load UserMetricsService to avoid circular dependency
+local UserMetricsService
 local UpgradeService = require(script.Parent.UpgradeService)
 local InventoryService = require(script.Parent.InventoryService)
 local CubePositionService = require(script.Parent.CubePositionService)
@@ -220,8 +223,18 @@ function DigService:ProcessDigRequest(player: Player, worldPos: Vector3): Types.
         end
     end
     
-    -- Update statistics
-    profile.totalBlocksDug = profile.totalBlocksDug + #dugCells
+        -- Update statistics
+        local wasFirstDig = profile.firstDigTime == nil
+        profile.totalBlocksDug = profile.totalBlocksDug + #dugCells
+        if profile.firstDigTime == nil then
+            profile.firstDigTime = os.time()
+        end
+    
+    -- Invalidate metrics cache for instant BPM updates
+    if not UserMetricsService then
+        UserMetricsService = require(script.Parent.UserMetricsService)
+    end
+    pcall(function() UserMetricsService:Invalidate(player) end)
     
     -- Update cooldown
     lastDigTime[userId] = now
@@ -254,6 +267,14 @@ function DigService:ProcessDigRequest(player: Player, worldPos: Vector3): Types.
         local poke = dugCells[1]
         local worldCenter = GridMath.cellToWorld(poke.x, poke.y, poke.z, cubeData.origin, GameConfig.Grid.CELL_SIZE_STUDS)
         Remotes.RE.OnTerrainPoke:FireClient(player, { pos = worldCenter })
+    end
+    
+    -- Fire first dig event if this was the player's first ever dig
+    if wasFirstDig then
+        Remotes.RE.OnFirstDig:FireClient(player, {
+            timestamp = os.time(),
+            totalBlocksDug = profile.totalBlocksDug,
+        })
     end
     
     return {
