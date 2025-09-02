@@ -91,6 +91,40 @@ Theme.basePanel = {
     dividerThickness = 2,
 }
 
+-- Card/Surface styling (used by dropdowns, section cards, etc.)
+Theme.card = {
+    backgroundTransparency = 0.2,  -- Consistent opacity for all cards/surfaces
+    backgroundTransparencyDim = 0.4,  -- For less prominent cards if needed
+}
+
+-- Button styling
+Theme.button = {
+    primaryTransparency = 0.8,  -- Primary colored buttons
+    primaryHoverTransparency = 0.6,  -- On hover
+    surfaceTransparency = 0.85,  -- Surface colored buttons (action buttons in AccountTab)
+    surfaceHoverTransparency = 0.7,  -- On hover
+}
+
+-- Dropdown option styling (mobile app style)
+Theme.dropdown = {
+    optionTransparency = 0.92,  -- Subtle background for options (slightly more visible)
+    optionHoverTransparency = 0.82,  -- More visible on hover
+    selectedTransparency = 0.7,  -- Selected option highlight
+    optionHeight = 44,  -- Touch-friendly height (iOS standard)
+    listMaxHeight = 250,  -- About 5-6 options visible
+    listPadding = 6,  -- Compact padding
+    optionGap = 0,  -- No gaps for continuous list
+    listOffset = 8,  -- Gap between button and dropdown
+    listWidthRatio = 1.0,  -- Same width as button
+    listBackgroundTransparency = 0.1,  -- More opaque background
+    shadowTransparency = 0.4,  -- Shadow effect
+}
+
+-- UI element styling
+Theme.ui = {
+    dividerTransparency = 0.8,  -- Divider lines
+}
+
 -- Panel responsive sizing
 Theme.panels = {
     margins = {
@@ -125,10 +159,10 @@ Theme.fonts = {
 
 -- Text size constraints for mobile readability
 Theme.textSizes = {
-    Small = {Min = 12, Max = 16},
-    Medium = {Min = 16, Max = 24},  -- Increased for better visibility
-    Large = {Min = 18, Max = 28},
-    Display = {Min = 20, Max = 32},
+    Small = {Min = 14, Max = 18},   -- Increased from 12-16
+    Medium = {Min = 18, Max = 26},  -- Increased from 16-24
+    Large = {Min = 20, Max = 30},   -- Increased from 18-28
+    Display = {Min = 22, Max = 34}, -- Increased from 20-32
 }
 
 -- Animation presets
@@ -164,6 +198,20 @@ Theme.glassEdge = {
     applyStrokeMode = Enum.ApplyStrokeMode.Border
 }
 
+-- Frosted glass effect presets (used by panels, chips, etc.)
+Theme.effects = Theme.effects or {}
+Theme.effects.frosted = {
+    -- Opacity (0 = solid, 1 = invisible). Use a low value for clear, non-see-through frosting.
+    backgroundTransparency = 0.18,
+    -- Subtle neutral highlight to keep the glass feel without washing out colors
+    gradientTopT = 0.60,
+    gradientBottomT = 0.85,
+    -- Noise layer strength and tint
+    noiseTransparency = 0.94,
+    noiseColorKey = "Background",   -- Tint the frost to the active theme background color
+    noiseLighten = 0.10,            -- Lighten the tint toward white (0..1) for frosted feel
+}
+
 -- Toast presets (standardized, frosted, subtle)
 Theme.toast = {
     anchor = "topRight",     -- "topRight" | "topCenter"
@@ -176,6 +224,19 @@ Theme.toast = {
         info    = Theme.colors.Primary,
         success = Theme.colors.Success,
         error   = Theme.colors.Error,
+    },
+}
+
+-- Tabs configuration (bar + buttons)
+Theme.tabs = {
+    height = 50,
+    spacing = 10,
+    button = {
+        inactiveTransparency = 0.5,
+        hoverTransparency = 0.35,
+        activeTransparency = 0.2,
+        disabledTransparency = 0.7,
+        disabledTextTransparency = 0.5,
     },
 }
 
