@@ -11,6 +11,11 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("MiningGame")
 local GameConfig = require(Shared:WaitForChild("GameConfig"))
 local Types = require(Shared:WaitForChild("Types"))
+local Logger = require(Shared:WaitForChild("Logger"))
+local log = Logger.new("DataService")
+
+-- Lazy-load UserMetricsService to avoid circular dependency
+local UserMetricsService
 
 -- DataStore setup (4MB per key limit)
 local PlayerDataStore, CubeDataStore
@@ -35,7 +40,7 @@ if not success then
     }
     CubeDataStore = PlayerDataStore
 else
-    print("[DataService] DataStore access ENABLED - data will persist!")
+    log:info("DataStore access ENABLED - data will persist!")
 end
 
 -- Session locking with MemoryStore
@@ -90,9 +95,16 @@ local function createDefaultProfile(userId: number): Types.PlayerStats
             cubeMaterial = "rock",
             floorMaterial = "concrete",
         },
+        themeSettings = {
+            uiTheme = "default",
+            soundPack = "default",
+        },
         totalBlocksDug = 0,
         playtime = 0,
-        lastSaveTime = os.time(),
+        -- New/returning player tracking
+        firstPlayTime = DateTime.now().UnixTimestamp,
+        firstDigTime = nil,
+        lastSaveTime = DateTime.now().UnixTimestamp,
     }
 end
 
@@ -103,6 +115,13 @@ local function ensureMaterialPrefs(profile: Types.PlayerStats)
             palette = "default",
             cubeMaterial = "rock",
             floorMaterial = "concrete",
+        }
+    end
+    -- Ensure theme settings exist (for backward compatibility)
+    if not profile.themeSettings then
+        profile.themeSettings = {
+            uiTheme = "default",
+            soundPack = "default",
         }
     end
 end
@@ -116,14 +135,14 @@ local function createDefaultCube(userId: number, materialId: string): Types.Cube
         chunkSize = GameConfig.Grid.CHUNK_CELLS,
         chunks = {}, -- Will be populated lazily as player digs
         totalDug = 0,
-        createdAt = os.time(),
+        createdAt = DateTime.now().UnixTimestamp,
     }
 end
 
 -- Attempt to acquire session lock
 local function acquireSessionLock(userId: number): boolean
     local key = tostring(userId)
-    local now = os.time()
+    local now = DateTime.now().UnixTimestamp
     
     local success = pcall(function()
         SessionLocks:SetAsync(key, now, LOCK_TTL)
@@ -149,7 +168,7 @@ local function isSessionLocked(userId: number): boolean
     
     if success and value then
         local lockTime = value :: number
-        local elapsed = os.time() - lockTime
+        local elapsed = DateTime.now().UnixTimestamp - lockTime
         -- If lock is older than TTL, it's expired
         return elapsed < LOCK_TTL
     end
@@ -175,7 +194,7 @@ function DataService:LoadPlayerAsync(player: Player): Types.PlayerStats?
     
     -- Load from DataStore
     local key = "Player_" .. tostring(userId)
-    print("[DataService] Loading data for", player.Name, "with key:", key)
+    log:debug("Loading data for %s with key: %s", player.Name, key)
     
     local success, result = pcall(function()
         return PlayerDataStore:GetAsync(key)
@@ -187,28 +206,59 @@ function DataService:LoadPlayerAsync(player: Player): Types.PlayerStats?
         return nil
     end
     
-    print("[DataService] Load result for", player.Name, "- Has existing data:", result ~= nil)
+    log:info("Load result for %s - Has existing data: %s", player.Name, tostring(result ~= nil))
     
     local profile: Types.PlayerStats
-    if result then
-        profile = result :: Types.PlayerStats
-        print("[DataService] Loaded existing profile - Coins:", profile.coins, "Blocks dug:", profile.totalBlocksDug)
-        -- Migrate old data if needed
-        if not profile.gems then profile.gems = 0 end
-        if not profile.equipped then profile.equipped = {} end
-        if not profile.pets then profile.pets = {} end
-        -- Migrate old material IDs to tier system
-        local oldToNew = {stone = "tier1", sandstone = "tier2", granite = "tier3", 
-                          obsidian = "tier4", crystal = "tier5", void = "tier6"}
-        if oldToNew[profile.materialId] then
-            local old = profile.materialId
-            profile.materialId = oldToNew[old]
-            print("[DataService] Migrated material ID:", old, "->", profile.materialId)
-        end
-    else
-        print("[DataService] Creating NEW profile for", player.Name)
-        profile = createDefaultProfile(userId)
-    end
+         if result then
+             profile = result :: Types.PlayerStats
+             log:info("Loaded existing profile - Coins: %d Blocks dug: %d", profile.coins, profile.totalBlocksDug)
+             -- Migrate old data if needed
+             if not profile.gems then profile.gems = 0 end
+             if not profile.equipped then profile.equipped = {} end
+             if not profile.pets then profile.pets = {} end
+             -- Migrate old material IDs to tier system
+             local oldToNew = {stone = "tier1", sandstone = "tier2", granite = "tier3",
+                               obsidian = "tier4", crystal = "tier5", void = "tier6"}
+             if oldToNew[profile.materialId] then
+                 local old = profile.materialId
+                 profile.materialId = oldToNew[old]
+                 log:debug("Migrated material ID: %s -> %s", old, profile.materialId)
+             end
+             -- Add migration defaults for metrics fields
+             profile.totalCoinsEarned = profile.totalCoinsEarned or (profile.coins or 0)
+             profile.totalCoinsSpent = profile.totalCoinsSpent or 0
+             profile.totalGemsEarned = profile.totalGemsEarned or (profile.gems or 0)
+             profile.totalGemsSpent = profile.totalGemsSpent or 0
+             profile.lastLoginTime = profile.lastLoginTime or DateTime.now().UnixTimestamp
+             -- New/returning tracking migration
+             profile.firstPlayTime = profile.firstPlayTime or profile.lastLoginTime or DateTime.now().UnixTimestamp
+             if (profile.firstDigTime == nil) and ((profile.totalBlocksDug or 0) > 0) then
+                 -- Backfill a plausible first dig time for legacy players - use earliest available timestamp
+                 local candidate = profile.firstPlayTime or profile.lastLoginTime or DateTime.now().UnixTimestamp
+                 profile.firstDigTime = candidate
+             end
+             -- Ensure session baseline reflects the just-loaded lifetime blocks
+             local currentTotalBlocks = profile.totalBlocksDug or 0
+             if profile.sessionStartBlocks == nil or profile.sessionStartBlocks < currentTotalBlocks then
+                 profile.sessionStartBlocks = currentTotalBlocks
+             end
+             
+             -- Increment session count synchronously for THIS join
+             -- IMPORTANT: Use (profile.totalSessions or 0) to handle nil, not (profile.totalSessions or 1)
+             profile.totalSessions = (profile.totalSessions or 0) + 1
+             profile.lastLoginTime = DateTime.now().UnixTimestamp
+             
+             -- Invalidate cached metrics so UI sees the new value immediately
+             local ok, UMS = pcall(function() return require(script.Parent.UserMetricsService) end)
+             if ok and UMS then pcall(function() UMS:Invalidate(player) end) end
+         else
+             log:info("Creating NEW profile for %s", player.Name)
+             profile = createDefaultProfile(userId)
+             -- New profiles start with 1 session
+             profile.totalSessions = 1
+             profile.lastLoginTime = DateTime.now().UnixTimestamp
+             profile.sessionStartBlocks = profile.totalBlocksDug or 0
+         end
     
     -- Ensure material preferences exist
     ensureMaterialPrefs(profile)
@@ -216,7 +266,7 @@ function DataService:LoadPlayerAsync(player: Player): Types.PlayerStats?
     -- Cache the data
     playerData[player] = profile
     
-    print("[DataService] Loaded data for", player.Name)
+    log:info("Loaded data for %s", player.Name)
     return profile
 end
 
@@ -251,7 +301,7 @@ function DataService:LoadCubeAsync(player: Player): Types.CubeState?
     -- Cache the data
     playerCubes[player] = cube
     
-    print("[DataService] Loaded cube for", player.Name)
+    log:debug("Loaded cube for %s", player.Name)
     return cube
 end
 
@@ -262,7 +312,7 @@ function DataService:SavePlayerAsync(player: Player): boolean
         return false
     end
     
-    profile.lastSaveTime = os.time()
+    profile.lastSaveTime = DateTime.now().UnixTimestamp
     
     local userId = player.UserId
     local key = "Player_" .. tostring(userId)
@@ -276,7 +326,7 @@ function DataService:SavePlayerAsync(player: Player): boolean
         return false
     end
     
-    print("[DataService] Saved data for", player.Name)
+    log:info("Saved data for %s", player.Name)
     return true
 end
 
@@ -319,7 +369,7 @@ function DataService:SaveCubeAsync(player: Player): boolean
         return false
     end
     
-    print("[DataService] Saved cube for", player.Name)
+    log:debug("Saved cube for %s", player.Name)
     return true
 end
 
@@ -363,16 +413,46 @@ function DataService:AddCurrency(player: Player, currencyType: string, amount: n
     if not profile then return false end
     
     if currencyType == "coins" then
-        profile.coins = math.max(0, profile.coins + amount)
+        local before = profile.coins
+        local after = math.max(0, before + amount)
+        profile.coins = after
+        
+        -- Track using actual delta
+        local delta = after - before
+        if delta >= 0 then
+            profile.totalCoinsEarned = (profile.totalCoinsEarned or 0) + delta
+        else
+            profile.totalCoinsSpent = (profile.totalCoinsSpent or 0) + (-delta)
+        end
+        
         -- Fire event to update UI
         Remotes.RE.OnCurrencyChanged:FireClient(player, "coins", profile.coins)
+        
     elseif currencyType == "gems" then
-        profile.gems = math.max(0, profile.gems + amount)
+        local before = profile.gems
+        local after = math.max(0, before + amount)
+        profile.gems = after
+        
+        -- Track using actual delta
+        local delta = after - before
+        if delta >= 0 then
+            profile.totalGemsEarned = (profile.totalGemsEarned or 0) + delta
+        else
+            profile.totalGemsSpent = (profile.totalGemsSpent or 0) + (-delta)
+        end
+        
         -- Fire event to update UI
         Remotes.RE.OnCurrencyChanged:FireClient(player, "gems", profile.gems)
+        
     else
         return false
     end
+    
+    -- Invalidate metrics cache for snappier UI updates
+    if not UserMetricsService then
+        UserMetricsService = require(script.Parent.UserMetricsService)
+    end
+    pcall(function() UserMetricsService:Invalidate(player) end)
     
     self:QueueSave(player)
     return true
@@ -402,7 +482,51 @@ function DataService:UpdateMaterialPrefs(player: Player, patch: {[string]: strin
     
     -- Queue save
     self:QueueSave(player)
-    profile.lastSaveTime = os.time()
+    profile.lastSaveTime = DateTime.now().UnixTimestamp
+    
+    return true
+end
+
+-- Get theme settings for a player
+function DataService:GetThemeSettings(player: Player): {uiTheme: string?, soundPack: string?}?
+    local profile = playerData[player]
+    if not profile then return nil end
+    
+    -- Ensure theme settings exist with defaults
+    if not profile.themeSettings then
+        profile.themeSettings = {
+            uiTheme = "default",
+            soundPack = "default"
+        }
+    end
+    
+    return profile.themeSettings
+end
+
+-- Update theme settings
+function DataService:SetThemeSettings(player: Player, patch: {uiTheme: string?, soundPack: string?}): boolean
+    local profile = playerData[player]
+    if not profile then return false end
+    
+    -- Ensure theme settings exist
+    if not profile.themeSettings then
+        profile.themeSettings = {
+            uiTheme = "default",
+            soundPack = "default"
+        }
+    end
+    
+    -- Apply the patch
+    if patch.uiTheme then
+        profile.themeSettings.uiTheme = patch.uiTheme
+    end
+    if patch.soundPack then
+        profile.themeSettings.soundPack = patch.soundPack
+    end
+    
+    -- Queue save
+    self:QueueSave(player)
+    profile.lastSaveTime = DateTime.now().UnixTimestamp
     
     return true
 end
@@ -473,10 +597,141 @@ function DataService:AddPlaytime(player: Player, seconds: number)
     
     seconds = math.max(0, seconds or 0)
     profile.playtime = (profile.playtime or 0) + seconds
-    profile.lastSaveTime = os.time()
+    profile.lastSaveTime = DateTime.now().UnixTimestamp
     
     self:QueueSave(player)
-    print("[DataService] Added", seconds, "seconds playtime for", player.Name, "- Total:", profile.playtime)
+    log:debug("Added %d seconds playtime for %s - Total: %d", seconds, player.Name, profile.playtime)
+end
+
+-- ===== DURABLE RECEIPT QUEUE FOR MONETIZATION =====
+-- Critical for not losing purchases if server crashes
+
+local ReceiptQueueStore
+if canUseDataStore then
+    pcall(function()
+        ReceiptQueueStore = DataStoreService:GetDataStore(GameConfig.DataStore.RECEIPT_QUEUE_KEY)
+    end)
+end
+
+if not ReceiptQueueStore then
+    -- Mock for testing (with proper atomic semantics)
+    local mockQueue = {}
+    ReceiptQueueStore = {
+        GetAsync = function(_, key) return mockQueue[key] end,
+        SetAsync = function(_, key, value) mockQueue[key] = value return true end,
+        UpdateAsync = function(_, key, transform)
+            mockQueue[key] = transform(mockQueue[key])
+            return mockQueue[key]
+        end,
+    }
+end
+
+-- Helper to normalize queue structure with deduplication
+local function _normalizeQueue(state: any)
+    if type(state) ~= "table" then
+        return { order = {}, items = {} }
+    end
+    state.order = state.order or {}
+    state.items = state.items or {}
+    return state
+end
+
+-- Validate grant payload for safety
+local function _validGrant(grant: any): boolean
+    if type(grant.kind) ~= "string" or (grant.kind ~= "DevProduct" and grant.kind ~= "GamePass") then
+        return false
+    end
+    if type(grant.id) ~= "number" then
+        return false
+    end
+    if type(grant.price) ~= "number" or grant.price < 0 then
+        return false
+    end
+    if type(grant.receiptId) ~= "string" or grant.receiptId == "" then
+        return false
+    end
+    return true
+end
+
+-- Enqueue a receipt grant durably with deduplication (MUST succeed before returning PurchaseGranted)
+function DataService:EnqueueReceiptGrant(userId: number, grant: any): boolean
+    local key = "PendingGrants_" .. tostring(userId)
+    
+    -- Validate grant payload
+    if not _validGrant(grant) then
+        warn("[DataService] Invalid grant payload for user", userId, 
+             "- kind:", tostring(grant.kind), 
+             "id:", tostring(grant.id), 
+             "price:", tostring(grant.price), 
+             "receiptId:", tostring(grant.receiptId))
+        return false
+    end
+    
+    grant.enqueuedAt = DateTime.now().UnixTimestamp
+    grant.userId = userId
+    
+    local success, err = pcall(function()
+        ReceiptQueueStore:UpdateAsync(key, function(old)
+            local q = _normalizeQueue(old)
+            
+            -- Deduplicate by receiptId
+            if not q.items[grant.receiptId] then
+                q.items[grant.receiptId] = grant
+                table.insert(q.order, grant.receiptId)
+                
+                -- Cap to last 300 grants (for whales/bursts)
+                while #q.order > 300 do
+                    local evict = table.remove(q.order, 1)
+                    q.items[evict] = nil
+                end
+            end
+            
+            return q
+        end)
+    end)
+    
+    if not success then
+        warn("[DataService] Failed to enqueue receipt grant for user", userId, "err:", err)
+        return false
+    end
+    
+    log:debug("Enqueued (or deduped) grant %s for user %d (kind: %s, id: %s, price: %s)", 
+        grant.receiptId, userId, grant.kind or "?", tostring(grant.id), tostring(grant.price))
+    return true
+end
+
+-- Consume pending grants atomically (read and clear)
+function DataService:ConsumePendingGrants(userId: number): {any}
+    local key = "PendingGrants_" .. tostring(userId)
+    local consumed: {any} = {}
+    
+    local success, err = pcall(function()
+        ReceiptQueueStore:UpdateAsync(key, function(old)
+            local q = _normalizeQueue(old)
+            
+            -- Flatten grants in FIFO order
+            for _, rid in ipairs(q.order) do
+                local g = q.items[rid]
+                if g then 
+                    table.insert(consumed, g)
+                end
+            end
+            
+            -- Clear the queue atomically
+            return nil
+        end)
+    end)
+    
+    if not success then
+        warn("[DataService] Failed to consume pending grants for", userId, "err:", err)
+        return {}
+    end
+    
+    if #consumed > 0 then
+        log:info("Consumed %d pending grants for user %d", #consumed, userId)
+    end
+    
+    return consumed
 end
 
 -- Auto-save loop
@@ -497,7 +752,7 @@ end
 
 -- Function to initialize player data
 local function onPlayerAdded(player)
-    print("[DataService] Player joined:", player.Name)
+    log:info("Player joined: %s", player.Name)
     
     -- Load data asynchronously
     spawn(function()
@@ -508,7 +763,7 @@ local function onPlayerAdded(player)
             if cube then
                 -- Notify other services that data is loaded
                 player:SetAttribute("DataLoaded", true)
-                print("[DataService] Data loaded for", player.Name)
+                log:info("Data loaded for %s", player.Name)
             else
                 -- Create default cube if loading failed
                 warn("[DataService] Failed to load cube, creating default")
@@ -617,6 +872,6 @@ end
 -- Set up for future players
 game.Players.PlayerAdded:Connect(setupWipeCommand)
 
-print("[DataService] Initialized")
+log:info("Initialized")
 
 return DataService
