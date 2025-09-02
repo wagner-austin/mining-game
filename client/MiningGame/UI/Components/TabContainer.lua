@@ -8,6 +8,7 @@ local TweenService = game:GetService("TweenService")
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
 local UIFolder = MiningGame:WaitForChild("UI")
 local Theme = require(UIFolder:WaitForChild("Theme"))
+local ThemeRefresher = require(UIFolder:WaitForChild("ThemeRefresher"))
 
 local TabContainer = {}
 TabContainer.__index = TabContainer
@@ -28,6 +29,8 @@ export type Props = {
     size: UDim2?,
     tabHeight: number?,
     onTabChange: ((newTab: string, oldTab: string?) -> ())?,
+    barParent: Instance?,
+    contentParent: Instance?,
 }
 
 function TabContainer.new(props: Props)
@@ -50,41 +53,43 @@ function TabContainer.new(props: Props)
     container.Parent = props.parent
     self.container = container
     
-    local tabHeight = props.tabHeight or 50
+    local tabHeight = props.tabHeight or Theme.tabs.height
     
     -- Tab bar
     local tabBar = Instance.new("Frame")
     tabBar.Name = "TabBar"
     tabBar.Size = UDim2.new(1, 0, 0, tabHeight)
     tabBar.BackgroundTransparency = 1
-    tabBar.Parent = container
+    tabBar.Parent = (props.barParent or container)
     self.tabBar = tabBar
     
     local tabLayout = Instance.new("UIListLayout")
     tabLayout.FillDirection = Enum.FillDirection.Horizontal
-    tabLayout.Padding = UDim.new(0, 10)
+    tabLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    tabLayout.Padding = UDim.new(0, Theme.tabs.spacing)
     tabLayout.Parent = tabBar
     
     -- Content container
     local contentContainer = Instance.new("Frame")
     contentContainer.Name = "ContentContainer"
-    contentContainer.Size = UDim2.new(1, 0, 1, -(tabHeight + 10))
-    contentContainer.Position = UDim2.new(0, 0, 0, tabHeight + 10)
+    contentContainer.Size = UDim2.new(1, 0, 1, -(tabHeight + Theme.tabs.spacing))
+    contentContainer.Position = UDim2.new(0, 0, 0, tabHeight + Theme.tabs.spacing)
     contentContainer.BackgroundTransparency = 1
-    contentContainer.Parent = container
+    contentContainer.Parent = (props.contentParent or container)
     self.contentContainer = contentContainer
     
     -- Create tab buttons and content frames
     self.tabButtons = {}
     self.tabContents = {}
     
-    for _, tab in ipairs(props.tabs) do
+    for i, tab in ipairs(props.tabs) do
         -- Tab button
         local tabButton = Instance.new("TextButton")
         tabButton.Name = tab.name .. "Tab"
+        tabButton.LayoutOrder = i  -- Set order based on array position
         tabButton.Size = UDim2.new(0, 100, 1, 0)
         tabButton.BackgroundColor3 = colors.Surface
-        tabButton.BackgroundTransparency = 0.5
+        tabButton.BackgroundTransparency = Theme.tabs.button.inactiveTransparency
         tabButton.Text = tab.displayName or tab.name
         tabButton.TextColor3 = colors.Text
         tabButton.TextScaled = true
@@ -100,6 +105,9 @@ function TabContainer.new(props: Props)
         textConstraint.MinTextSize = Theme.textSizes.Small.Min
         textConstraint.MaxTextSize = Theme.textSizes.Medium.Max
         textConstraint.Parent = tabButton
+        
+        -- Bind tab button to theme refresher
+        ThemeRefresher.Bind(tabButton, { BackgroundColor3 = "Surface", TextColor3 = "Text" })
         
         self.tabButtons[tab.name] = tabButton
         
@@ -130,7 +138,7 @@ function TabContainer.new(props: Props)
         local hoverIn = tabButton.MouseEnter:Connect(function()
             if tab.name ~= self.currentTab then
                 TweenService:Create(tabButton, TweenInfo.new(0.15), {
-                    BackgroundTransparency = 0.35
+                    BackgroundTransparency = Theme.tabs.button.hoverTransparency
                 }):Play()
             end
         end)
@@ -139,7 +147,7 @@ function TabContainer.new(props: Props)
         local hoverOut = tabButton.MouseLeave:Connect(function()
             if tab.name ~= self.currentTab then
                 TweenService:Create(tabButton, TweenInfo.new(0.15), {
-                    BackgroundTransparency = 0.5
+                    BackgroundTransparency = Theme.tabs.button.inactiveTransparency
                 }):Play()
             end
         end)
@@ -183,7 +191,7 @@ function TabContainer:switchTab(tabName: string)
     -- Update tab buttons
     for name, button in pairs(self.tabButtons) do
         TweenService:Create(button, TweenInfo.new(0.2), {
-            BackgroundTransparency = name == tabName and 0.2 or 0.5
+            BackgroundTransparency = name == tabName and Theme.tabs.button.activeTransparency or Theme.tabs.button.inactiveTransparency
         }):Play()
     end
     
@@ -219,8 +227,10 @@ function TabContainer:setTabEnabled(tabName: string, enabled: boolean)
         button.Active = enabled
         button.AutoButtonColor = enabled
         button.Selectable = enabled
-        button.TextTransparency = enabled and 0 or 0.5
-        button.BackgroundTransparency = enabled and (tabName == self.currentTab and 0.2 or 0.5) or 0.7
+        button.TextTransparency = enabled and 0 or Theme.tabs.button.disabledTextTransparency
+        button.BackgroundTransparency = enabled
+            and (tabName == self.currentTab and Theme.tabs.button.activeTransparency or Theme.tabs.button.inactiveTransparency)
+            or Theme.tabs.button.disabledTransparency
     end
 end
 
