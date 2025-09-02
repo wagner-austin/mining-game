@@ -5,18 +5,22 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 
-print("[Bootstrap] Starting MiningGame initialization...")
-print("[Bootstrap] Script name:", script.Name)
-print("[Bootstrap] Script parent:", script.Parent)
+-- Wait for shared modules
+local MiningGame = ReplicatedStorage:WaitForChild("MiningGame", 30)
+local Logger = require(MiningGame:WaitForChild("Logger"))
+local log = Logger.new("Bootstrap")
+
+log:info("Starting MiningGame initialization...")
+log:debug("Script name: %s", script.Name)
+log:debug("Script parent: %s", tostring(script.Parent))
 
 -- Assert correct Rojo mapping
-local MiningGame = ReplicatedStorage:WaitForChild("MiningGame", 30)
 assert(MiningGame, "Missing ReplicatedStorage.MiningGame (check Rojo mapping)")
-print("[Bootstrap] Found ReplicatedStorage.MiningGame")
+log:info("Found ReplicatedStorage.MiningGame")
 
 -- Create remotes first (before other services need them)
 local RemotesCreator = require(script.Remotes) -- creates instances under RS.Remotes.MiningGame
-print("[Bootstrap] Remotes created")
+log:info("Remotes created")
 
 -- Create Unix time sync remote for day/night cycle
 local GetServerUnix = Instance.new("RemoteFunction")
@@ -25,40 +29,51 @@ GetServerUnix.Parent = ReplicatedStorage
 GetServerUnix.OnServerInvoke = function()
 	return os.time()
 end
-print("[Bootstrap] Time sync remote created")
+log:info("Time sync remote created")
 
 -- Initialize core services (order matters)
 local DataService = require(script.DataService)
-print("[Bootstrap] DataService loaded")
+log:info("DataService loaded")
+
+-- Initialize SessionService early so PlayerAdded hooks are active
+local SessionService = require(script.SessionService)
+log:info("SessionService loaded")
 
 local GridService = require(script.GridService)
-print("[Bootstrap] GridService loaded")
+log:info("GridService loaded")
 
 local LootService = require(script.LootService)
-print("[Bootstrap] LootService loaded")
+log:info("LootService loaded")
 
 local UpgradeService = require(script.UpgradeService)
-print("[Bootstrap] UpgradeService loaded")
+log:info("UpgradeService loaded")
 
 local InventoryService = require(script.InventoryService)
-print("[Bootstrap] InventoryService loaded")
+log:info("InventoryService loaded")
 
 local MonetizationService = require(script.MonetizationService)
-print("[Bootstrap] MonetizationService loaded")
+log:info("MonetizationService loaded")
+
+local ThemeSettingsService = require(script.ThemeSettingsService)
+log:info("ThemeSettingsService loaded")
 
 local CubePositionService = require(script.CubePositionService)
-print("[Bootstrap] CubePositionService loaded")
+log:info("CubePositionService loaded")
 
 local CubeMaterialService = require(script.CubeMaterialService)
-print("[Bootstrap] CubeMaterialService loaded")
+log:info("CubeMaterialService loaded")
 
 local SpawnService = require(script.SpawnService)
-print("[Bootstrap] SpawnService loaded")
+log:info("SpawnService loaded")
 
 local DigService = require(script.DigService)
-print("[Bootstrap] DigService loaded")
+log:info("DigService loaded")
 
-print("[MiningGame] Backend initialization complete!")
+-- Initialize UserMetricsService
+local UserMetricsService = require(script.UserMetricsService)
+log:info("UserMetricsService loaded")
+
+log:info("Backend initialization complete!")
 
 -- Export services for debugging
 _G.MiningGameServices = {
@@ -129,6 +144,37 @@ RemotesCreator.RF.DebugResetCube.OnServerInvoke = function(player: Player)
     return {success = false, reason = "No cube data found"}
 end
 
+-- Create logger for metrics
+local metricsLog = Logger.new("Metrics")
+
+-- Set up metrics remote handlers
+RemotesCreator.RF.GetMetrics.OnServerInvoke = function(player: Player)
+    metricsLog:debug("GetMetrics requested by %s", player.Name)
+    local metrics = UserMetricsService:GetMetrics(player)
+    metricsLog:debug("Returning metrics: %s", tostring(metrics ~= nil))
+    return metrics
+end
+
+-- Gate server metrics to staff/developers
+local RunService = game:GetService("RunService")
+local function canSeeServerMetrics(p: Player)
+    if RunService:IsStudio() then return true end
+    -- Replace with your user ID or group/rank check
+    -- Example: return p.UserId == 12345678 or p:GetRankInGroup(GROUP_ID) >= RANK
+    return false -- Default: only in Studio
+end
+
+RemotesCreator.RF.GetServerMetrics.OnServerInvoke = function(player: Player)
+    if not canSeeServerMetrics(player) then
+        -- Return limited info for regular players
+        return {
+            totalPlayers = #Players:GetPlayers(),
+            serverUptimeSec = workspace.DistributedGameTime,
+        }
+    end
+    return UserMetricsService:GetServerMetrics()
+end
+
 RemotesCreator.RF.DebugResetStats.OnServerInvoke = function(player: Player)
     -- Reset player's stats to default
     local data = DataService:GetPlayerData(player)
@@ -139,6 +185,7 @@ RemotesCreator.RF.DebugResetStats.OnServerInvoke = function(player: Player)
         data.upgrades.speed = 0
         data.upgrades.size = 0
         data.totalBlocksDug = 0
+        data.sessionStartBlocks = 0
         data.inventory = {}
         data.equipped = {
             pickaxe = nil,
