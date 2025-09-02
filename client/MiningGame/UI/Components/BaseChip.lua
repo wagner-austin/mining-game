@@ -8,6 +8,7 @@ local TweenService = game:GetService("TweenService")
 
 local Theme = require(ReplicatedStorage:WaitForChild("MiningGame"):WaitForChild("UI"):WaitForChild("Theme"))
 local UIUtils = require(ReplicatedStorage:WaitForChild("MiningGame"):WaitForChild("UI"):WaitForChild("UIUtils"))
+local ThemeRefresher = require(ReplicatedStorage:WaitForChild("MiningGame"):WaitForChild("UI"):WaitForChild("ThemeRefresher"))
 
 local BaseChip = {}
 BaseChip.__index = BaseChip
@@ -46,8 +47,8 @@ function BaseChip.new(props: ChipProps)
         parent = props.parent,
         size = props.size or UDim2.new(0, chipConfig.width, 0, chipConfig.height),
         backgroundProps = {
-            color = props.backgroundColor or colors.Surface,
-            transparency = props.backgroundTransparency or 0.25,
+            color = props.backgroundColor or colors.Background,
+            transparency = (props.backgroundTransparency ~= nil) and props.backgroundTransparency or Theme.effects.frosted.backgroundTransparency,
             cornerRadius = UDim.new(0, Theme.sizes.CornerRadius),
             applyGlassEdge = true,
             gradient = true,
@@ -55,6 +56,21 @@ function BaseChip.new(props: ChipProps)
         }
     })
     
+    -- Bind background to theme refresher for automatic updates (only if not custom)
+    if not props.backgroundColor then
+        ThemeRefresher.Bind(background, {
+            BackgroundColor3 = "Surface"
+        })
+    end
+
+    -- Bind glass edge stroke to theme refresher
+    local stroke = background:FindFirstChildOfClass("UIStroke")
+    if stroke then
+        ThemeRefresher.Bind(stroke, {
+            Stroke = "glassEdge"
+        })
+    end
+
     -- Make container block click-through
     container.Active = true
     
@@ -85,6 +101,13 @@ function BaseChip.new(props: ChipProps)
         iconLabel.LayoutOrder = 1
         iconLabel.Parent = content
         
+        -- Bind to theme refresher for automatic updates (only if not custom)
+        if not props.textColor then
+            ThemeRefresher.Bind(iconLabel, {
+                TextColor3 = "Text"
+            })
+        end
+        
         local iconConstraint = Instance.new("UITextSizeConstraint")
         iconConstraint.MinTextSize = Theme.textSizes.Medium.Min
         iconConstraint.MaxTextSize = Theme.textSizes.Medium.Max
@@ -112,6 +135,13 @@ function BaseChip.new(props: ChipProps)
         textLabel.TextXAlignment = Enum.TextXAlignment.Center
         textLabel.LayoutOrder = 2
         textLabel.Parent = content
+        
+        -- Bind to theme refresher for automatic updates (only if not custom)
+        if not props.textColor then
+            ThemeRefresher.Bind(textLabel, {
+                TextColor3 = "Text"
+            })
+        end
         
         local textConstraint = Instance.new("UITextSizeConstraint")
         textConstraint.MinTextSize = Theme.textSizes.Medium.Min
