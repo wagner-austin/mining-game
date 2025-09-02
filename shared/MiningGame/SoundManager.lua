@@ -10,6 +10,11 @@ local RunService = game:GetService("RunService")
 
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
 local SoundConfig = require(MiningGame:WaitForChild("SoundConfig"))
+local SoundTheme = require(MiningGame:WaitForChild("SoundThemeManager"))
+local MaterialDefinitions = require(MiningGame:WaitForChild("MaterialDefinitions"))
+local Logger = require(MiningGame:WaitForChild("Logger"))
+
+local log = Logger.new(Logger.CAT.Sound)
 
 type PlayOpts = {
     position: Vector3?,
@@ -169,14 +174,14 @@ end
 local function safeId(id: string?): string?
     local isValid = id and SoundConfig.ValidateSoundID(id)
     if not isValid then
-        print("[SoundManager] Sound ID validation failed for:", id)
+        log:warn("Sound ID validation failed for: %s", tostring(id))
     end
     return isValid and id or nil
 end
 
 -- === Public API ===
 function SoundManager.PlayUI(name: string, opts: PlayOpts?)
-    local id = SoundConfig.SoundIDs.ui[string.lower(name or "")]
+    local id = SoundTheme.GetId({"ui", name})
     if not safeId(id) then return end
     
     opts = opts or {}
@@ -186,16 +191,10 @@ end
 
 function SoundManager.PlayMining(materialKey: string, subtype: string?, position: Vector3?, opts: PlayOpts?)
     local k = string.lower(materialKey or "rock")
-    print("[SoundManager] PlayMining called - material:", k, "subtype:", subtype or "hit")
+    log:debug("PlayMining called - material: %s, subtype: %s", tostring(k), subtype or "hit")
     
-    local entry = SoundConfig.SoundIDs.mining[k]
-    if not entry then 
-        warn("[SoundManager] No mining sounds configured for material:", k)
-        return 
-    end
-    
-    local id = entry[string.lower(subtype or "hit")] or entry.hit
-    print("[SoundManager] Sound ID for", k, ":", id)
+    local id = SoundTheme.GetId({"mining", k, subtype or "hit"}) or SoundTheme.GetId({"mining", k, "hit"})
+    log:debug("Sound ID for %s: %s", tostring(k), tostring(id))
     
     if not safeId(id) then 
         warn("[SoundManager] Invalid or missing sound ID:", id)
@@ -206,12 +205,15 @@ function SoundManager.PlayMining(materialKey: string, subtype: string?, position
     opts.category = "Mining"
     opts.subtype = subtype
     opts.position = position
-    print("[SoundManager] Playing mining sound at position:", position)
+    log:debug("Playing mining sound at position: (%.0f,%.0f,%.0f)", position.X, position.Y, position.Z)
     return SoundManager.PlayId(id, opts)
 end
 
 function SoundManager.PlayFootstep(materialKey: string, position: Vector3?, opts: PlayOpts?)
-    local id = SoundConfig.GetFootstepSoundForMaterial(materialKey)
+    local mk = string.lower(materialKey or "rock")
+    local def = MaterialDefinitions.Materials[mk]
+    local footstepType = (def and def.properties and def.properties.soundCategory) or "rock"
+    local id = SoundTheme.GetId({"movement","footstep", footstepType}) or SoundTheme.GetId({"movement","footstep","rock"})
     if not safeId(id) then return end
     
     opts = opts or {}
@@ -221,7 +223,7 @@ function SoundManager.PlayFootstep(materialKey: string, position: Vector3?, opts
 end
 
 function SoundManager.PlayReward(rewardType: string, opts: PlayOpts?)
-    local id = SoundConfig.SoundIDs.rewards[string.lower(rewardType or "")]
+    local id = SoundTheme.GetId({"rewards", rewardType})
     if not safeId(id) then return end
     
     opts = opts or {}
@@ -230,7 +232,7 @@ function SoundManager.PlayReward(rewardType: string, opts: PlayOpts?)
 end
 
 function SoundManager.PlayPet(action: string, position: Vector3?, opts: PlayOpts?)
-    local id = SoundConfig.SoundIDs.pets[string.lower(action or "")]
+    local id = SoundTheme.GetId({"pets", action})
     if not safeId(id) then return end
     
     opts = opts or {}
@@ -240,7 +242,7 @@ function SoundManager.PlayPet(action: string, position: Vector3?, opts: PlayOpts
 end
 
 function SoundManager.PlayEnvironment(soundType: string, position: Vector3?, opts: PlayOpts?)
-    local id = SoundConfig.SoundIDs.environment[string.lower(soundType or "")]
+    local id = SoundTheme.GetId({"environment", soundType})
     if not safeId(id) then return end
     
     opts = opts or {}
@@ -250,13 +252,13 @@ function SoundManager.PlayEnvironment(soundType: string, position: Vector3?, opt
 end
 
 function SoundManager.PlayId(id: string, opts: PlayOpts?)
-    print("[SoundManager] PlayId called with ID:", id)
+    log:debug("PlayId called with ID: %s", tostring(id))
     opts = opts or {}
     local catTitle = TitleCase(opts.category or "SFX")
     local groupName = GROUP_FOR_CATEGORY[catTitle] or "SFX"
 
     local parent = attach3D(opts)
-    print("[SoundManager] Parent for sound:", parent:GetFullName())
+    log:debug("Parent for sound: %s", parent:GetFullName())
     
     local s = getSound(id, groupName)
     s.Parent = parent
@@ -265,16 +267,11 @@ function SoundManager.PlayId(id: string, opts: PlayOpts?)
     if opts.volume then s.Volume = opts.volume end
     if opts.pitch then s.PlaybackSpeed = opts.pitch end
 
-    -- Log detailed sound properties
-    print("[SoundManager] Playing sound:")
-    print("  - SoundId:", s.SoundId)
-    print("  - Volume:", s.Volume, "(0-1 scale, where 1 is max)")
-    print("  - Parent:", s.Parent:GetFullName())
-    print("  - RollOffMode:", tostring(s.RollOffMode))
-    print("  - RollOffMinDistance:", s.RollOffMinDistance, "studs")
-    print("  - RollOffMaxDistance:", s.RollOffMaxDistance, "studs")
-    print("  - EmitterSize:", s.EmitterSize)
-    print("  - PlaybackSpeed:", s.PlaybackSpeed)
+    -- Log detailed sound properties (only in debug mode)
+    log:debug("Playing sound - ID: %s, Vol: %.2f, Parent: %s", 
+        s.SoundId, s.Volume, s.Parent:GetFullName())
+    log:debug("  RollOff: %s, MinDist: %d, MaxDist: %d",
+        tostring(s.RollOffMode), s.RollOffMinDistance, s.RollOffMaxDistance)
     
     -- If 3D positioned, calculate distance to player
     if opts.position then
@@ -284,8 +281,8 @@ function SoundManager.PlayId(id: string, opts: PlayOpts?)
             local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
             if hrp then
                 local distance = (hrp.Position - opts.position).Magnitude
-                print("  - Distance from player:", math.floor(distance), "studs")
-                print("  - Position:", opts.position)
+                log:debug("  3D sound - Distance: %d studs, Pos: (%.0f,%.0f,%.0f)",
+                    math.floor(distance), opts.position.X, opts.position.Y, opts.position.Z)
                 
                 -- Calculate approximate volume at player position
                 if s.RollOffMode == Enum.RollOffMode.Linear then
@@ -296,17 +293,17 @@ function SoundManager.PlayId(id: string, opts: PlayOpts?)
                         local falloff = math.max(0, 1 - (distance - minDist) / (maxDist - minDist))
                         effectiveVolume = s.Volume * falloff
                     end
-                    print("  - Effective volume at player:", string.format("%.3f", effectiveVolume))
-                    print("  - Audible:", effectiveVolume > 0.01 and "YES" or "NO (too far/quiet)")
+                    local audible = effectiveVolume > 0.01
+                    log:debug("  Effective vol: %.3f (%s)", effectiveVolume, audible and "audible" or "too far")
                 end
             end
         end
     else
-        print("  - Position: NONE (2D sound, plays everywhere)")
+        log:debug("  2D sound (plays everywhere)")
     end
     
     s:Play()
-    print("[SoundManager] Sound IsPlaying:", s.IsPlaying)
+    log:debug("Sound IsPlaying: %s", tostring(s.IsPlaying))
 
     -- Cleanup (looped sounds should be managed by caller)
     if not s.Looped then
@@ -352,10 +349,15 @@ end
 -- === Music system with crossfade ===
 local currentMusic: Sound? = nil
 local musicFading = false
+local lastMusicName: string? = nil
+local pendingThemeMusicRestart = false
 
 function SoundManager.PlayMusic(name: string, opts: PlayOpts?)
-    local id = SoundConfig.SoundIDs.music[string.lower(name or "")]
+    local id = SoundTheme.GetId({"music", name})
     if not safeId(id) then return end
+    
+    -- Track the logical name for theme changes
+    lastMusicName = name
     
     -- Don't interrupt an ongoing fade
     if musicFading then return end
@@ -395,6 +397,14 @@ function SoundManager.PlayMusic(name: string, opts: PlayOpts?)
             end
             
             musicFading = false
+            
+            -- Check if theme changed during crossfade
+            if pendingThemeMusicRestart then
+                pendingThemeMusicRestart = false
+                if lastMusicName then
+                    SoundManager.PlayMusic(lastMusicName)
+                end
+            end
         end)
     else
         -- Instant switch
@@ -435,6 +445,7 @@ function SoundManager.StopMusic(fadeOut: boolean?)
     end
     
     currentMusic = nil
+    lastMusicName = nil
 end
 
 function SoundManager.GetCurrentMusic(): string?
@@ -450,7 +461,7 @@ local ambientSounds: {[string]: Sound} = {}
 
 function SoundManager.PlayAmbient(name: string, opts: PlayOpts?)
     local key = string.lower(name or "")
-    local id = SoundConfig.SoundIDs.ambient[key]
+    local id = SoundTheme.GetId({"ambient", key})
     if not safeId(id) then return end
     
     -- If already playing, update volume if provided
@@ -538,5 +549,31 @@ end
 
 -- === Initialize default volumes ===
 applyGroupVolumes()
+
+-- === React to sound theme changes ===
+-- Restart looped sounds (music/ambient) with new theme assets
+SoundTheme.Changed():Connect(function()
+    -- Restart music with the same logical track name if one was playing
+    if lastMusicName and currentMusic then
+        if musicFading then
+            -- Defer restart until crossfade completes
+            pendingThemeMusicRestart = true
+            log:debug("Will restart music after crossfade completes")
+        else
+            log:info("Restarting music with new theme: %s", tostring(lastMusicName))
+            SoundManager.PlayMusic(lastMusicName)
+        end
+    end
+    
+    -- Restart ambient layers with same keys
+    local active = SoundManager.GetActiveAmbient()
+    if #active > 0 then
+        log:info("Restarting %d ambient sounds with new theme", #active)
+        SoundManager.StopAllAmbient()
+        for _, k in ipairs(active) do
+            SoundManager.PlayAmbient(k)
+        end
+    end
+end)
 
 return SoundManager
