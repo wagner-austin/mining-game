@@ -6,6 +6,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 
 local Theme = require(ReplicatedStorage:WaitForChild("MiningGame"):WaitForChild("UI"):WaitForChild("Theme"))
+local ThemeRefresher = require(ReplicatedStorage:WaitForChild("MiningGame"):WaitForChild("UI"):WaitForChild("ThemeRefresher"))
 
 local SettingsButton = {}
 SettingsButton.__index = SettingsButton
@@ -56,6 +57,11 @@ function SettingsButton.new(props: Props)
     button.AutoButtonColor = false
     button.Parent = rotator
     
+    -- Bind to theme refresher for automatic color updates
+    ThemeRefresher.Bind(button, {
+        TextColor3 = "Text"
+    })
+    
     -- Text size constraint from Theme
     local textConstraint = Instance.new("UITextSizeConstraint")
     textConstraint.MinTextSize = config.iconSize.Min
@@ -70,6 +76,7 @@ function SettingsButton.new(props: Props)
     self.spinConnection = nil
     self.targetSpeed = 0
     self.currentSpeed = 0
+    self._clickCooldown = false
     
     -- Setup interactions
     self:setupInteractions()
@@ -119,6 +126,13 @@ function SettingsButton:setupInteractions()
     
     -- Click: play sound and execute callback
     button.Activated:Connect(function()
+        -- Simple click cooldown to prevent spamming
+        if self._clickCooldown then return end
+        self._clickCooldown = true
+        task.delay(0.25, function() 
+            self._clickCooldown = false 
+        end)
+        
         local SoundManager = require(ReplicatedStorage.MiningGame:WaitForChild("SoundManager"))
         SoundManager.PlayUI("buttonclick")
         if self.onClick then
