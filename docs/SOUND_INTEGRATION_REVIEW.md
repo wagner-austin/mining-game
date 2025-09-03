@@ -1,7 +1,7 @@
 # Sound Integration Review
 
 ## Overview
-This document reviews the complete material-to-sound integration pipeline in the mining game, featuring a single-source-of-truth architecture where all material properties derive from MaterialDefinitions.
+This document reviews the complete material-to-sound integration pipeline in the mining game, featuring a single-source-of-truth architecture where all material properties derive from MaterialDefinitions. The system now includes a comprehensive theme system for dynamic sound pack switching.
 
 ## Architecture
 
@@ -53,7 +53,7 @@ This document reviews the complete material-to-sound integration pipeline in the
 - **Immutability**: All tables frozen
 
 #### 4. SoundConfig (shared/MiningGame/SoundConfig.lua)
-- **Purpose**: Sound configuration and asset management
+- **Purpose**: Default sound configuration and asset management
 - **Dependencies**: MaterialDefinitions, MaterialKeys, SoundCategories
 - **Dynamic Generation**:
   - Mining sounds built from MaterialDefinitions + SoundCategories
@@ -63,8 +63,99 @@ This document reviews the complete material-to-sound integration pipeline in the
   - Every material has mining sounds
   - Every material has expected events
   - Every sound category has footstep sounds
+- **Note**: Currently uses placeholder sounds (rbxassetid://9120386436) for development
 
-### Material-to-Category Mapping
+### NEW: Theme System Modules
+
+#### 5. SoundThemeManager (shared/MiningGame/SoundThemeManager.lua) 🆕
+- **Purpose**: Dynamic sound theme/pack management system
+- **Features**:
+  - Runtime theme switching without restart
+  - Hierarchical sound ID resolution with intelligent fallback
+  - Partial override support (themes only override specific sounds)
+  - Changed signal for reactive updates
+  - Preloading optimization via GetAllIds() and GetCategoryIds()
+- **API**:
+  - `SetTheme(packModule)`: Switch to a new sound pack
+  - `GetId(path)`: Resolve sound ID with theme overrides and fallbacks
+  - `GetAllIds()`: Get all sound IDs for preloading
+  - `Changed`: Signal fired when theme changes
+
+#### 6. SoundManager (shared/MiningGame/SoundManager.lua) - UPDATED
+- **Purpose**: Central sound management with pooling and 3D spatial audio
+- **Theme Integration**: Now uses `SoundTheme.GetId()` for all sound resolution
+- **Categories**: UI, Mining, Movement, Ambient, Music, Pets, Rewards, Environment
+- **Features**:
+  - Object pooling for performance
+  - 3D spatial audio with custom emitters
+  - Sound groups for volume mixing (SFX, UI, Ambient, Music)
+  - Crossfading for music transitions
+  - Automatic theme-aware sound resolution
+
+#### 7. Sound Packs (shared/MiningGame/SoundPacks/*.lua) 🆕
+- **Available Packs**:
+  - `default`: Base sounds (inherits from SoundConfig)
+  - `retro`: 8-bit style sounds (example partial override)
+  - Additional packs can be added as ModuleScripts
+- **Structure**: Mirrors SoundConfig category hierarchy
+- **Partial Overrides**: Packs only need to define sounds they want to change
+
+### Server-Side Components
+
+#### 8. ThemeSettingsService (server/MiningGame/ThemeSettingsService.lua) 🆕
+- **Purpose**: Server-side validation and persistence of theme settings
+- **Features**:
+  - Whitelist validation of available sound packs
+  - Integration with DataService for persistence
+  - GetThemeSettings/UpdateThemeSettings remotes
+- **Validation**: Only allows valid sound packs from SoundPacks folder
+
+#### 9. SoundBroadcast (server/MiningGame/SoundBroadcast.lua)
+- **Purpose**: Server-side sound broadcasting with optimization
+- **Features**:
+  - Distance-based filtering (120 stud radius)
+  - Rate limiting (mining: 33/sec, movement: 12/sec)
+  - Payload sanitization and validation
+  - Category-specific broadcast utilities
+
+### Client-Side Components
+
+#### 10. SoundPreloader (client/SoundPreloader.client.lua) - UPDATED 🆕
+- **Dynamic Preloading**: Now reacts to theme changes
+- **Features**:
+  - Automatically preloads sounds from active theme
+  - Re-preloads when theme changes
+  - Non-blocking with busy/dirty flags
+  - Handles both SoundConfig and theme-provided IDs
+
+#### 11. SoundReplication (client/SoundReplication.client.lua)
+- **Purpose**: Client-side handling of replicated sounds
+- **Features**:
+  - Distance-based culling with category-specific ranges
+  - Spam prevention with client-side rate limiting
+  - Routes sounds to appropriate SoundManager functions
+  - Skips own sounds via originUserId check
+
+#### 12. ThemeBootstrap (client/MiningGame/UI/ThemeBootstrap.client.lua) 🆕
+- **Purpose**: Early theme initialization before UI loads
+- **Features**:
+  - Loads saved themes immediately on join
+  - Applies both UI and sound themes
+  - Fallback handling for missing packs
+  - Prevents theme "flash" on startup
+
+### UI Integration
+
+#### 13. ThemeTab (client/MiningGame/UI/Components/ThemeTab.lua) 🆕
+- **Purpose**: User interface for theme selection
+- **Features**:
+  - Dropdown for UI theme selection
+  - Dropdown for sound pack selection
+  - Real-time preview and application
+  - Automatic discovery of available packs
+  - Server persistence of preferences
+
+## Material-to-Category Mapping
 ```
 Rock category (11 materials): rock, sandstone, basalt, slate, limestone, 
                               cobblestone, brick, concrete, asphalt, pavement,
@@ -79,7 +170,7 @@ Wood category (1 material): woodplanks
 Water category (1 material): water
 ```
 
-## Sound Flow
+## Sound Flow with Theme System
 
 ### Mining Sounds:
 1. **Server Side** (server/MiningGame/DigService.lua):
@@ -96,150 +187,116 @@ Water category (1 material): water
    - Receives broadcast, skips own sounds (via originUserId)
    - Calls `SoundManager.PlayMining(materialKey, subtype, position)`
 
-4. **Local Playback** (client/TestClient.client.lua):
-   - **NEW**: Waits for server response before playing sound
-   - **NEW**: Only plays sound on successful dig (ok = true)
-   - **NEW**: Uses server's `soundMaterialKey` and `soundWorldPos` for accuracy
-   - Includes local cooldown guard to prevent unnecessary requests
-   - Falls back to local material detection if server data missing
+4. **Theme Resolution** (NEW):
+   - SoundManager calls `SoundTheme.GetId({"mining", materialKey, subtype})`
+   - SoundThemeManager checks active theme for override
+   - Falls back through: Theme → Category → Default → Placeholder
+   - Returns appropriate sound ID for current theme
 
-5. **Sound Manager** (shared/MiningGame/SoundManager.lua):
-   - Looks up sound ID via `SoundConfig.GetMiningSoundForMaterial()`
-   - Creates 3D positioned sound at dig location
-   - Applies volume falloff (50 studs max distance)
+5. **Local Playback** (client/TestClient.client.lua):
+   - Waits for server response before playing sound
+   - Uses server-provided material key or local probe
+   - Sound played through theme-aware SoundManager
 
 ### Footstep Sounds:
-1. **Material Detection**: Movement system detects terrain material
-2. **Category Lookup**: Material key → soundCategory (via FOOTSTEP_MAP)
-3. **Sound Selection**: soundCategory → footstep sound ID
-4. **Playback**: Currently using test sounds (implementation ready)
+1. Material detected from Humanoid.FloorMaterial
+2. MaterialKeys.KeyFromEnum converts to key
+3. SoundTheme.GetId({"movement", "footstep", soundCategory}) resolves
+4. Theme-specific footstep sound plays
 
-## Service Integration
+### Ambient/Music:
+1. Time/weather conditions determine ambient selection
+2. SoundTheme.GetId({"ambient", condition}) resolves
+3. Theme-specific ambient/music tracks play
+4. Automatic restart when theme changes
 
-### CubeMaterialService (server/MiningGame/CubeMaterialService.lua)
-- Uses `MaterialDefinitions.AllTerrainEnums` for terrain replacement
-- Uses `MaterialKeys.EnumFromKey` for material lookup
-- No hardcoded material lists
+## Theme System Features
 
-### Movement/Config (shared/Movement/Config.lua)
-- Builds `TERRAIN_MULT` from MaterialDefinitions
-- Preserves `PART_SURFACE_MULT` for non-terrain (Metal, Granite)
-- Helper functions for speed lookup
+### Runtime Theme Switching
+- No restart required to change sound packs
+- All active sounds automatically update
+- Music/ambient crossfades to new theme tracks
+- Preloader automatically fetches new assets
 
-### MaterialsTab UI (client/MiningGame/UI/Components/MaterialsTab.lua)
-- Gets colors from `MaterialDefinitions.Materials[key].properties.color`
-- No hardcoded color tables
-- Uses MaterialKeys for display names
+### Hierarchical Fallback
+Sound resolution follows this path:
+1. **Theme Override**: Check if active theme defines the sound
+2. **Category Fallback**: Try theme's category-level sound
+3. **Default Sound**: Use SoundConfig default
+4. **Placeholder**: Final fallback to test sound
 
-### GridService (server/MiningGame/GridService.lua)
-- Uses MaterialKeys for terrain material conversion
-- Maps terrain Enum to material keys for sound system
-
-## Adding New Materials
-
-### Simple Process:
-1. Add ONE entry to `MaterialDefinitions.Materials`:
+Example resolution for `{"mining", "rock", "hit"}`:
 ```lua
-newmaterial = {
-    enum = Enum.Material.Limestone,  -- Must be unused Roblox terrain material
-    displayName = "New Material",
-    order = 25,  -- Optional UI order
-    properties = {
-        speedMultiplier = 1.0,
-        soundCategory = "rock",  -- Must be valid from SoundCategories
-        digDifficulty = 1.0,
-        color = Color3.fromRGB(200, 200, 200),
-    }
-}
+-- Try these in order:
+theme.mining.rock.hit       -- Specific override
+theme.mining.rock           -- Rock category default
+SoundConfig.mining.rock.hit -- System default
+TEST_CLICK                  -- Placeholder
 ```
 
-2. **That's it!** Everything else happens automatically:
-   - Added to MaterialKeys.TerrainKeys
-   - Mining sounds generated
-   - Footstep sounds mapped
-   - UI shows with color
-   - Movement speed applied
-   - Full validation at startup
+### Creating New Sound Packs
+1. Create ModuleScript in `shared/MiningGame/SoundPacks/`
+2. Define partial or complete sound hierarchy:
+```lua
+return {
+    name = "MyPack",
+    mining = {
+        rock = {
+            hit = "rbxassetid://123456",  -- Override specific sound
+        }
+    }
+    -- Don't need to define everything - falls back to default
+}
+```
+3. Pack automatically appears in ThemeTab UI
+4. Server validates and persists user selection
 
-### Adding New Sound Categories:
-1. Add to `SoundCategories.Categories` and `Ordered`
-2. Define mining events in `SoundCategories.MiningEvents`
-3. Add footstep sound in `SoundConfig.SoundIDs.movement.footstep`
+## Integration Points
 
-## Sound Preloading
+### Data Persistence
+- User preferences stored via DataService
+- Theme settings persist across sessions
+- Server-side validation prevents invalid themes
 
-### SoundPreloader (client/SoundPreloader.client.lua)
-- Automatically preloads all sound assets on client startup
-- Prevents first-play audio hitches
-- Safely handles missing sound categories
-- Parents temporary sounds to SoundService for Studio compatibility
-- Collects sounds from all categories: mining, movement, UI, ambient, music, pets, rewards, environment
+### Performance Optimizations
+- Sound preloading adapts to active theme
+- Object pooling reduces instance creation
+- Rate limiting prevents spam
+- Distance culling reduces network traffic
 
-## Current State
+### Developer Experience
+- Hot-swappable themes for rapid iteration
+- Partial overrides for incremental development
+- Comprehensive validation catches errors early
+- Changed signals enable reactive UI updates
 
-### ✅ Working:
-- Single-source-of-truth architecture (MaterialDefinitions)
-- Full validation at startup with helpful error messages
-- Dynamic sound generation from material categories
-- Immutable data structures with table.freeze()
-- 22 terrain materials fully configured
-- Footstep sound mapping via soundCategory
-- **No phantom sounds** - Only plays on successful digs (server-validated)
-- **Server-authoritative sounds** - Client uses server's material and position
-- Server replication to other players (no double-play for digger)
-- 3D positional audio with proper falloff (50 studs)
-- UI sounds with button click feedback
-- Audio preloading for smooth playback
-- Test sound (rbxassetid://9120386436) for all effects
+## Testing Sound Themes
 
-### ⚠️ Needs Implementation:
-- Actual sound assets (currently all using test click sound)
-- Custom footstep sounds (ready for assets)
-- Movement sounds (jump, double jump, land)
-- Ambient sounds based on location/time
-- Music system
+### In Studio:
+1. Open Settings Panel (gear icon)
+2. Navigate to Theme tab
+3. Select sound pack from dropdown
+4. Changes apply immediately
+5. Test sounds through gameplay
 
-### 🔧 Key Files:
-- `shared/MiningGame/MaterialDefinitions.lua` - Single source of truth
-- `shared/MiningGame/SoundCategories.lua` - Sound category definitions
-- `shared/MiningGame/MaterialKeys.lua` - Backwards compatibility
-- `shared/MiningGame/SoundConfig.lua` - Sound configuration
-- `shared/MiningGame/Types.lua` - Updated with soundMaterialKey and soundWorldPos
-- `client/TestClient.client.lua` - Local sound playback logic
-- `client/SoundPreloader.client.lua` - Audio asset preloading
-- `server/MiningGame/DigService.lua` - Returns sound data to client
-- `ADDING_NEW_MATERIALS.md` - Complete guide for adding materials
+### Adding Test Sounds:
+1. Create pack in `SoundPacks/` folder
+2. Add sound IDs for testing
+3. Pack appears in UI automatically
+4. No server restart required
 
-## Validation Features
+## Future Enhancements
 
-The system validates at startup:
-- All material sound categories are valid
-- All materials have required properties
-- All expected mining events exist
-- All used categories have footstep sounds
-- No duplicate Enum.Material values
-- All tables are frozen (immutable)
+### Planned Features:
+- User-created sound packs
+- Sound pack marketplace
+- Volume mixing per pack
+- Seasonal/event themes
+- Sound effect chains
+- Dynamic music layers
 
-Any configuration errors show clear messages in the console.
-
-## Performance Optimizations
-
-- Precomputed arrays (AllTerrainEnums, KeysOrdered)
-- Frozen tables prevent runtime mutations
-- Single-pass validation at startup
-- Dynamic generation reduces memory footprint
-- No redundant data storage
-- SoundBroadcast required once at module top
-- Audio assets preloaded to prevent hitches
-
-## Distance Configuration
-
-### Current Settings:
-- **Local sound rolloff**: 50 studs (SoundConfig.Properties.Mining.RollOffMaxDistance)
-- **Replication distance**: 120 studs (SoundReplication CATEGORY_MAX_DISTANCE)
-- **Result**: Players hear their own digs within 50 studs, other players' digs up to 120 studs
-
-### To Adjust:
-- For consistent distances: Set both to same value
-- For performance: Keep replication > rolloff (current setup)
-- Files to modify: `SoundConfig.lua` (rolloff) and `SoundReplication.client.lua` (max distance)
+### API Stability:
+- Theme system designed for backward compatibility
+- New features won't break existing packs
+- Fallback system ensures sounds always play
+- Validation prevents runtime errors
