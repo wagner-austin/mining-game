@@ -10,6 +10,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("MiningGame")
 local GameConfig = require(Shared:WaitForChild("GameConfig"))
 local Types = require(Shared:WaitForChild("Types"))
+local Logger = require(Shared:WaitForChild("Logger"))
 
 -- Server siblings
 local DataService = require(script.Parent.DataService)
@@ -20,6 +21,7 @@ local UpgradeService = require(script.Parent.UpgradeService)
 local Remotes = require(ReplicatedStorage.MiningGame.Remotes)
 
 local MonetizationService = {}
+local log = Logger.new("MonetizationService")
 
 -- Constants
 local PRICE_CACHE_EXPIRY = 300 -- 5 minutes
@@ -169,8 +171,17 @@ end
 local function handleProductPurchase(player: Player, product: Types.Product)
     local profile = DataService:GetPlayerData(player)
     if not profile then
+        log:warn("No profile found for player {} during product purchase", player.Name)
         return false
     end
+    
+    log:info("Processing product purchase: {} for player {}", product.id, player.Name)
+    log:event("product_purchased", {
+        uid = player.UserId,
+        productId = product.id,
+        effect = product.effect,
+        price = product.robux or 0
+    })
     
     -- Apply product effects
     if product.effect == "speed" then
@@ -190,7 +201,7 @@ local function handleProductPurchase(player: Player, product: Types.Product)
         
     elseif product.effect == "instant_dig" then
         -- Perform mega dig immediately
-        local cubeData = require(MiningGameServices:WaitForChild("DigService"))
+        local DigService = require(script.Parent.DigService)
         local worldPos = player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character.HumanoidRootPart.Position
         
         if worldPos then
@@ -201,7 +212,7 @@ local function handleProductPurchase(player: Player, product: Types.Product)
             profile.upgrades.size = math.min(15, oldSize + (product.size or 10))
             
             -- Process dig
-            cubeData:ProcessDigRequest(player, worldPos)
+            DigService:ProcessDigRequest(player, worldPos)
             
             -- Restore stats
             profile.upgrades.size = oldSize
@@ -212,26 +223,9 @@ local function handleProductPurchase(player: Player, product: Types.Product)
         profile.boosts.auto_dig = os.time() + (product.duration or 3600)
         Remotes.RE.OnBoostsChanged:FireClient(player, profile.boosts)
         
-        -- Start auto dig coroutine
-        spawn(function()
-            local endTime = profile.boosts.auto_dig
-            while os.time() < endTime and player.Parent do
-                wait(2) -- Dig every 2 seconds
-                
-                -- Check if still active
-                local currentProfile = DataService:GetPlayerData(player)
-                if not currentProfile or not currentProfile.boosts.auto_dig then
-                    break
-                end
-                
-                -- Get player position
-                local worldPos = player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character.HumanoidRootPart.Position
-                if worldPos then
-                    local cubeData = require(MiningGameServices:WaitForChild("DigService"))
-                    cubeData:ProcessDigRequest(player, worldPos)
-                end
-            end
-        end)
+        -- Use DigService's auto-dig system instead of spawning our own loop
+        local DigService = require(script.Parent.DigService)
+        DigService:StartAutoDig(player)
         
     elseif product.coins then
         -- Grant coins
@@ -266,7 +260,7 @@ MarketplaceService.ProcessReceipt = function(receipt)
     -- Check if product is known (BLOCKER FIX #4)
     local productData = productIdToData[productId]
     if not productData then
-        warn("[MonetizationService] Unknown product ID:", productId, "- returning NotProcessedYet")
+        log:warn("Unknown product ID: {} - returning NotProcessedYet", productId)
         return Enum.ProductPurchaseDecision.NotProcessedYet
     end
     
@@ -288,7 +282,7 @@ MarketplaceService.ProcessReceipt = function(receipt)
             break
         end
         -- Backoff on failure
-        warn("[MonetizationService] Enqueue attempt", attempt, "failed for receipt", receiptId)
+        log:warn("Enqueue attempt {} failed for receipt {}", attempt, receiptId)
         if attempt < 3 then
             task.wait(0.2 * attempt)
         end
@@ -296,7 +290,7 @@ MarketplaceService.ProcessReceipt = function(receipt)
     
     if not enqueued then
         -- Failed to persist after retries - must retry later
-        warn("[MonetizationService] Failed to enqueue receipt after retries:", receiptId)
+        log:error("Failed to enqueue receipt after retries: {}", receiptId)
         return Enum.ProductPurchaseDecision.NotProcessedYet
     end
     
@@ -305,7 +299,16 @@ MarketplaceService.ProcessReceipt = function(receipt)
     if player then
         local firstTime = processPurchase(userId, "DevProduct", productId, grant.price, "Prompt", receiptId)
         if firstTime then
+            log:info("Receipt {} processed successfully for product {}", receiptId, productId)
+            log:event("receipt_processed", {
+                uid = userId,
+                productId = productId,
+                receiptId = receiptId,
+                price = grant.price
+            })
             handleProductPurchase(player, productData)
+        else
+            log:debug("Receipt {} already processed, skipping", receiptId)
         end
     end
     
@@ -317,8 +320,16 @@ end
 local function handleGamepassPurchase(player: Player, gamepass: Types.GamePass)
     local profile = DataService:GetPlayerData(player)
     if not profile then
+        log:warn("No profile found for player {} during gamepass purchase", player.Name)
         return
     end
+    
+    log:info("Processing gamepass purchase: {} for player {}", gamepass.id, player.Name)
+    log:event("gamepass_purchased", {
+        uid = player.UserId,
+        gamepassId = gamepass.id,
+        price = gamepass.robux or 0
+    })
     
     -- Gamepass effects are permanent and checked in UpgradeService
     -- Just notify the player
@@ -340,6 +351,8 @@ end
 
 -- Check gamepass ownership on join
 Players.PlayerAdded:Connect(function(player)
+    log:debug("Player {} joined, checking gamepass ownership", player.Name)
+    
     -- Wait until DataService has loaded profile (critical to avoid race)
     if player:GetAttribute("DataLoaded") ~= true then
         player:GetAttributeChangedSignal("DataLoaded"):Wait()
@@ -352,6 +365,9 @@ Players.PlayerAdded:Connect(function(player)
     
     -- Process any durably queued grants (from offline purchases)
     local grants = DataService:ConsumePendingGrants(player.UserId)
+    if #grants > 0 then
+        log:info("Processing {} pending grants for player {}", #grants, player.Name)
+    end
     for _, grant in ipairs(grants) do
         local firstTime = processPurchase(
             grant.userId or player.UserId,
@@ -387,7 +403,7 @@ Players.PlayerAdded:Connect(function(player)
             end)
             
             if not success then
-                warn("[MonetizationService] Backfill verify error", gamepassId, player.Name)
+                log:error("Backfill verify error for gamepass {} player {}", gamepassId, player.Name)
             elseif owns then
                 -- Player owns this but we haven't tracked it yet
                 local price = getProductPrice(Enum.InfoType.GamePass, gamepassId) or 0
@@ -403,7 +419,12 @@ Players.PlayerAdded:Connect(function(player)
                 if firstTime then
                     profile.ownedGamePasses[gamepassId] = true
                     handleGamepassPurchase(player, gamepassData)
-                    print("[MonetizationService] Backfilled game pass", gamepassId, "for", player.Name)
+                    log:info("Backfilled game pass {} for {}", gamepassId, player.Name)
+                    log:event("gamepass_backfilled", {
+                        uid = player.UserId,
+                        gamepassId = gamepassId,
+                        price = price
+                    })
                 end
             end
         end
@@ -427,7 +448,7 @@ MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, gameP
         return MarketplaceService:UserOwnsGamePassAsync(player.UserId, gamePassId)
     end)
     if not ok or not owns then
-        warn("[MonetizationService] Game pass verify failed", gamePassId, player.Name)
+        log:error("Game pass verify failed {} for {}", gamePassId, player.Name)
         return
     end
 
@@ -493,11 +514,17 @@ end
 
 -- Prompt purchase function
 function MonetizationService:PromptPurchase(player: Player, purchaseType: string, purchaseId: string)
+    log:debug("Prompting {} purchase: {} for player {}", purchaseType, purchaseId, player.Name)
     if purchaseType == "product" then
         -- Find product
         for _, product in ipairs(GameConfig.Monetization.PRODUCTS) do
             if product.id == purchaseId and product.productId and product.productId > 0 then
                 MarketplaceService:PromptProductPurchase(player, product.productId)
+                log:event("purchase_prompted", {
+                    uid = player.UserId,
+                    type = "product",
+                    id = purchaseId
+                })
                 return true
             end
         end
@@ -506,11 +533,17 @@ function MonetizationService:PromptPurchase(player: Player, purchaseType: string
         for _, gamepass in ipairs(GameConfig.Monetization.GAMEPASSES) do
             if gamepass.id == purchaseId and gamepass.gamepassId and gamepass.gamepassId > 0 then
                 MarketplaceService:PromptGamePassPurchase(player, gamepass.gamepassId)
+                log:event("purchase_prompted", {
+                    uid = player.UserId,
+                    type = "gamepass",
+                    id = purchaseId
+                })
                 return true
             end
         end
     end
     
+    log:warn("Failed to prompt purchase: {} {} not found", purchaseType, purchaseId)
     return false
 end
 
@@ -589,6 +622,6 @@ end
 -- Initialize
 setupRemotes()
 
-print("[MonetizationService] Initialized")
+log:info("Initialized")
 
 return MonetizationService
