@@ -368,5 +368,5 @@ MiningGame/
 - Focus on fun, not FOMO mechanics
 
 ---
-*Last Updated: August 28, 2024*
+*Last Updated: September 3, 2025*
 *This is the authoritative implementation guide - supersedes all other planning documents*
