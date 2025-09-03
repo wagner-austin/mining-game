@@ -10,6 +10,8 @@ return {
         -- Core gameplay
         GetProfile = mg:WaitForChild("GetProfile"),
         RequestDig = mg:WaitForChild("RequestDig"),
+        StartContinuousDig = mg:WaitForChild("StartContinuousDig"),
+        StopContinuousDig = mg:WaitForChild("StopContinuousDig"),
         
         -- Purchases and upgrades
         PurchaseUpgrade = mg:WaitForChild("PurchaseUpgrade"),
@@ -37,6 +39,7 @@ return {
         
         -- Teleportation
         TeleportToHome = mg:WaitForChild("TeleportToHome"),
+        RespawnCubeModel = mg:WaitForChild("RespawnCubeModel"),
         
         -- Debug
         DebugAddCurrency = mg:WaitForChild("DebugAddCurrency"),
@@ -52,6 +55,30 @@ return {
         -- Theme settings
         GetThemeSettings = mg:WaitForChild("GetThemeSettings"),
         UpdateThemeSettings = mg:WaitForChild("UpdateThemeSettings"),
+        
+        -- Metrics
+        GetMetrics = mg:WaitForChild("GetMetrics"),
+        GetServerMetrics = mg:WaitForChild("GetServerMetrics"),
+        
+        -- Item drops
+        PickupItem = mg:WaitForChild("PickupItem"),
+        SpawnTestItem = mg:WaitForChild("SpawnTestItem"),
+        
+        -- SimAgents (Studio testing)
+        SimAgents_SetCount = mg:WaitForChild("SimAgents_SetCount"),
+        SimAgents_GetStatus = mg:WaitForChild("SimAgents_GetStatus"),
+        SimAgents_RespawnAll = mg:WaitForChild("SimAgents_RespawnAll"),
+        SimAgents_Clear = mg:WaitForChild("SimAgents_Clear"),
+        SimAgents_SetTerrainCubes = mg:WaitForChild("SimAgents_SetTerrainCubes"),
+        
+        -- Spawn Strategy
+        SpawnStrategy_Get = mg:WaitForChild("SpawnStrategy_Get"),
+        SpawnStrategy_Set = mg:WaitForChild("SpawnStrategy_Set"),
+        SpawnStrategy_List = mg:WaitForChild("SpawnStrategy_List"),
+
+        -- Cloth tool (testing/util)
+        ClothSpawn = mg:WaitForChild("ClothSpawn"),
+        ClothDestroy = mg:WaitForChild("ClothDestroy"),
     },
     RE = {
         -- State updates
@@ -83,8 +110,19 @@ return {
         OnSoundEffect = mg:WaitForChild("OnSoundEffect"),
         OnCameraShake = mg:WaitForChild("OnCameraShake"),
         
+        -- Cube state changes
+        OnCubeOriginChanged = mg:WaitForChild("OnCubeOriginChanged"),
+        
         -- Debug/Visual
         OnTerrainPoke = mg:WaitForChild("OnTerrainPoke"),
+        
+        -- Item drops
+        OnItemCollected = mg:WaitForChild("OnItemCollected"),
+        ShowPickupPrompt = mg:WaitForChild("ShowPickupPrompt"),
+        PlaySound = mg:WaitForChild("PlaySound"),
+
+        -- Cloth simulation events
+        ClothUpdate = mg:WaitForChild("ClothUpdate"),
     },
     Folder = mg,
 }
