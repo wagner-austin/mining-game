@@ -1,7 +1,7 @@
 # Mining Game Planning Documents Index
 
 ## ⚠️ IMPORTANT: Most Plans Are Not Implemented
-*Last Updated: December 2024*
+*Last Updated: September 3, 2025*
 
 ## Currently Implemented Features
 
