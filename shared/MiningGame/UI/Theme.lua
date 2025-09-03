@@ -91,38 +91,47 @@ Theme.basePanel = {
     dividerThickness = 2,
 }
 
--- Card/Surface styling (used by dropdowns, section cards, etc.)
+-- Card/Surface styling (used by DebugTab sections, dropdown menus, etc.)
+-- These are smaller UI elements, not the main panels
 Theme.card = {
-    backgroundTransparency = 0.2,  -- Consistent opacity for all cards/surfaces
-    backgroundTransparencyDim = 0.4,  -- For less prominent cards if needed
+    backgroundTransparency = 0.2,     -- 80% visible - fairly solid for readability
+    backgroundTransparencyDim = 0.4,  -- 60% visible - for disabled/inactive cards
 }
 
--- Button styling
+-- Button styling (transparency values: 0 = solid, 1 = invisible)
 Theme.button = {
-    primaryTransparency = 0.8,  -- Primary colored buttons
-    primaryHoverTransparency = 0.6,  -- On hover
-    surfaceTransparency = 0.85,  -- Surface colored buttons (action buttons in AccountTab)
-    surfaceHoverTransparency = 0.7,  -- On hover
+    -- Primary buttons (main actions, colored backgrounds)
+    primaryTransparency = 0.8,       -- Default state: 20% visible
+    primaryHoverTransparency = 0.6,   -- Hover state: 40% visible (doubles visibility)
+    
+    -- Surface buttons (secondary actions, blend with background)
+    surfaceTransparency = 0.85,       -- Default state: 15% visible (very subtle)
+    surfaceHoverTransparency = 0.5,   -- Hover state: 50% visible (3x more visible - much more noticeable!)
 }
 
 -- Dropdown option styling (mobile app style)
 Theme.dropdown = {
-    optionTransparency = 0.92,  -- Subtle background for options (slightly more visible)
-    optionHoverTransparency = 0.82,  -- More visible on hover
-    selectedTransparency = 0.7,  -- Selected option highlight
-    optionHeight = 44,  -- Touch-friendly height (iOS standard)
-    listMaxHeight = 250,  -- About 5-6 options visible
-    listPadding = 6,  -- Compact padding
-    optionGap = 0,  -- No gaps for continuous list
-    listOffset = 8,  -- Gap between button and dropdown
-    listWidthRatio = 1.0,  -- Same width as button
-    listBackgroundTransparency = 0.1,  -- More opaque background
-    shadowTransparency = 0.4,  -- Shadow effect
+    -- Individual option transparencies
+    optionTransparency = 0.92,       -- Default: 8% visible (very subtle)
+    optionHoverTransparency = 0.82,  -- Hover: 18% visible (more than 2x visibility)
+    selectedTransparency = 0.7,      -- Selected: 30% visible (clearly highlighted)
+    
+    -- Layout and sizing
+    optionHeight = 44,       -- Touch-friendly height (iOS standard)
+    listMaxHeight = 250,     -- Max dropdown height (~5-6 options visible)
+    listPadding = 6,         -- Internal padding of dropdown list
+    optionGap = 0,          -- Gap between options (0 = continuous list)
+    listOffset = 8,         -- Gap between trigger button and dropdown
+    listWidthRatio = 1.0,   -- Width relative to button (1.0 = same width)
+    
+    -- Container styling
+    listBackgroundTransparency = 0.1,  -- List background: 90% visible (nearly solid)
+    shadowTransparency = 0.4,           -- Drop shadow: 60% visible
 }
 
 -- UI element styling
 Theme.ui = {
-    dividerTransparency = 0.8,  -- Divider lines
+    dividerTransparency = 0.8,  -- Divider lines: 20% visible (subtle separators)
 }
 
 -- Panel responsive sizing
@@ -198,18 +207,26 @@ Theme.glassEdge = {
     applyStrokeMode = Enum.ApplyStrokeMode.Border
 }
 
--- Frosted glass effect presets (used by panels, chips, etc.)
+-- Frosted glass effect presets (used by BasePanel and other glass UI)
+-- IMPORTANT: These transparencies STACK/MULTIPLY together!
+-- Final visibility = base transparency + gradient overlay
 Theme.effects = Theme.effects or {}
 Theme.effects.frosted = {
-    -- Opacity (0 = solid, 1 = invisible). Use a low value for clear, non-see-through frosting.
-    backgroundTransparency = 0.18,
-    -- Subtle neutral highlight to keep the glass feel without washing out colors
-    gradientTopT = 0.60,
-    gradientBottomT = 0.85,
-    -- Noise layer strength and tint
-    noiseTransparency = 0.94,
-    noiseColorKey = "Background",   -- Tint the frost to the active theme background color
-    noiseLighten = 0.10,            -- Lighten the tint toward white (0..1) for frosted feel
+    -- BASE LAYER: Main panel background transparency
+    -- 0 = completely solid/opaque, 1 = completely invisible
+    -- This is the starting transparency before gradients are applied
+    backgroundTransparency = 0.15,  -- 85% visible base (before gradient)
+    
+    -- GRADIENT OVERLAY: Additional transparency that varies from top to bottom
+    -- These values ADD more transparency on top of the base
+    -- 0 = no additional transparency, 1 = fully transparent
+    gradientTopT = 0.25,     -- Top of panel: adds 25% transparency (final ~60% visible)
+    gradientBottomT = 0.35,  -- Bottom of panel: adds 35% transparency (final ~50% visible)
+    
+    -- TEXTURE LAYER: Noise pattern for frosted glass texture effect
+    noiseTransparency = 0.94,        -- Nearly invisible texture (6% visible) - just adds subtle pattern
+    noiseColorKey = "Background",    -- Which theme color to tint the noise texture
+    noiseLighten = 0.10,             -- How much to lighten the tint toward white (0-1)
 }
 
 -- Toast presets (standardized, frosted, subtle)
