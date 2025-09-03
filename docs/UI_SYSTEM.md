@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Mining Game UI system is a modular, component-based architecture built in Roblox Lua. It provides a flexible framework for creating responsive user interfaces with consistent theming, sound feedback, and state management.
+The Mining Game UI system is a modular, component-based architecture built in Roblox Lua. It provides a flexible framework for creating responsive user interfaces with consistent theming, sound feedback, state management, and comprehensive developer tools.
 
 ## Architecture
 
@@ -14,6 +14,7 @@ client/MiningGame/
 │   ├── ClientUI.client.lua      # Main UI bootstrap and initialization
 │   ├── UIManager.lua             # Centralized UI state management
 │   ├── MainHUD.lua               # Primary HUD container and layout
+│   ├── ThemeBootstrap.client.lua # Early theme initialization 🆕
 │   ├── Components/               # Reusable UI components
 │   │   ├── BasePanel.lua         # Base class for all panels
 │   │   ├── BaseChip.lua          # Base class for HUD chips
@@ -23,8 +24,11 @@ client/MiningGame/
 │   │   ├── SettingsButton.lua    # Settings toggle button
 │   │   ├── TabContainer.lua      # Tab navigation component
 │   │   ├── TabbedPanel.lua       # Panel with tab support
-│   │   ├── AccountTab.lua        # Account settings tab (with real-time stats)
-│   │   └── MaterialsTab.lua      # Material preferences tab
+│   │   ├── AccountTab.lua        # Account settings tab
+│   │   ├── MaterialsTab.lua      # Material preferences tab
+│   │   ├── ThemeTab.lua          # Theme & sound pack selection 🆕
+│   │   ├── MetricsTab.lua        # User metrics dashboard (Studio) 🆕
+│   │   └── DebugTab.lua          # Debug controls (Studio) 🆕
 │   └── Panels/                   # Full-screen panels
 │       └── SettingsPanel.lua     # Main settings panel
 └── Data/
@@ -32,7 +36,9 @@ client/MiningGame/
 
 shared/MiningGame/UI/
 ├── Theme.lua                     # Global theming and styling
-└── UIUtils.lua                   # Utility functions (formatNumber, etc.)
+├── ThemeManager.lua              # Hot-swappable theme system 🆕
+├── ThemePacks.lua                # Available UI themes 🆕
+└── UIUtils.lua                   # Utility functions
 ```
 
 ## Component System
@@ -48,530 +54,402 @@ local BasePanel = require(UI.Components.BasePanel)
 
 local MyPanel = {}
 MyPanel.__index = MyPanel
-setmetatable(MyPanel, BasePanel)
+setmetatable(MyPanel, {__index = BasePanel})
 
-function MyPanel.new(screenGui)
-    local self = BasePanel.new(screenGui)
+function MyPanel.new(config)
+    local self = BasePanel.new(config)
     setmetatable(self, MyPanel)
     
-    -- Custom initialization
-    self.frame.Size = UDim2.new(0, 600, 0, 400)
+    -- Add custom UI elements
+    self:_setupContent()
     
     return self
 end
 ```
 
-**Key Features:**
-- Automatic backdrop blur
-- Close button with sound feedback
-- Animated show/hide transitions
-- Event cleanup on destruction
+**Features:**
+- Consistent theming
+- Animation support
+- Portal rendering (for dropdowns/popovers)
+- Event management
+- Automatic cleanup
 
 #### BaseChip
-Base class for HUD status displays (coins, gems, stats).
+Foundation for HUD elements (currency displays, status indicators).
 
 ```lua
--- Creating a custom chip
 local BaseChip = require(UI.Components.BaseChip)
 
-local StatsChip = {}
-StatsChip.__index = StatsChip
-setmetatable(StatsChip, BaseChip)
+local StatusChip = {}
+StatusChip.__index = StatusChip
+setmetatable(StatusChip, {__index = BaseChip})
 
-function StatsChip.new(parent, config)
-    local self = BaseChip.new(parent, {
-        size = config.size or UDim2.new(0, 150, 0, 50),
-        position = config.position,
-        icon = "rbxassetid://123456789",
-        text = "0",
-        color = Theme.colors.Primary
-    })
-    setmetatable(self, StatsChip)
+function StatusChip.new(config)
+    local self = BaseChip.new(config)
+    setmetatable(self, StatusChip)
+    
+    -- Custom chip logic
     return self
 end
 ```
 
-### Modular Components
+### NEW Components
 
-#### Dropdown Component
-A fully-featured dropdown with portal rendering for proper layering.
+#### ThemeTab 🆕
+User interface for theme customization.
 
 ```lua
-local Dropdown = require(UI.Components.Dropdown)
+-- Located at: client/MiningGame/UI/Components/ThemeTab.lua
+local ThemeTab = require(UI.Components.ThemeTab)
 
-local dropdown = Dropdown.new({
+local themeTab = ThemeTab.new({
     parent = container,
-    position = UDim2.new(0, 10, 0, 10),
-    size = UDim2.new(1, -20, 0, 36),
-    placeholder = "Select an option...",
-    options = {
-        {id = "opt1", label = "Option 1", color = Color3.new(1, 0, 0)},
-        {id = "opt2", label = "Option 2"}
-    },
-    portalParent = screenGui,  -- Renders dropdown above other UI
-    onSelect = function(option)
-        print("Selected:", option.label)
-    end
+    portalParent = settingsPanel.portal
 })
-
--- Programmatic control
-dropdown:select(1)  -- Select first option
-local value = dropdown:getValue()  -- Get current selection
-dropdown:destroy()  -- Cleanup
 ```
 
-#### TabContainer
-Manages tabbed navigation within panels.
+**Features:**
+- UI theme selection (default, light, highContrast, ocean, forest)
+- Sound pack selection (dynamically loaded)
+- Real-time preview
+- Server persistence
+- Hydration system to prevent unnecessary saves
+
+#### MetricsTab 🆕
+Real-time metrics dashboard (Studio only).
 
 ```lua
-local TabContainer = require(UI.Components.TabContainer)
+-- Located at: client/MiningGame/UI/Components/MetricsTab.lua
+local MetricsTab = require(UI.Components.MetricsTab)
 
-local tabs = TabContainer.new({
-    parent = panel,
-    tabs = {
-        {id = "general", label = "General", icon = "⚙"},
-        {id = "materials", label = "Materials", icon = "🎨"},
-        {id = "account", label = "Account", icon = "👤"}
-    },
-    onTabChange = function(tabId)
-        -- Handle tab switch
-    end
+local metricsTab = MetricsTab.new({
+    parent = container
 })
-
-tabs:selectTab("materials")  -- Switch to tab
-tabs:setTabVisible("account", false)  -- Hide tab
 ```
 
-## MainHUD System
+**Features:**
+- Auto-refresh every 2 seconds
+- Categorized metrics display
+- Server metrics integration
+- Smart value formatting
+- Manual refresh option
 
-The MainHUD manages the persistent UI elements visible during gameplay.
+**Categories:**
+- Gameplay (blocks dug, accuracy, streaks)
+- Economy (coins, gems, net worth)
+- Session (playtime, session count)
+- Lifecycle (first played, account age)
+- Progression (upgrades, materials)
+- Monetization (purchases, revenue)
 
-### Structure
+#### DebugTab 🆕
+Developer tools and debug controls (Studio only).
 
 ```lua
-MainHUD = {
-    -- Currency displays
-    coinsChip: CurrencyChip,
-    gemsChip: CurrencyChip,
-    
-    -- Navigation
-    homeButton: HomeButton,
-    settingsButton: SettingsButton,
-    
-    -- Panels
-    settingsPanel: SettingsPanel?,
-    
-    -- State
-    isSettingsOpen: boolean
+-- Located at: client/MiningGame/UI/Components/DebugTab.lua
+local DebugTab = require(UI.Components.DebugTab)
+
+local debugTab = DebugTab.new({
+    parent = container
+})
+```
+
+**Features:**
+- **Cube Controls**: Respawn, reset, teleport
+- **Currency Cheats**: Add coins/gems
+- **Player Stats**: Reset functionality
+- **SimAgents**: Agent count, spawn strategy, terrain cubes
+- **Hotkeys**: Quick agent adjustment (=/-, ]/[)
+- **Confirmation**: Safety for destructive operations
+
+### Component Properties
+
+All components support these standard properties:
+
+```lua
+{
+    parent = Instance,           -- Parent GUI object
+    position = UDim2?,          -- Optional position
+    size = UDim2?,              -- Optional size  
+    visible = boolean?,         -- Initial visibility
+    zIndex = number?,           -- Layer order
+    portalParent = Frame?,      -- For dropdown/popover rendering
 }
-```
-
-### Initialization Flow
-
-1. **ClientUI.client.lua** bootstraps the UI system
-2. **AccountDataProvider** is created for reactive data management
-3. **UIManager** initializes and manages scene registration
-4. **MainHUD** creates the screen GUI and container
-5. Currency chips are positioned in top-left
-6. Navigation buttons are positioned in top-right
-7. Settings panel is created with data provider injection
-8. Data providers connect to remote events for real-time updates
-
-### Currency Updates
-
-```lua
--- Using AccountDataProvider for reactive updates
-local accountDataProvider = AccountDataProvider.new(Remotes, UIUtils)
-
--- Subscribe to changes
-accountDataProvider:onChanged():Connect(function(key, value, snapshot)
-    if snapshot and snapshot.profile then
-        local profile = snapshot.profile
-        hud:SetCurrencies(profile.coins or 0, profile.gems or 0)
-    end
-end)
-
--- Data automatically syncs when server updates profile
-```
-
-## Settings Management
-
-### Settings Panel Architecture
-
-The settings panel uses a modular tab system where each tab is a self-contained component.
-
-```lua
-SettingsPanel
-├── TabContainer (navigation)
-├── AccountTab (account statistics)
-│   ├── User avatar and info
-│   ├── Session time (real-time)
-│   ├── Total playtime (lifetime + session)
-│   ├── Coins display
-│   └── Blocks dug counter
-└── MaterialsTab (visual preferences)
-    ├── Palette dropdown
-    ├── Cube material dropdown
-    └── Floor material dropdown
-```
-
-### Material Preferences System
-
-Materials settings demonstrate the full settings flow:
-
-1. **User Interaction**: User selects new material in dropdown
-2. **Client Update**: Visual preview updates immediately
-3. **Server Save**: Preference saved to DataService
-4. **Persistence**: Loaded on next session
-
-```lua
--- MaterialsTab.lua
-function MaterialsTab:onPaletteSelect(option)
-    if self._hydrating then return end  -- Prevent save during load
-    
-    -- Apply locally
-    MaterialManager.SetPalette(option.id)
-    
-    -- Save to server
-    Remotes.RF.SetPalettePreference:InvokeServer(option.id)
-end
-```
-
-### Settings Hydration
-
-Settings load after player data is ready:
-
-```lua
-task.spawn(function()
-    -- Wait for server data
-    if not player:GetAttribute("DataLoaded") then
-        player:GetAttributeChangedSignal("DataLoaded"):Wait()
-    end
-    
-    -- Load preferences
-    local prefs = Remotes.RF.GetMaterialPreferences:InvokeServer()
-    
-    -- Hydrate UI (with guard to prevent re-save)
-    self._hydrating = true
-    self:setPalette(prefs.palette)
-    self:setCubeMaterial(prefs.cubeMaterial)
-    self:setFloorMaterial(prefs.floorMaterial)
-    self._hydrating = false
-end)
 ```
 
 ## Theme System
 
-Global theming is centralized in `Theme.lua`:
+### ThemeManager 🆕
+Hot-swappable theme system with table identity preservation.
 
 ```lua
-Theme = {
-    colors = {
-        Background = Color3.fromRGB(30, 30, 35),
-        Surface = Color3.fromRGB(40, 40, 50),
-        Primary = Color3.fromRGB(88, 101, 242),
-        Secondary = Color3.fromRGB(255, 121, 63),
-        Text = Color3.fromRGB(230, 230, 230),
-        TextDim = Color3.fromRGB(160, 160, 170),
-        Success = Color3.fromRGB(87, 242, 135),
-        Error = Color3.fromRGB(237, 66, 69)
+-- Located at: shared/MiningGame/UI/ThemeManager.lua
+local ThemeManager = require(UI.ThemeManager)
+
+-- Switch theme
+ThemeManager.SetTheme("ocean")
+
+-- Listen for changes
+ThemeManager.Changed:Connect(function(newTheme)
+    -- UI automatically updates via Theme reference
+end)
+```
+
+**Features:**
+- In-place table mutation (preserves references)
+- Event-driven updates
+- Deep cloning for complex properties
+- Performance optimized
+
+### Available Themes
+
+```lua
+-- Located at: shared/MiningGame/UI/ThemePacks.lua
+{
+    default = {       -- Dark theme with blue accents
+        colors = {
+            Primary = Color3.fromHex("#3B82F6"),
+            Background = Color3.fromHex("#111827"),
+            Surface = Color3.fromHex("#1F2937"),
+            Text = Color3.fromHex("#F9FAFB")
+        }
     },
-    fonts = {
-        Primary = Enum.Font.GothamBold,
-        Secondary = Enum.Font.Gotham,
-        Mono = Enum.Font.RobotoMono
+    light = {         -- Light theme with blue accents
+        colors = {
+            Primary = Color3.fromHex("#2563EB"),
+            Background = Color3.fromHex("#FFFFFF"),
+            Surface = Color3.fromHex("#F3F4F6"),
+            Text = Color3.fromHex("#111827")
+        }
     },
-    corners = {
-        Small = UDim.new(0, 4),
-        Medium = UDim.new(0, 8),
-        Large = UDim.new(0, 12)
+    highContrast = {  -- Accessibility theme
+        colors = {
+            Primary = Color3.fromHex("#FFFF00"),
+            Background = Color3.fromHex("#000000"),
+            Surface = Color3.fromHex("#1A1A1A"),
+            Text = Color3.fromHex("#FFFFFF")
+        }
+    },
+    ocean = {         -- Ocean-inspired theme
+        colors = {
+            Primary = Color3.fromHex("#06B6D4"),
+            Background = Color3.fromHex("#0C4A6E"),
+            Surface = Color3.fromHex("#075985"),
+            Text = Color3.fromHex("#E0F2FE")
+        }
+    },
+    forest = {        -- Forest-inspired theme
+        colors = {
+            Primary = Color3.fromHex("#10B981"),
+            Background = Color3.fromHex("#14532D"),
+            Surface = Color3.fromHex("#166534"),
+            Text = Color3.fromHex("#DCFCE7")
+        }
     }
 }
 ```
 
-## Sound Integration
-
-UI components integrate with the SoundManager for feedback:
+### Theme Bootstrap 🆕
+Early initialization system for seamless theme loading.
 
 ```lua
--- Button clicks with sound
-button.Activated:Connect(function()
-    local SoundManager = require(game.ReplicatedStorage.MiningGame.SoundManager)
-    SoundManager.PlayUI("buttonclick")
-    -- Perform action
-end)
-
--- Panel open/close
-SoundManager.PlayUI("whoosh")
-
--- Currency updates
-SoundManager.PlayUI("coin")
+-- Located at: client/MiningGame/UI/ThemeBootstrap.client.lua
+-- Automatically runs before UI creation
 ```
 
-## Data Provider Pattern
+**Process:**
+1. Loads saved theme settings from server
+2. Applies UI theme before MainHUD appears
+3. Applies sound pack for consistent audio
+4. Handles missing/invalid themes gracefully
 
-The UI system uses reactive data providers for state management:
+## State Management
 
-### AccountDataProvider
+### UIManager
+Central state and scene management.
 
 ```lua
--- Create provider
-local provider = AccountDataProvider.new(Remotes, UIUtils)
+local UIManager = require(UI.UIManager)
 
--- Get current snapshot
-local snapshot = provider:getSnapshot()
--- snapshot = {
---     profile = { coins, gems, playtime, sessionStartTime, ... },
---     cubeStats = { dugCells, ... },
---     lastUpdated = timestamp,
---     isLoading = false
--- }
+-- Scene management
+UIManager:TransitionToScene("settings")
+UIManager:CloseCurrentScene()
+
+-- Panel management
+UIManager:RegisterPanel("inventory", inventoryPanel)
+UIManager:ShowPanel("inventory")
+
+-- Toast notifications
+UIManager:ShowToast("Achievement unlocked!", {
+    duration = 3,
+    type = "success"
+})
+```
+
+**Features:**
+- Scene transitions with animations
+- Panel lifecycle management
+- Toast notification system
+- Theme refresh propagation
+- Watchdog recovery system (F10 key)
+
+### Data Providers
+
+#### AccountDataProvider
+Reactive data management for player stats.
+
+```lua
+local AccountDataProvider = require(Data.AccountDataProvider)
 
 -- Subscribe to changes
-local connection = provider:onChanged():Connect(function(key, value, snapshot)
-    -- React to data changes
-    if key == "coins" then
-        updateCoinDisplay(value)
-    end
+local connection = AccountDataProvider.Subscribe("coins", function(value)
+    coinLabel.Text = tostring(value)
 end)
 
--- Cleanup
+-- Get current value
+local coins = AccountDataProvider.GetValue("coins")
+
+-- Clean up
 connection:Disconnect()
 ```
 
-### Benefits
-- Single source of truth for account data
-- Automatic synchronization with server
-- Reactive updates (no polling)
-- Type-safe data access
-- Efficient change detection
+**Tracked Values:**
+- Currency (coins, gems)
+- Stats (playtime, blocks dug, join date)
+- Progression (upgrades, materials)
+- Computed values (net worth, efficiency)
+
+## Responsive Design
+
+### Mobile Optimization
+
+```lua
+-- Theme provides mobile-aware sizing
+local buttonHeight = Theme.sizes.MinButtonHeight -- 48px on mobile, 36px on desktop
+local touchTarget = Theme.sizes.MinTouchTarget   -- 48px minimum
+```
+
+### Breakpoints
+
+```lua
+if viewport.X < Theme.breakpoints.mobile then
+    -- Mobile layout
+elseif viewport.X < Theme.breakpoints.tablet then
+    -- Tablet layout
+else
+    -- Desktop layout
+end
+```
 
 ## Best Practices
 
-### 1. Component Lifecycle
-
-Always implement proper cleanup:
-
-```lua
-function Component:destroy()
-    -- Disconnect events
-    for _, connection in ipairs(self.connections) do
-        connection:Disconnect()
-    end
-    
-    -- Destroy UI elements
-    if self.frame then
-        self.frame:Destroy()
-    end
-    
-    -- Clear references
-    self.connections = {}
-end
-```
-
-### 2. State Management
-
-Use UIManager for UI state and data providers for data state:
+### 1. Component Creation
+Always extend base classes for consistency:
 
 ```lua
--- UI State (panels, visibility)
-manager:registerScene(panel)
-manager:showScene("MainHUD")
-manager:togglePanel("Settings")
+local MyComponent = {}
+MyComponent.__index = MyComponent
+setmetatable(MyComponent, {__index = BasePanel})
 
--- Data State (profile, stats)
-local provider = AccountDataProvider.new(Remotes, UIUtils)
-provider:onChanged():Connect(function(key, value, snapshot)
-    -- React to data changes
-end)
-
--- Dependency Injection
-local settingsPanel = SettingsPanel.new({
-    accountDataProvider = provider  -- Pass provider to components
-})
-```
-
-### 3. Responsive Design
-
-Use relative sizing and automatic layout:
-
-```lua
--- Responsive container
-container.Size = UDim2.new(1, -40, 1, -100)  -- Full size with padding
-
--- Use UIListLayout for automatic spacing
-local layout = Instance.new("UIListLayout")
-layout.Padding = UDim.new(0, 10)
-layout.FillDirection = Enum.FillDirection.Vertical
-layout.Parent = container
-```
-
-### 4. Performance
-
-- Create panels lazily (only when first opened)
-- Reuse components instead of destroying/recreating
-- Use object pooling for frequently created elements
-- Batch UI updates when possible
-
-## Adding New Features
-
-### Creating a New Panel
-
-1. Create new file in `UI/Panels/`
-2. Extend BasePanel
-3. Register with UIManager
-4. Add button/trigger in MainHUD
-
-```lua
--- MyPanel.lua
-local BasePanel = require(UI.Components.BasePanel)
-local MyPanel = {}
-MyPanel.__index = MyPanel
-setmetatable(MyPanel, BasePanel)
-
-function MyPanel.new(screenGui)
-    local self = BasePanel.new(screenGui)
-    setmetatable(self, MyPanel)
-    
-    self.frame.Size = UDim2.new(0, 500, 0, 400)
-    self:setupContent()
-    
+function MyComponent.new(config)
+    local self = BasePanel.new(config)
+    setmetatable(self, MyComponent)
+    -- Custom initialization
     return self
 end
-
-function MyPanel:setupContent()
-    -- Add your UI elements
-end
-
-return MyPanel
 ```
 
-### Creating a New Tab
-
-1. Create component in `UI/Components/`
-2. Follow the tab interface pattern
-3. Add to parent panel's TabContainer
+### 2. Theme Usage
+Reference Theme for all styling:
 
 ```lua
--- MyTab.lua
-local MyTab = {}
-MyTab.__index = MyTab
+-- Good
+label.TextColor3 = Theme.colors.Text
+button.Size = UDim2.new(1, 0, 0, Theme.sizes.MinButtonHeight)
 
-function MyTab.new(config)
-    local self = setmetatable({}, MyTab)
-    
-    self.container = Instance.new("Frame")
-    self.container.Size = config.size or UDim2.new(1, 0, 1, 0)
-    self.container.BackgroundTransparency = 1
-    self.container.Parent = config.parent
-    
-    self:setupContent()
-    return self
-end
-
-function MyTab:setEnabled(enabled)
-    self.container.Visible = enabled
-end
-
-function MyTab:destroy()
-    self.container:Destroy()
-end
-
-return MyTab
+-- Bad
+label.TextColor3 = Color3.new(1, 1, 1)
+button.Size = UDim2.new(1, 0, 0, 36)
 ```
 
-## Common Patterns
-
-### Portal Rendering
-Used for dropdowns and tooltips to render above other UI:
+### 3. Event Management
+Store and clean up connections:
 
 ```lua
-local portalParent = screenGui  -- Top-level container
+function Component:_setupEvents()
+    self._connections = {}
+    
+    table.insert(self._connections, 
+        button.Activated:Connect(function()
+            self:_handleClick()
+        end)
+    )
+end
 
+function Component:Destroy()
+    for _, conn in ipairs(self._connections) do
+        conn:Disconnect()
+    end
+end
+```
+
+### 4. Portal Usage
+Use portals for overlays:
+
+```lua
 local dropdown = Dropdown.new({
-    parent = localContainer,
-    portalParent = portalParent,  -- Dropdown renders here
-    -- ...
+    parent = container,
+    portalParent = self.portal, -- Renders above panel
+    options = {"Option 1", "Option 2"}
 })
 ```
 
-### Hydration Pattern
-Loading saved data without triggering save loops:
+## Testing
 
-```lua
-self._hydrating = true  -- Set guard
-self:setValue(savedValue)  -- Update UI
-self._hydrating = false  -- Clear guard
+### Studio Testing
+1. Use MetricsTab to monitor performance
+2. Use DebugTab for rapid iteration
+3. Test all themes with ThemeTab
+4. Verify mobile sizing with device emulator
 
-function self:onValueChange(value)
-    if self._hydrating then return end  -- Skip during hydration
-    -- Save to server
-end
-```
+### Common Issues
 
-### Animation Helpers
-Common animation patterns:
+**Issue**: Dropdown appears behind panel
+**Solution**: Pass `portalParent` to render in portal layer
 
-```lua
--- Fade in
-local tween = TweenService:Create(
-    frame,
-    TweenInfo.new(0.3, Enum.EasingStyle.Quad),
-    {BackgroundTransparency = 0}
-)
-tween:Play()
+**Issue**: Theme changes don't apply
+**Solution**: Use Theme reference directly, not cached colors
 
--- Slide in from right
-frame.Position = UDim2.new(1, 0, 0.5, 0)
-frame:TweenPosition(
-    UDim2.new(0.5, 0, 0.5, 0),
-    Enum.EasingDirection.Out,
-    Enum.EasingStyle.Quad,
-    0.3
-)
-```
+**Issue**: Memory leaks from events
+**Solution**: Store connections and disconnect in Destroy()
 
-## Debugging
+## Performance
 
-### UI Hierarchy Inspector
-```lua
--- In console
-local function printHierarchy(instance, indent)
-    indent = indent or ""
-    print(indent .. instance.Name .. " (" .. instance.ClassName .. ")")
-    for _, child in ipairs(instance:GetChildren()) do
-        printHierarchy(child, indent .. "  ")
-    end
-end
+### Optimization Tips
+1. Use `AutomaticSize` sparingly
+2. Cache Theme references in component init
+3. Batch UI updates in single frame
+4. Use object pooling for frequently created elements
+5. Minimize deep nesting of GUI objects
 
-printHierarchy(game.Players.LocalPlayer.PlayerGui)
-```
+### Monitoring
+- Use MetricsTab to track UI update frequency
+- Monitor memory usage in Developer Console
+- Profile with MicroProfiler for frame timing
 
-### State Debugging
-```lua
--- Add to UIManager
-function UIManager:DebugState()
-    print("=== UI State ===")
-    for key, value in pairs(self.state) do
-        print(key, ":", value)
-    end
-end
-```
+## Future Enhancements
 
-## Testing Checklist
+### Planned Features
+- Drag and drop support
+- Animation library
+- Custom cursor system
+- Notification queue
+- Keyboard navigation
+- Gamepad support
 
-- [ ] All panels open/close correctly
-- [ ] Sound feedback plays on interactions (button clicks)
-- [ ] Settings persist across sessions
-- [ ] UI scales properly at different resolutions
-- [ ] Memory is cleaned up properly (no leaks)
-- [ ] Tab navigation works smoothly
-- [ ] Dropdowns render above other UI elements
-- [ ] Currency updates animate smoothly
-- [ ] Theme is consistently applied
-- [ ] Error states are handled gracefully
-- [ ] Data providers update reactively
-- [ ] Session time increments correctly
-- [ ] Account stats display accurately
-- [ ] Playtime tracking persists
-- [ ] Data provider connections are cleaned up
+### Extension Points
+- Custom theme packs
+- Plugin system for tabs
+- Widget framework
+- Layout presets
+- Accessibility features
