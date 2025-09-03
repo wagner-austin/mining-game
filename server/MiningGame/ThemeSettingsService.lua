@@ -36,7 +36,7 @@ end
 -- UPDATE theme settings { uiTheme?: string, soundPack?: string }
 Remotes.RF.UpdateThemeSettings.OnServerInvoke = function(player: Player, patch)
     if typeof(patch) ~= "table" then 
-        warn("[ThemeSettingsService] Invalid patch type from", player.Name)
+        log:warn("Invalid patch type from %s", player.Name)
         return false 
     end
 
@@ -46,9 +46,9 @@ Remotes.RF.UpdateThemeSettings.OnServerInvoke = function(player: Player, patch)
     if patch.uiTheme ~= nil then
         if typeof(patch.uiTheme) == "string" and AllowedUI[patch.uiTheme] then
             clean.uiTheme = patch.uiTheme
-            print("[ThemeSettingsService]", player.Name, "changing UI theme to:", patch.uiTheme)
+            log:info("%s changing UI theme to: %s", player.Name, patch.uiTheme)
         else
-            warn("[ThemeSettingsService] Invalid UI theme from", player.Name, ":", patch.uiTheme)
+            log:warn("Invalid UI theme from %s: %s", player.Name, tostring(patch.uiTheme))
         end
     end
 
@@ -56,19 +56,23 @@ Remotes.RF.UpdateThemeSettings.OnServerInvoke = function(player: Player, patch)
     if patch.soundPack ~= nil then
         if typeof(patch.soundPack) == "string" and soundPackExists(patch.soundPack) then
             clean.soundPack = patch.soundPack
-            print("[ThemeSettingsService]", player.Name, "changing sound pack to:", patch.soundPack)
+            log:info("%s changing sound pack to: %s", player.Name, patch.soundPack)
         else
-            warn("[ThemeSettingsService] Invalid sound pack from", player.Name, ":", patch.soundPack)
+            log:warn("Invalid sound pack from %s: %s", player.Name, tostring(patch.soundPack))
         end
     end
 
     if next(clean) == nil then 
-        warn("[ThemeSettingsService] No valid changes in patch from", player.Name)
+        log:warn("No valid changes in patch from %s", player.Name)
         return false 
     end
 
     DataService:EnsureLoaded(player)
-    return DataService:SetThemeSettings(player, clean)
+    local success = DataService:SetThemeSettings(player, clean)
+    if success then
+        log:info("Saved theme settings for uid=%d", player.UserId)
+    end
+    return success
 end
 
 log:info("Initialized")
