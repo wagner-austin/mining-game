@@ -8,17 +8,59 @@ local SoundService = game:GetService("SoundService")
 
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
 local SoundTheme = require(MiningGame:WaitForChild("SoundThemeManager"))
+local SoundConfig = require(MiningGame:WaitForChild("SoundConfig"))
 
 local _busy = false
 local _dirty = false
 
-local function preload(ids: {string})
+-- Always preload these core sounds regardless of theme
+local ALWAYS_PRELOAD = {
+    -- Core sounds can be added here if needed
+}
+
+-- Gather all sound IDs from various sources
+local function gatherIds(): {string}
+    local ids, seen = {}, {}
+    
+    local function add(id)
+        if type(id) == "string" and id ~= "" and id ~= "rbxassetid://0" and not seen[id] then
+            seen[id] = true
+            table.insert(ids, id)
+        end
+    end
+    
+    local function walk(v)
+        if type(v) == "table" then
+            for _, x in pairs(v) do walk(x) end
+        else
+            add(v)
+        end
+    end
+    
+    -- 1) Always-preload list
+    for _, id in ipairs(ALWAYS_PRELOAD) do add(id) end
+    
+    -- 2) All SoundConfig.SoundIDs (rewards/ui/mining/etc.) – recurse
+    if SoundConfig and SoundConfig.SoundIDs then
+        walk(SoundConfig.SoundIDs)
+    end
+    
+    -- 3) Theme-provided IDs
+    local themeIds = SoundTheme.GetAllIds()
+    for _, id in ipairs(themeIds) do add(id) end
+    
+    return ids
+end
+
+local function preload(ids: {string}?)
     if _busy then
         _dirty = true
         warn("[SoundPreloader] Preload already running; will retry after completion.")
         return
     end
     _busy = true
+    
+    ids = ids or gatherIds()  -- Use the gathered set by default
     
     if #ids == 0 then
         print("[SoundPreloader] No sounds to preload")
@@ -62,15 +104,15 @@ local function preload(ids: {string})
     -- Check if another preload was requested during this run
     if _dirty then
         _dirty = false
-        preload(SoundTheme.GetAllIds())
+        preload()  -- Use default gatherIds()
     end
 end
 
 -- Preload initial pack
-preload(SoundTheme.GetAllIds())
+preload()  -- Use default gatherIds()
 
 -- Preload new pack when theme changes
 SoundTheme.Changed():Connect(function()
     print("[SoundPreloader] Sound pack changed, preloading new assets...")
-    preload(SoundTheme.GetAllIds())
+    preload()  -- Use default gatherIds()
 end)
