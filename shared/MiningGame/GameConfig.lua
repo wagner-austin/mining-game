@@ -167,6 +167,12 @@ GameConfig.Loot = {
     -- Base drop chance per cell dug
     BASE_DROP_CHANCE = 0.15, -- 15% chance per cell
     
+    -- Item drop behavior
+    ITEM_LIFETIME = 300,           -- 5 minutes before despawn attempt
+    DESPAWN_RETRY_DELAY = 10,      -- Seconds after lifetime to retry collection
+    OWNER_GRACE_SECONDS = 5,       -- Seconds before drops become public
+    ALLOW_PUBLIC_ON_STACK_CAP = true, -- Let others pickup stack-capped items
+    
     -- Rarity tiers with weights and colors
     RARITIES = {
         COMMON = {weight = 1000, color = Color3.fromRGB(150, 150, 150), value_mult = 1},
@@ -289,6 +295,9 @@ end
 GameConfig.Multiplayer = {
     MAX_PLAYERS_PER_NEIGHBORHOOD = 6,
     CUBE_SPACING = 225, -- Studs between player cubes (balanced proximity)
+    GRID_COLS = 3, -- Columns in the cube grid
+    SPAWN_STRATEGY = "grid", -- "grid" | "grid_altitude_noise" | "grid_terrain_snap" | "pcg_probe"
+    ALTITUDE_AMPLITUDE = 24, -- Used by grid_altitude_noise strategy
     VISIT_PERMISSIONS = "FRIENDS", -- "ALL", "FRIENDS", "NONE"
     SHOW_PLAYER_NAMES = true,
     SHOW_PLAYER_STATS = true,
@@ -366,13 +375,14 @@ GameConfig.DataStore = {
 
 -- Debug Settings
 GameConfig.Debug = {
-    ENABLED = false,
+    ENABLED = true,  -- TEMPORARILY ENABLED FOR TESTING
     SHOW_GRID_WIREFRAME = false,
     SHOW_PERFORMANCE_STATS = false,
     INSTANT_DIG = false,
     UNLIMITED_RESOURCES = false,
     FREE_UPGRADES = false,
-    LOG_LEVEL = "INFO", -- "DEBUG", "INFO", "WARN", "ERROR"
+    -- SINGLE SOURCE OF TRUTH for log level across entire game
+    LOG_LEVEL = "DEBUG", -- "DEBUG", "INFO", "WARN", "ERROR"
 }
 
 -- Visual Settings for cube indicators
