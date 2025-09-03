@@ -1,6 +1,21 @@
 --!strict
--- TestClient.client.lua
--- Minimal test client to verify dig mechanics
+--[[
+    TestClient.client.lua
+    Test client for mining game mechanics including dig requests, visual feedback, and sound playback.
+    
+    Features:
+    - Click-to-dig with terrain raycasting
+    - Cell snapping for server alignment
+    - Visual feedback system integration
+    - Local sound playback based on material
+    - Profile fetching and display
+    - Cooldown tracking
+    
+    Controls:
+    - Click: Dig at mouse position
+    - E: Dig below player
+    - P: View profile
+]]
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -29,6 +44,10 @@ log:debug("Found MiningGame")
 local GameConfig = require(MiningGame:WaitForChild("GameConfig"))
 local CELL_SIZE = GameConfig.Grid.CELL_SIZE_STUDS
 
+-- Get utilities
+local Utils = MiningGame:WaitForChild("Utils")
+local GridMath = require(Utils:WaitForChild("GridMath"))
+
 -- Get remotes using the Remotes accessor module
 local Remotes = require(MiningGame:WaitForChild("Remotes"))
 log:debug("Remotes loaded")
@@ -36,14 +55,41 @@ log:debug("Remotes loaded")
 -- Get SoundManager for local sound playback
 local SoundManager = require(MiningGame:WaitForChild("SoundManager"))
 
--- Track last dig time for visual feedback
-local lastDigTime = 0
-local digCooldown = 1 -- Start with 1 second cooldown
+-- Get DigVisualFeedback for visual indicators
+local DigVisualFeedback = require(MiningGame:WaitForChild("DigVisualFeedback"))
+local visualFeedback = nil
+
+-- Pre-create raycast params for terrain detection
+local terrainRayParams = RaycastParams.new()
+terrainRayParams.FilterType = Enum.RaycastFilterType.Include
+terrainRayParams.FilterDescendantsInstances = {workspace.Terrain}
+
+-- Track dig cooldown
+local digCooldown = 1 -- Start with 1 second cooldown (will be updated from server)
+local cooldownEndsAt = 0 -- Track when next dig is allowed
+local lastDigTime = 0 -- Track when we last attempted a dig
 
 -- Store player's cube origin when profile loads
 local playerCubeOrigin = nil
 
--- Get material at position for local sound playback
+-- Listen for cube origin changes (e.g., after reset)
+Remotes.RE.OnCubeOriginChanged.OnClientEvent:Connect(function(newOrigin)
+    playerCubeOrigin = newOrigin
+    log:info("Cube origin updated to: {}", tostring(newOrigin.Position))
+    
+    -- Update visual feedback system if it exists
+    if visualFeedback then
+        visualFeedback:SetCubeOrigin(newOrigin)
+    end
+end)
+
+--[[
+    Get the terrain material at a given position for accurate sound playback.
+    Samples a 4x4x4 voxel region and returns the dominant material.
+    
+    @param position: Vector3 - The world position to sample
+    @return string - Material key for sound system (e.g., "rock", "sand")
+]]
 local function getMaterialAtPosition(position: Vector3): string
     -- Sample the terrain to determine what material we're hitting
     local region = Region3.new(position - Vector3.new(2, 2, 2), position + Vector3.new(2, 2, 2))
@@ -80,7 +126,14 @@ local function getMaterialAtPosition(position: Vector3): string
     return MaterialKeys.KeyFromEnum[dominantMaterial] or "rock"
 end
 
--- Quick client-side bounds check with tolerance for terrain texture overflow
+--[[
+    Check if a world position is inside the player's cube with tolerance.
+    Accounts for terrain texture that extends ~2 studs beyond voxel boundaries.
+    
+    @param worldPos: Vector3 - The world position to check
+    @param origin: CFrame - The cube's origin CFrame
+    @return boolean - True if position is inside or near cube boundary
+]]
 local function insideCube(worldPos: Vector3, origin: CFrame): boolean
     if not origin then return false end
     local localPos = origin:PointToObjectSpace(worldPos)
@@ -92,7 +145,12 @@ local function insideCube(worldPos: Vector3, origin: CFrame): boolean
            math.abs(localPos.Z) <= (half + tolerance)
 end
 
--- Function to request a dig at specific position
+--[[
+    Request a dig operation at the specified world position.
+    Handles client-side validation, server communication, and feedback.
+    
+    @param position: Vector3 - The world position to dig at
+]]
 local function requestDigAt(position: Vector3)
     local now = tick()  -- ✅ ensure 'now' exists
     
@@ -103,9 +161,8 @@ local function requestDigAt(position: Vector3)
     end
     
     -- ✅ local cooldown guard (mirrors server; prevents fails/no-sound cases)
-    if (now - lastDigTime) < (digCooldown - 1/60) then
-        log:debug("On cooldown (%.2fs left)",
-            math.max(0, digCooldown - (now - lastDigTime)))
+    if now < cooldownEndsAt then
+        log:debug("On cooldown (%.2fs left)", math.max(0, cooldownEndsAt - now))
         return
     end
     
@@ -126,8 +183,21 @@ local function requestDigAt(position: Vector3)
         
         if result.effectiveStats then
             digCooldown = result.effectiveStats.delay
+            if visualFeedback then
+                visualFeedback:SetCooldown(digCooldown)
+                visualFeedback:SetPreviewSize(result.effectiveStats.size or 1)
+            end
         end
-        lastDigTime = now
+        
+        -- Update cooldown tracking
+        cooldownEndsAt = result.nextAllowedAt or (now + digCooldown)
+        
+        -- Update visual feedback
+        if visualFeedback then
+            visualFeedback:SetCooldownEndsAt(cooldownEndsAt)
+            visualFeedback:OnDig()
+            visualFeedback:ShowDigResult(true, result.soundWorldPos or position)
+        end
         
         if result.lootGranted and #result.lootGranted > 0 then
             log:info("Loot received: %s", table.concat(result.lootGranted, ", "))
@@ -139,13 +209,26 @@ local function requestDigAt(position: Vector3)
         log:warn("Dig failed: %s", (result and result.reason) or "Unknown reason")
         -- No sound on failures ✅
         if result and result.nextAllowedAt then
+            cooldownEndsAt = result.nextAllowedAt
             local timeLeft = result.nextAllowedAt - now
             log:debug("Can dig again in %.2fs", timeLeft)
+            if visualFeedback then
+                visualFeedback:SetCooldownEndsAt(cooldownEndsAt)
+                visualFeedback:OnDig()  -- Show cooldown bar even on failures
+            end
+        end
+        
+        -- Show failure feedback
+        if visualFeedback then
+            visualFeedback:ShowDigResult(false, position)
         end
     end
 end
 
--- Function to get profile
+--[[
+    Fetch and display the player's profile data from the server.
+    Updates local state including cube origin and dig cooldown.
+]]
 local function getProfile()
     log:debug("Requesting profile...")
     local profile = Remotes.RF.GetProfile:InvokeServer()
@@ -178,6 +261,16 @@ local function getProfile()
             playerCubeOrigin = CFrame.new(0, cubeY, 0)
         end
         log:debug("Cube origin set to: %s", tostring(playerCubeOrigin.Position))
+        
+        -- Update visual feedback with profile data
+        if visualFeedback then
+            visualFeedback:SetCubeOrigin(playerCubeOrigin)
+            visualFeedback:SetCooldown(profile.effectiveStats.delay)
+            visualFeedback:SetPreviewSize(profile.effectiveStats.size or 1)
+        end
+        
+        -- Update cooldown tracking
+        digCooldown = profile.effectiveStats.delay
     else
         log:error("Failed to get profile")
     end
@@ -190,6 +283,15 @@ Remotes.RE.OnDigFeedback.OnClientEvent:Connect(function(feedback)
     print("  Size:", feedback.size or "unknown")
     print("  Shake:", feedback.shake)
     print("  Particles:", feedback.particles)
+    
+    -- Update visual feedback for continuous digs
+    if visualFeedback then
+        -- We don't get nextAllowedAt here; approximate with last known delay
+        local approxEnds = tick() + (digCooldown or 0.2)
+        visualFeedback:SetCooldownEndsAt(approxEnds)
+        visualFeedback:OnDig()
+        visualFeedback:ShowDigResult(true, feedback.centerPos or feedback.worldPos)
+    end
 end)
 
 Remotes.RE.OnLootDropped.OnClientEvent:Connect(function(data)
@@ -238,35 +340,93 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     end
 end)
 
--- Mouse click to dig
-mouse.Button1Down:Connect(function()
+-- Track continuous dig state
+local isMouseDown = false
+local continuousDigLoop = nil
+
+-- Helper function to get dig position from mouse
+local function getDigPositionFromMouse(): Vector3?
+    if not playerCubeOrigin then return nil end -- Guard against missing cube origin
+    
     local cam = workspace.CurrentCamera
-    if not cam then return end
+    if not cam then return nil end
     
     -- Build a ray from the screen point
     local ray = cam:ScreenPointToRay(mouse.X, mouse.Y)
     
-    -- ONLY hit Terrain (avoid Bounds/Origin parts)
-    local params = RaycastParams.new()
-    params.FilterType = Enum.RaycastFilterType.Include
-    params.FilterDescendantsInstances = {workspace.Terrain}
+    -- Use pre-created params for efficiency
+    local hit = workspace:Raycast(ray.Origin, ray.Direction * 2000, terrainRayParams)
     
-    local hit = workspace:Raycast(ray.Origin, ray.Direction * 2000, params)
+    if not hit then return nil end
     
-    if hit then
-        -- Use 1 stud offset to ensure we're inside the surface cell
-        -- but not so deep that we skip to the next cell (cells are 4 studs)
-        local digPos = hit.Position - (hit.Normal * 1.0)
-        print(string.format("[Click] Hit terrain at %.1f, %.1f, %.1f", hit.Position.X, hit.Position.Y, hit.Position.Z))
-        print(string.format("[Click] Digging at %.1f, %.1f, %.1f (offset by normal)", digPos.X, digPos.Y, digPos.Z))
-        requestDigAt(digPos)
-    else
-        print("[Click] No terrain hit")
+    -- Tiny nudge onto the surface, then snap to the exact cell center the server uses
+    local aim = hit.Position - (hit.Normal * 0.01)
+    
+    -- Snap to cell center for perfect alignment with server
+    local cx, cy, cz = GridMath.worldToCell(aim, playerCubeOrigin, CELL_SIZE)
+    return GridMath.cellToWorld(cx, cy, cz, playerCubeOrigin, CELL_SIZE)
+end
+
+-- Mouse down: start continuous digging at cursor position
+mouse.Button1Down:Connect(function()
+    isMouseDown = true
+    
+    -- Start a loop that digs wherever the mouse is pointing
+    continuousDigLoop = task.spawn(function()
+        while isMouseDown do
+            local now = tick()
+            
+            -- Only dig if we're past the cooldown
+            if now >= cooldownEndsAt then
+                local pos = getDigPositionFromMouse()
+                if pos then
+                    requestDigAt(pos)
+                    lastDigTime = now
+                end
+            end
+            
+            -- Wait a short time before checking again
+            -- Use a small interval to be responsive when cooldown ends
+            task.wait(0.05)
+        end
+    end)
+end)
+
+-- Mouse up: stop continuous digging
+mouse.Button1Up:Connect(function()
+    isMouseDown = false
+    
+    -- Cancel the continuous dig loop
+    if continuousDigLoop then
+        task.cancel(continuousDigLoop)
+        continuousDigLoop = nil
     end
 end)
 
--- Get initial profile
+-- Get initial profile first (before starting visual feedback)
 wait(2) -- Wait for data to load
 getProfile()
+
+-- Initialize visual feedback system AFTER profile is loaded
+task.spawn(function()
+    -- Small delay to ensure profile data is set
+    wait(0.1)
+    
+    visualFeedback = DigVisualFeedback.new()
+    visualFeedback:Init()
+    
+    -- Set initial data if available
+    if playerCubeOrigin then
+        visualFeedback:SetCubeOrigin(playerCubeOrigin)
+    end
+    
+    visualFeedback:Start()
+    
+    -- Store globally for UIManager access
+    _G.MiningGameVisualFeedback = visualFeedback
+    
+    log:info("Visual feedback system started with origin: {}", 
+        playerCubeOrigin and tostring(playerCubeOrigin.Position) or "nil")
+end)
 
 log:info("Test client ready! Press E to dig, P for profile")
