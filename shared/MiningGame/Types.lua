@@ -128,6 +128,11 @@ export type LootDrop = {
     stats: { [string]: number }?,
     effect: string?,
     duration: number?,
+    
+    -- NEW: which cell produced this drop (for per-cell spawn)
+    cellX: number?,  -- integer cell coords
+    cellY: number?,
+    cellZ: number?,
 }
 
 export type UpgradeLevel = {
