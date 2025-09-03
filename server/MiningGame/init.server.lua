@@ -4,11 +4,13 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 
 -- Wait for shared modules
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame", 30)
 local Logger = require(MiningGame:WaitForChild("Logger"))
 local log = Logger.new("Bootstrap")
+local GameConfig = require(MiningGame:WaitForChild("GameConfig"))
 
 log:info("Starting MiningGame initialization...")
 log:debug("Script name: %s", script.Name)
@@ -73,6 +75,18 @@ log:info("DigService loaded")
 local UserMetricsService = require(script.UserMetricsService)
 log:info("UserMetricsService loaded")
 
+-- Initialize SimAgents (Studio testing only)
+if RunService:IsStudio() then
+    local ok, err = pcall(function()
+        local SimAgents = require(script.SimAgents)
+        log:info("SimAgents loaded (Studio mode)")
+        return SimAgents
+    end)
+    if not ok then
+        log:warn("Failed to load SimAgents: {}", tostring(err))
+    end
+end
+
 log:info("Backend initialization complete!")
 
 -- Export services for debugging
@@ -89,6 +103,11 @@ _G.MiningGameServices = {
     Remotes = RemotesCreator,
 }
 
+-- Helper function to check if player is developer/tester
+local function isDev(p: Player): boolean
+    return RunService:IsStudio() -- Studio-only for now
+end
+
 -- Set up teleportation handler
 RemotesCreator.RF.TeleportToHome.OnServerInvoke = function(player: Player)
     -- Use SpawnService to teleport player to their spawn point
@@ -97,8 +116,31 @@ RemotesCreator.RF.TeleportToHome.OnServerInvoke = function(player: Player)
     return {success = true}
 end
 
--- Set up debug remote handlers
+-- Set up non-destructive cube respawn (available to all players)
+RemotesCreator.RF.RespawnCubeModel.OnServerInvoke = function(player: Player)
+    log:info("RespawnCubeModel requested by %s", player.Name)
+    
+    local cube = DigService.playerCubes and DigService.playerCubes[player]
+    
+    -- If model exists, just ensure it's parented to workspace
+    if cube and cube.model then
+        log:info("Cube model exists for %s, ensuring it's in workspace", player.Name)
+        cube.model.Parent = workspace
+        return {success = true, message = "Cube present"}
+    end
+    
+    -- Otherwise rebuild from saved state (non-destructive)
+    log:info("Cube model missing for %s, reinitializing...", player.Name)
+    DigService:InitializePlayerCube(player)
+    return {success = true, message = "Cube reinitialized"}
+end
+
+-- Set up debug remote handlers (protected)
 RemotesCreator.RF.DebugAddCurrency.OnServerInvoke = function(player: Player, currencyType: string, amount: number)
+    -- Security check
+    if not isDev(player) then
+        return {success = false, reason = "Not authorized"}
+    end
     -- Validate inputs
     if currencyType ~= "coins" and currencyType ~= "gems" then
         return {success = false, reason = "Invalid currency type"}
@@ -115,6 +157,10 @@ RemotesCreator.RF.DebugAddCurrency.OnServerInvoke = function(player: Player, cur
 end
 
 RemotesCreator.RF.DebugResetCube.OnServerInvoke = function(player: Player)
+    -- Security check
+    if not isDev(player) then
+        return {success = false, reason = "Not authorized"}
+    end
     -- Reset the player's cube to fresh state
     local cubeData = DataService:GetCubeData(player)
     if cubeData then
@@ -138,6 +184,9 @@ RemotesCreator.RF.DebugResetCube.OnServerInvoke = function(player: Player)
         -- Re-initialize the cube (creates fresh terrain)
         DigService:InitializePlayerCube(player)
         
+        -- The InitializePlayerCube already fires OnCubeOriginChanged event
+        -- so the client will be notified automatically
+        
         return {success = true, message = "Cube reset to fresh state"}
     end
     
@@ -156,7 +205,6 @@ RemotesCreator.RF.GetMetrics.OnServerInvoke = function(player: Player)
 end
 
 -- Gate server metrics to staff/developers
-local RunService = game:GetService("RunService")
 local function canSeeServerMetrics(p: Player)
     if RunService:IsStudio() then return true end
     -- Replace with your user ID or group/rank check
@@ -175,7 +223,40 @@ RemotesCreator.RF.GetServerMetrics.OnServerInvoke = function(player: Player)
     return UserMetricsService:GetServerMetrics()
 end
 
+-- Set up spawn strategy remote handlers
+RemotesCreator.RF.SpawnStrategy_Get.OnServerInvoke = function(player: Player)
+    return (GameConfig.Multiplayer and GameConfig.Multiplayer.SPAWN_STRATEGY) or "grid"
+end
+
+RemotesCreator.RF.SpawnStrategy_List.OnServerInvoke = function(player: Player)
+    -- Return available strategies
+    return {"grid", "grid_altitude_noise", "grid_terrain_snap", "pcg_probe"}
+end
+
+RemotesCreator.RF.SpawnStrategy_Set.OnServerInvoke = function(player: Player, strategy: string)
+    -- Security check
+    if not isDev(player) then
+        return {success = false, reason = "Not authorized"}
+    end
+    
+    -- Validate strategy
+    local valid = {grid = true, grid_altitude_noise = true, grid_terrain_snap = true, pcg_probe = true}
+    if not valid[strategy] then
+        return {success = false, reason = "Invalid strategy"}
+    end
+    
+    -- Update config (runtime only, doesn't persist)
+    GameConfig.Multiplayer.SPAWN_STRATEGY = strategy
+    log:info("Spawn strategy changed to {} by {}", strategy, player.Name)
+    
+    return {success = true, strategy = strategy}
+end
+
 RemotesCreator.RF.DebugResetStats.OnServerInvoke = function(player: Player)
+    -- Security check
+    if not isDev(player) then
+        return {success = false, reason = "Not authorized"}
+    end
     -- Reset player's stats to default
     local data = DataService:GetPlayerData(player)
     if data then
