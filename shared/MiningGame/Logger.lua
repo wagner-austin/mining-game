@@ -19,6 +19,7 @@
 ]]
 
 local RunService = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")
 
 local Logger = {}
 Logger.__index = Logger
@@ -48,6 +49,15 @@ Logger.CAT = {
 	Upgrade = "UpgradeService",
 	Remote = "Remotes",
 	Click = "Click",
+	-- New categories for recent features (match existing service names to avoid split categories)
+	UserMetrics = "UserMetricsService",
+	ThemeSettings = "ThemeSettingsService",
+	DigDamage = "DigDamage",
+	Extraction = "Extraction",
+	DropTable = "DropTable",
+	AFK = "AFKService",
+	Cache = "CachePerf",
+	Perf = "Performance",
 }
 
 -- Active categories (true = shown, false/nil = hidden)
@@ -66,8 +76,20 @@ local LogLevel = {
 	ERROR = 4
 }
 
--- Current minimum log level
-local minLevel = LogLevel.INFO
+-- Get log level from GameConfig (single source of truth)
+local GameConfig = require(script.Parent:WaitForChild("GameConfig"))
+local configLevel = GameConfig.Debug.LOG_LEVEL or "INFO"
+
+-- Map string config to LogLevel enum
+local levelMap = {
+	DEBUG = LogLevel.DEBUG,
+	INFO = LogLevel.INFO,
+	WARN = LogLevel.WARN,
+	ERROR = LogLevel.ERROR
+}
+
+-- Current minimum log level (from GameConfig)
+local minLevel = levelMap[configLevel] or LogLevel.INFO
 
 -- Per-category log levels
 local categoryLevels = {}
@@ -239,7 +261,68 @@ function Logger:error(message, ...)
 	self:log(LogLevel.ERROR, message, ...)
 end
 
--- Static methods for controlling categories
+-- Analytics event logging (logs as INFO with special format)
+function Logger:event(eventName: string, data: {[string]: any}?)
+	local message = string.format("[EVENT] %s", eventName)
+	if data then
+		-- Convert data table to a readable format
+		local parts = {}
+		for key, value in pairs(data) do
+			table.insert(parts, string.format("%s=%s", tostring(key), tostring(value)))
+		end
+		if #parts > 0 then
+			message = message .. " | " .. table.concat(parts, ", ")
+		end
+	end
+	self:log(LogLevel.INFO, message)
+end
+
+-- Structured logging helpers
+function Logger:metric(name, value, fields)
+	-- Cheap structured suffix; avoids JSON to keep DevConsole readable
+	if typeof(fields) == "table" then
+		local success, json = pcall(function() return HttpService:JSONEncode(fields) end)
+		if success then
+			self:info("[METRIC] %s=%s %s", name, tostring(value), json)
+		else
+			self:info("[METRIC] %s=%s", name, tostring(value))
+		end
+	else
+		self:info("[METRIC] %s=%s", name, tostring(value))
+	end
+end
+
+function Logger:perf(op, startedAt)
+	local ms
+	if typeof(startedAt) == "number" then
+		ms = (os.clock() - startedAt) * 1000
+	else
+		ms = startedAt -- allow passing a precomputed ms
+	end
+	self:debug("[PERF] %s took %.2fms", op, ms)
+end
+
+-- Static methods for controlling log levels and categories
+
+-- Runtime log level control (changes don't persist - use GameConfig.Debug.LOG_LEVEL for persistent changes)
+function Logger.setLevel(level)
+	local newLevel = levelMap[level:upper()]
+	if newLevel then
+		minLevel = newLevel
+		print(string.format("[Logger] Log level changed to %s", level:upper()))
+	else
+		warn(string.format("[Logger] Invalid log level: %s (use DEBUG, INFO, WARN, or ERROR)", level))
+	end
+end
+
+function Logger.getLevel()
+	for name, lvl in pairs(levelMap) do
+		if lvl == minLevel then
+			return name
+		end
+	end
+	return "INFO"
+end
 
 -- Enable a specific category
 function Logger.enable(category)
@@ -411,6 +494,21 @@ function Logger.list()
 	print("============================\n")
 end
 
+-- Define quietByDefault BEFORE Logger.preset to avoid nil reference
+local quietByDefault = {
+	"Logger", "MetricsTab", "AmbientLogging", "TestClient", "CubeVisuals",
+	"DataService", "GridService", "MaterialsTab", "ThemeTab",
+	"CubeMaterialService", "SoundPreloader", "MaterialManager",
+	"SettingsPanel", "TimeService", "EventScheduler", "SpawnService",
+	"InventoryService", "LootService", "MonetizationService",
+	"CubePositionService", "ThemeSettingsService", "ThemeBootstrap",
+	"ThemeManager", "SoundThemeManager", "ClientUI", "UIManager",
+	"AmbientBoot", "CellGizmo", "SoundReplication", "DayNightCycle",
+	-- New noisy categories
+	"UserMetricsService", "DigDamage", "Extraction", "DropTable", 
+	"AFKService", "CachePerf", "Performance"
+}
+
 -- Quick presets for common testing scenarios
 function Logger.preset(name)
 	if name == "quiet" then
@@ -442,19 +540,14 @@ end
 -- Use Logger.preset("normal") or Logger.preset("verbose") to see more
 Logger.setRateWindowFor("MetricsTab", 3.0)
 Logger.setRateWindowFor("AmbientLogging", 5.0)
+-- Rate windows for new noisy categories
+Logger.setRateWindowFor("DigDamage", 10.0)
+Logger.setRateWindowFor("Extraction", 5.0)
+Logger.setRateWindowFor("DropTable", 3.0)
+Logger.setRateWindowFor("UserMetricsService", 2.0)
 
 -- Set most modules to WARN by default (only warnings/errors show)
-local quietByDefault = {
-	"Logger", "MetricsTab", "AmbientLogging", "TestClient", "CubeVisuals",
-	"DataService", "GridService", "MaterialsTab", "ThemeTab",
-	"CubeMaterialService", "SoundPreloader", "MaterialManager",
-	"SettingsPanel", "TimeService", "EventScheduler", "SpawnService",
-	"InventoryService", "LootService", "MonetizationService",
-	"CubePositionService", "ThemeSettingsService", "ThemeBootstrap",
-	"ThemeManager", "SoundThemeManager", "ClientUI", "UIManager",
-	"AmbientBoot", "CellGizmo", "SoundReplication", "DayNightCycle"
-}
-
+-- (quietByDefault was moved above Logger.preset to fix nil reference)
 for _, category in ipairs(quietByDefault) do
 	Logger.setCategoryLevel(category, "WARN")
 end
