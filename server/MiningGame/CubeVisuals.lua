@@ -1,6 +1,15 @@
 --!strict
--- CubeVisuals.lua
--- Handles visual indicators for mining cubes (neon outlines, lights, etc.)
+--[[
+    CubeVisuals.lua
+    Creates and manages visual indicators for mining cubes.
+    
+    Features:
+    - Neon floor glow outlines
+    - Dynamic lighting effects
+    - Material-aware positioning
+    - Configurable colors and dimensions
+    - CollectionService tagging for effects
+]]
 
 local CollectionService = game:GetService("CollectionService")
 local RunService = game:GetService("RunService")
@@ -19,7 +28,15 @@ local function clearExistingIndicators(model: Model)
     if old then old:Destroy() end
 end
 
--- Create the glowing neon floor outline with lighting
+--[[
+    Create a glowing neon outline at the base of the cube.
+    Adds visual appeal and helps players locate their cube.
+    
+    @param model: Model - The cube model to add visuals to
+    @param cubeOrigin: CFrame - The cube's center position
+    @param size: number - The cube size in studs
+    @param floorMaterial: Enum.Material? - Optional floor material for positioning
+]]
 function CubeVisuals.CreateFloorGlow(model: Model, cubeOrigin: CFrame, size: number, floorMaterial: Enum.Material?)
     clearExistingIndicators(model)
     
@@ -122,7 +139,7 @@ function CubeVisuals.CreateFloorGlow(model: Model, cubeOrigin: CFrame, size: num
             local em = MaterialKeys.EnumFromKey[key]
             if em then table.insert(allTerrainMaterials, em) end
         end
-        warn("[CubeVisuals] AllTerrainEnums missing, using fallback from MaterialKeys")
+        log:warn("AllTerrainEnums missing, using fallback from MaterialKeys")
     end
     
     -- USE THE PASSED PARAM if provided; otherwise config default
