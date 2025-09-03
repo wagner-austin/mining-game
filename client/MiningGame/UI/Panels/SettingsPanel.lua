@@ -12,10 +12,11 @@ local MaterialsTab = require(script.Parent.Parent:WaitForChild("Components"):Wai
 local AccountTab = require(script.Parent.Parent:WaitForChild("Components"):WaitForChild("AccountTab"))
 local ThemeTab = require(script.Parent.Parent:WaitForChild("Components"):WaitForChild("ThemeTab"))
 
--- Only load MetricsTab in Studio for testing
-local MetricsTab
+-- Only load MetricsTab and DebugTab in Studio for testing
+local MetricsTab, DebugTab
 if RunService:IsStudio() then
     MetricsTab = require(script.Parent.Parent:WaitForChild("Components"):WaitForChild("MetricsTab"))
+    DebugTab = require(script.Parent.Parent:WaitForChild("Components"):WaitForChild("DebugTab"))
 end
 
 local SettingsPanel = {}
@@ -49,9 +50,10 @@ function SettingsPanel:init(manager)
         { name = "Account" },
     }
     
-    -- Add Metrics tab in Studio only
+    -- Add Metrics and Debug tabs in Studio only
     if RunService:IsStudio() then
         table.insert(tabs, { name = "Metrics" })
+        table.insert(tabs, { name = "Debug" })
     end
     
     -- Debug: Print the tabs array
@@ -121,6 +123,18 @@ function SettingsPanel:init(manager)
         })
         table.insert(self._widgets, self.metricsTab)
     end
+    
+    -- Mount Debug tab (Studio only)
+    if RunService:IsStudio() and DebugTab then
+        local debugRoot = self.panel:getTabContent("Debug") :: Frame
+        self.debugTab = DebugTab.new({
+            parent = debugRoot,
+            position = UDim2.new(0, 0, 0, 0),
+            size = UDim2.new(1, 0, 0, 0),
+            portalParent = self.panel.popoverLayer,
+        })
+        table.insert(self._widgets, self.debugTab)
+    end
 end
 
 function SettingsPanel:switchTab(tabName: string)
@@ -131,6 +145,13 @@ end
 
 function SettingsPanel:show()
     if not self.panel then return end
+    
+    -- Pause visual feedback BEFORE showing panel to avoid flicker
+    local vf = _G.MiningGameVisualFeedback
+    if vf and vf.Pause then 
+        pcall(function() vf:Pause() end) 
+    end
+    
     local SoundManager = require(ReplicatedStorage.MiningGame:WaitForChild("SoundManager"))
     SoundManager.PlayUI("openmenu")
     self.panel:show()
@@ -139,6 +160,12 @@ end
 function SettingsPanel:hide()
     if not self.panel then return end
     self.panel:hide()
+    
+    -- Resume visual feedback after hiding panel
+    local vf = _G.MiningGameVisualFeedback
+    if vf and vf.Resume then 
+        pcall(function() vf:Resume() end) 
+    end
 end
 
 function SettingsPanel:cleanup()
