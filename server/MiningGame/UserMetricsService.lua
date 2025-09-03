@@ -7,6 +7,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
 
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
+local Logger = require(MiningGame:WaitForChild("Logger"))
+local log = Logger.new(Logger.CAT.UserMetrics or "UserMetricsService")
 
 local DataService
 local SessionService
@@ -99,6 +101,9 @@ function UserMetricsService.new()
 end
 
 function UserMetricsService:GetMetrics(player: Player): UserMetrics?
+    local t0 = os.clock()
+    local uid = player.UserId
+    
     -- Cache current time for consistency
     local now = os.time()
     
@@ -114,10 +119,15 @@ function UserMetricsService:GetMetrics(player: Player): UserMetrics?
     
     local c = cache[player]
     if c and (now - c.at) < CACHE_TTL then
+        log:debug("cache hit uid=%d age=%.2fs", uid, now - c.at)
         return c.data
     end
+    log:debug("cache miss uid=%d", uid)
 
-    if not DataService then return nil end
+    if not DataService then 
+        log:error("DataService not available uid=%d", uid)
+        return nil 
+    end
     
     -- Ensure profile is loaded if missing
     local profile = DataService:GetPlayerData(player)
@@ -125,7 +135,10 @@ function UserMetricsService:GetMetrics(player: Player): UserMetrics?
         local ok = DataService:EnsureLoaded(player)
         if ok then profile = DataService:GetPlayerData(player) end
     end
-    if not profile then return nil end
+    if not profile then 
+        log:error("profile load failed uid=%d", uid)
+        return nil 
+    end
     
     local cube = DataService:GetCubeData(player)
 
@@ -237,10 +250,20 @@ function UserMetricsService:GetMetrics(player: Player): UserMetrics?
     end
 
     cache[player] = {data = m, at = now}
+    
+    log:perf("UserMetricsService:GetMetrics", t0)
+    
+    -- Best-effort payload size logging
+    local okJ, json = pcall(HttpService.JSONEncode, HttpService, m)
+    if okJ then
+        log:metric("metrics_payload_bytes", #json, { uid = uid })
+    end
+    
     return m
 end
 
 function UserMetricsService:GetServerMetrics()
+    local t0 = os.clock()
     local totalPlayers, totalBlocks, totalCoins, totalPlaytime = 0,0,0,0
     for _, p in ipairs(Players:GetPlayers()) do
         local m = self:GetMetrics(p)
@@ -251,13 +274,19 @@ function UserMetricsService:GetServerMetrics()
             totalPlaytime = totalPlaytime + m.session.totalPlaytimeSec
         end
     end
-    return {
+    
+    local serverMetrics = {
         totalPlayers = totalPlayers,
         totalBlocksDug = totalBlocks,
         totalCoins = totalCoins,
         totalPlaytimeHours = totalPlaytime / 3600,
         serverUptimeSec = workspace.DistributedGameTime,
     }
+    
+    log:perf("UserMetricsService:GetServerMetrics", t0)
+    log:metric("server_active_players", totalPlayers)
+    
+    return serverMetrics
 end
 
 function UserMetricsService:ExportMetrics(player: Player): string?
@@ -267,11 +296,13 @@ function UserMetricsService:ExportMetrics(player: Player): string?
     return ok and json or nil
 end
 
-function UserMetricsService:Invalidate(player: Player?)
+function UserMetricsService:Invalidate(player: Player?, reason: string?)
     if player then
         cache[player] = nil
+        log:debug("invalidate uid=%d reason=%s", player.UserId, reason or "unknown")
     else
         table.clear(cache)
+        log:debug("invalidate all caches")
     end
 end
 
