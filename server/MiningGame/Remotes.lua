@@ -52,6 +52,8 @@ local remoteFunctions = {
     -- Core gameplay
     GetProfile = createRemoteFunction("GetProfile"),
     RequestDig = createRemoteFunction("RequestDig"),
+    StartContinuousDig = createRemoteFunction("StartContinuousDig"),
+    StopContinuousDig = createRemoteFunction("StopContinuousDig"),
     
     -- Purchases and upgrades
     PurchaseUpgrade = createRemoteFunction("PurchaseUpgrade"),
@@ -83,6 +85,7 @@ local remoteFunctions = {
     
     -- Teleportation
     TeleportToHome = createRemoteFunction("TeleportToHome"),
+    RespawnCubeModel = createRemoteFunction("RespawnCubeModel"),
     
     -- Debug
     DebugAddCurrency = createRemoteFunction("DebugAddCurrency"),
@@ -98,6 +101,26 @@ local remoteFunctions = {
     -- Metrics
     GetMetrics = createRemoteFunction("GetMetrics"),
     GetServerMetrics = createRemoteFunction("GetServerMetrics"),
+    
+    -- SimAgents (Studio testing)
+    SimAgents_SetCount = createRemoteFunction("SimAgents_SetCount"),
+    SimAgents_GetStatus = createRemoteFunction("SimAgents_GetStatus"),
+    SimAgents_RespawnAll = createRemoteFunction("SimAgents_RespawnAll"),
+    SimAgents_Clear = createRemoteFunction("SimAgents_Clear"),
+    SimAgents_SetTerrainCubes = createRemoteFunction("SimAgents_SetTerrainCubes"),
+    
+    -- Spawn Strategy
+    SpawnStrategy_Get = createRemoteFunction("SpawnStrategy_Get"),
+    SpawnStrategy_Set = createRemoteFunction("SpawnStrategy_Set"),
+    SpawnStrategy_List = createRemoteFunction("SpawnStrategy_List"),
+
+    -- Item drops
+    PickupItem = createRemoteFunction("PickupItem"),
+    SpawnTestItem = createRemoteFunction("SpawnTestItem"),
+
+    -- Cloth simulation (testing utilities)
+    ClothSpawn = createRemoteFunction("ClothSpawn"),
+    ClothDestroy = createRemoteFunction("ClothDestroy"),
 }
 
 -- Create RemoteEvents (server -> client, no return value)
@@ -131,8 +154,19 @@ local remoteEvents = {
     OnSoundEffect = createRemoteEvent("OnSoundEffect"),
     OnCameraShake = createRemoteEvent("OnCameraShake"),
     
+    -- Cube state changes
+    OnCubeOriginChanged = createRemoteEvent("OnCubeOriginChanged"),
+    
     -- Debug/Visual
     OnTerrainPoke = createRemoteEvent("OnTerrainPoke"),
+    
+    -- Item drops
+    OnItemCollected = createRemoteEvent("OnItemCollected"),
+    ShowPickupPrompt = createRemoteEvent("ShowPickupPrompt"),
+    PlaySound = createRemoteEvent("PlaySound"),
+
+    -- Cloth bone updates (server -> client for visual deformation)
+    ClothUpdate = createRemoteEvent("ClothUpdate"),
 }
 
 log:info("Initialized all RemoteEvents and RemoteFunctions")
