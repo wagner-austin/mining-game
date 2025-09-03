@@ -1,6 +1,15 @@
 --!strict
--- GridService.server.lua
--- Manages terrain voxels and chunk state using WriteVoxels for performance
+--[[
+    GridService.server.lua
+    Core terrain management service handling voxel operations and chunk state.
+    
+    Features:
+    - Efficient terrain writing using WriteVoxels API
+    - Chunk-based state management with bit compression
+    - Throttling to prevent performance issues
+    - Support for multi-cell dig patterns
+    - Visual indicators for cube boundaries
+]]
 
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -33,7 +42,14 @@ local CELLS_PER_CHUNK = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE
 local lastWriteTime: {[Player]: number} = {}
 local WRITE_THROTTLE = GameConfig.Performance.GRID_WRITE_THROTTLE
 
--- Create a new cube state
+--[[
+    Create a new cube state for a player.
+    Initializes an empty cube with no dug cells.
+    
+    @param ownerId: number - The player's UserId
+    @param materialId: string - The material identifier for the cube
+    @return Types.CubeState - The initialized cube state
+]]
 function GridService:CreateCubeState(ownerId: number, materialId: string): Types.CubeState
     return {
         ownerId = ownerId,
@@ -102,7 +118,19 @@ local function shouldThrottle(player: Player): boolean
     return false
 end
 
--- Apply a dig operation to terrain (optimized cube shape)
+--[[
+    Apply a dig operation to terrain, removing voxels in a cube pattern.
+    Handles state updates, terrain modification, and performance tracking.
+    
+    @param cubeOrigin: CFrame - The cube's origin position
+    @param state: Types.CubeState - The cube's current state
+    @param cellX: number - X coordinate of the center cell
+    @param cellY: number - Y coordinate of the center cell
+    @param cellZ: number - Z coordinate of the center cell
+    @param player: Player - The player performing the dig
+    @param size: number - Radius of cells to dig (1 = single cell)
+    @return number - The number of cells actually destroyed
+]]
 function GridService:ApplyDig(
     player: Player,
     cubeOrigin: CFrame,
@@ -187,7 +215,14 @@ function GridService:ApplyDig(
     return dugCells, soundHint
 end
 
--- Write cells to terrain using a single Read/Write pass
+--[[
+    Write multiple cells to terrain in a single efficient operation.
+    Uses ReadVoxels/WriteVoxels for optimal performance.
+    
+    @param cubeOrigin: CFrame - The cube's origin position
+    @param cells: {{x: number, y: number, z: number}} - Array of cell coordinates to write
+    @param materialId: string - The material to write ("air" for deletion)
+]]
 function GridService:WriteCellsToTerrain(cubeOrigin: CFrame, cells: {{x: number, y: number, z: number}}, materialId: string)
     if #cells == 0 then return end
     
@@ -303,7 +338,16 @@ function GridService:WriteCellsToTerrain(cubeOrigin: CFrame, cells: {{x: number,
     }
 end
 
--- Create the initial terrain cube
+--[[
+    Create the initial terrain cube with optional floor material.
+    Generates a solid cube of terrain and adds visual boundary indicators.
+    
+    @param cubeOrigin: CFrame - The cube's center position
+    @param size: number - The cube size in studs
+    @param material: Enum.Material - The primary material for the cube
+    @param initialFloor: Enum.Material? - Optional different material for the bottom layer
+    @return Model - The cube model containing terrain and visual indicators
+]]
 function GridService:CreateTerrainCube(cubeOrigin: CFrame, size: number, material: Enum.Material, initialFloor: Enum.Material?): Model
     -- Create a model to hold the cube
     local model = Instance.new("Model")
@@ -344,14 +388,22 @@ function GridService:CreateTerrainCube(cubeOrigin: CFrame, size: number, materia
     return model
 end
 
--- Restore cube from saved state
+--[[
+    Restore a cube from saved state, recreating previously dug patterns.
+    Efficiently rebuilds terrain by only writing undug cells.
+    
+    @param cubeOrigin: CFrame - The cube's center position
+    @param state: Types.CubeState - The saved cube state with chunk data
+    @param initialFloor: Enum.Material? - Optional floor material override
+    @return Model - The restored cube model
+]]
 function GridService:RestoreCube(cubeOrigin: CFrame, state: Types.CubeState, initialFloor: Enum.Material?): Model
     -- Get material (handle both old and new material IDs)
     local materialId = state.materialId or "tier1"
     local materialData = GameConfig.CubeMaterialsById[materialId]
     
     if not materialData then
-        warn("[GridService] Unknown material ID:", materialId, "- using tier1")
+        log:warn("Unknown material ID: {} - using tier1", materialId)
         materialData = GameConfig.CubeMaterialsById["tier1"]
     end
     
@@ -363,7 +415,7 @@ function GridService:RestoreCube(cubeOrigin: CFrame, state: Types.CubeState, ini
         log:debug("Material resolved: %s -> %s -> %s",
             materialId, tostring(materialData.terrainKey), tostring(terrainMaterial))
     else
-        warn("[GridService] No terrainKey for material:", materialId, "- defaulting to Rock")
+        log:warn("No terrainKey for material: {} - defaulting to Rock", materialId)
     end
     
     -- Create the base cube (now guaranteed to have a valid material)
