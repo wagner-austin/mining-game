@@ -1,6 +1,15 @@
 --!strict
--- LootService.server.lua
--- Deterministic loot generation based on cell coordinates
+--[[
+    LootService.server.lua
+    Deterministic loot generation system using cell coordinates as seeds.
+    
+    Features:
+    - Deterministic drops based on cell position
+    - Material-based loot multipliers
+    - Luck stat integration
+    - Weighted rarity system
+    - Multi-cell batch processing
+]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("MiningGame")
@@ -76,7 +85,18 @@ local function pickWeightedItem(rng: Random, weights: {number}): number
     return #weights -- Fallback to last item
 end
 
--- Roll for loot in a specific cell
+--[[
+    Roll for loot in a specific cell using deterministic RNG.
+    Each cell has a consistent loot result based on its coordinates.
+    
+    @param materialId: string - The cube's material ID for multipliers
+    @param cellX: number - Cell X coordinate
+    @param cellY: number - Cell Y coordinate  
+    @param cellZ: number - Cell Z coordinate
+    @param seed: number - Additional seed value (usually player ID)
+    @param luckMultiplier: number? - Player's luck stat multiplier
+    @return Types.LootDrop? - The loot drop if successful, nil otherwise
+]]
 function LootService:RollCell(
     materialId: string,
     cellX: number,
@@ -112,7 +132,7 @@ function LootService:RollCell(
         return nil
     end
     
-    -- Create loot drop
+    -- Create loot drop with cell position
     local loot: Types.LootDrop = {
         id = itemDef.id,
         name = itemDef.name,
@@ -122,12 +142,25 @@ function LootService:RollCell(
         stats = itemDef.stats,
         effect = itemDef.effect,
         duration = itemDef.duration,
+        -- Store the cell that dropped this loot
+        cellX = cellX,
+        cellY = cellY,
+        cellZ = cellZ,
     }
     
     return loot
 end
 
--- Roll for multiple cells at once (batch operation)
+--[[
+    Roll for loot in multiple cells at once for efficiency.
+    Processes batch operations with consistent deterministic results.
+    
+    @param materialId: string - The cube's material ID
+    @param cells: {{x: number, y: number, z: number}} - Array of cell coordinates
+    @param seed: number - Additional seed value
+    @param luckMultiplier: number? - Player's luck stat multiplier
+    @return {Types.LootDrop} - Array of successful loot drops
+]]
 function LootService:RollCells(
     materialId: string,
     cells: {{x: number, y: number, z: number}},
