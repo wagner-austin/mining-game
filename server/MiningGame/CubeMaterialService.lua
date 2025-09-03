@@ -27,7 +27,7 @@ local function getTerrainMaterial(key: string): Enum.Material
     key = string.lower(key or "")
     local mat = MaterialKeys.EnumFromKey[key]
     if not mat then
-        warn("[CubeMaterialService] Unknown material key:", key, "-> defaulting to Rock")
+        log:warn("Unknown material key: {} -> defaulting to Rock", key)
         return Enum.Material.Rock
     end
     return mat
@@ -45,7 +45,7 @@ local function getCubeOrigin(player: Player): Vector3
     end
     
     -- Fallback to default position
-    warn("[CubeMaterialService] Could not find cube for player", player.Name)
+    log:warn("Could not find cube for player {}", player.Name)
     return Vector3.new(0, 10, 0)
 end
 
@@ -57,8 +57,8 @@ local function paintCubeVolume(player: Player, mat: Enum.Material)
     local shell = RESOLUTION -- 1 voxel thick (4 studs) to preserve dig patterns
     local origin = getCubeOrigin(player)
     
-    print(string.format("[CubeMaterialService] Painting cube volume for %s at %s with %s", 
-        player.Name, tostring(origin), tostring(mat)))
+    log:info("Painting cube volume for {} at {} with {}", 
+        player.Name, tostring(origin), tostring(mat))
     
     -- Use precomputed list of all terrain materials
     local materialsToReplace = ALL_TERRAIN_ENUMS
@@ -92,13 +92,13 @@ local function paintCubeVolume(player: Player, mat: Enum.Material)
         
         -- Write back the modified voxels
         Terrain:WriteVoxels(region, RESOLUTION, materials, occupancies)
-        print("[CubeMaterialService] Cube volume painted with Water (preserving shape)")
+        log:debug("Cube volume painted with Water (preserving shape)")
     else
         -- Standard replacement for non-water materials - replace ALL terrain in the cube
         for _, srcMaterial in ipairs(materialsToReplace) do
             Terrain:ReplaceMaterial(region, RESOLUTION, srcMaterial, mat)
         end
-        print("[CubeMaterialService] Cube volume painted successfully with", tostring(mat))
+        log:debug("Cube volume painted successfully with {}", tostring(mat))
     end
 end
 
@@ -106,17 +106,17 @@ end
 local function replaceFloorMaterial(player: Player, mat: Enum.Material)
     local model = workspace:FindFirstChild("MiningCube_" .. tostring(player.UserId), true)
     if not model then
-        warn("[CubeMaterialService] Could not find player's cube model")
+        log:warn("Could not find player's cube model")
         return
     end
     
     local indicators = model:FindFirstChild("Indicators", true)
     if not indicators then
-        warn("[CubeMaterialService] No indicators folder found")
+        log:warn("No indicators folder found")
         return
     end
     
-    print(string.format("[CubeMaterialService] Replacing floor material under neon bars and cube with %s", tostring(mat)))
+    log:info("Replacing floor material under neon bars and cube with {}", tostring(mat))
     
     local RESOLUTION = GameConfig.Grid.CELL_SIZE_STUDS
     local replacedCount = 0
@@ -162,7 +162,7 @@ local function replaceFloorMaterial(player: Player, mat: Enum.Material)
         end
     end
     
-    print(string.format("[CubeMaterialService] Replaced floor material under cube at %s", tostring(origin)))
+    log:debug("Replaced floor material under cube at {}", tostring(origin))
     
     -- Then process each glow bar (reuse allTerrainMaterials)
     for _, edge in ipairs(indicators:GetChildren()) do
@@ -201,19 +201,19 @@ local function replaceFloorMaterial(player: Player, mat: Enum.Material)
         end
     end
     
-    print(string.format("[CubeMaterialService] Replaced floor material under %d neon bars", replacedCount))
+    log:debug("Replaced floor material under {} neon bars", replacedCount)
 end
 
 -- Remote function handlers
 function Service.ApplyCubeSurfaceMaterial(player: Player, key: string)
     if type(key) ~= "string" then
-        warn("[CubeMaterialService] Invalid material key type")
+        log:warn("Invalid material key type")
         return false
     end
     
     local mat = getTerrainMaterial(key)
-    print(string.format("[CubeMaterialService] Player %s requesting cube material: %s -> %s", 
-        player.Name, key, tostring(mat)))
+    log:info("Player {} requesting cube material: {} -> {}", 
+        player.Name, key, tostring(mat))
     
     paintCubeVolume(player, mat)  -- Paint entire volume, not just shell
     
@@ -227,14 +227,14 @@ end
 
 function Service.ApplyFloorMaterial(player: Player, key: string)
     if type(key) ~= "string" then
-        warn("[CubeMaterialService] Invalid floor material key type")
+        log:warn("Invalid floor material key type")
         return false
     end
     
     local mat = getTerrainMaterial(key)
     
-    print(string.format("[CubeMaterialService] Player %s requesting floor material: %s -> %s", 
-        player.Name, key, tostring(mat)))
+    log:info("Player {} requesting floor material: {} -> {}", 
+        player.Name, key, tostring(mat))
     
     replaceFloorMaterial(player, mat)
     
