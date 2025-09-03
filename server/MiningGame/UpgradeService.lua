@@ -51,6 +51,12 @@ function UpgradeService:ComputeEffectiveStats(
     local size = (sizeUpgrade and sizeUpgrade.size) or baseSize
     local luck = baseLuck
     
+    -- Debug: Log the size calculation
+    if sizeLevel == 0 then
+        log:debug("Size calc: sizeLevel=0, sizeUpgrade.size=" .. tostring(sizeUpgrade and sizeUpgrade.size or "nil") .. 
+            ", baseSize=" .. tostring(baseSize) .. ", final size=" .. tostring(size))
+    end
+    
     -- Apply boosts (time-limited)
     local now = os.time()
     for boostType, expiry in pairs(profile.boosts) do
