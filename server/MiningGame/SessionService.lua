@@ -33,7 +33,11 @@ local function init()
     -- Track when players join
     Players.PlayerAdded:Connect(function(player)
         sessionStartByUserId[player.UserId] = os.time()
-        print("[SessionService] Player", player.Name, "session started at", sessionStartByUserId[player.UserId])
+        log:info("Player {} session started at {}", player.Name, sessionStartByUserId[player.UserId])
+        log:event("session_started", {
+            uid = player.UserId,
+            timestamp = sessionStartByUserId[player.UserId]
+        })
         
         -- Session tracking is now handled in DataService:LoadPlayerAsync
         -- We only need to track the session start time here for playtime calculation
@@ -45,6 +49,11 @@ local function init()
         if startTime then
             local sessionDuration = math.max(0, os.time() - startTime)
             log:info("%s played for %d seconds this session", player.Name, sessionDuration)
+            log:event("session_ended", {
+                uid = player.UserId,
+                duration = sessionDuration,
+                timestamp = os.time()
+            })
             
             -- Add to lifetime playtime
             if DataService and typeof(DataService.AddPlaytime) == "function" then
@@ -61,7 +70,7 @@ local function init()
     for _, player in ipairs(Players:GetPlayers()) do
         if not sessionStartByUserId[player.UserId] then
             sessionStartByUserId[player.UserId] = os.time()
-            print("[SessionService] Found existing player", player.Name, "- tracking from now")
+            log:info("Found existing player {} - tracking from now", player.Name)
         end
     end
     
