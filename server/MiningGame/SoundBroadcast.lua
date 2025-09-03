@@ -1,6 +1,15 @@
 --!strict
--- SoundBroadcast.lua
--- Server-side sound broadcasting utilities with rate limiting and validation
+--[[
+    SoundBroadcast.lua
+    Server-side sound broadcasting with spatial audio support.
+    
+    Features:
+    - Position-based sound broadcasting
+    - Rate limiting to prevent spam
+    - Payload validation and sanitization
+    - Material-aware sound selection
+    - Configurable broadcast radius
+]]
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -8,6 +17,8 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
 local MaterialKeys = require(MiningGame:WaitForChild("MaterialKeys"))
+local Logger = require(MiningGame:WaitForChild("Logger"))
+local log = Logger.new("SoundBroadcast")
 local ServerMiningGame = ServerScriptService:WaitForChild("MiningGame")
 local Remotes = require(ServerMiningGame:WaitForChild("Remotes"))
 
@@ -15,6 +26,9 @@ local SoundBroadcast = {}
 
 -- Default broadcast radius
 local DEFAULT_RADIUS = 150
+
+-- Get SoundConfig for configured sound IDs
+local SoundConfig = require(MiningGame:WaitForChild("SoundConfig"))
 
 -- Valid categories
 local VALID_CATEGORIES = {
@@ -48,7 +62,7 @@ local function sanitizePayload(payload: {[string]: any}): {[string]: any}
     -- Sanitize category
     data.category = string.lower(tostring(data.category or ""))
     if not VALID_CATEGORIES[data.category] then
-        warn("[SoundBroadcast] Invalid category:", data.category)
+        log:warn("Invalid category: {}", data.category)
         data.category = "rewards" -- Safe default
     end
     
@@ -64,7 +78,7 @@ local function sanitizePayload(payload: {[string]: any}): {[string]: any}
             end
         end
         if not validMaterial then
-            warn("[SoundBroadcast] Invalid material key:", data.materialKey)
+            log:warn("Invalid material key: {}", data.materialKey)
             data.materialKey = "rock" -- Safe default
         end
     end
@@ -80,7 +94,15 @@ local function sanitizePayload(payload: {[string]: any}): {[string]: any}
     return data
 end
 
--- Broadcast to all players within radius of a position
+--[[
+    Broadcast a sound event to all players within radius of a position.
+    Handles validation, rate limiting, and spatial distribution.
+    
+    @param originPlayer: Player? - The player originating the sound (for rate limiting)
+    @param position: Vector3? - The world position of the sound
+    @param payload: table - Sound data including category, type, material, etc.
+    @param radius: number? - Broadcast radius (default: 150 studs)
+]]
 function SoundBroadcast.BroadcastNear(
     originPlayer: Player?,
     position: Vector3?,
@@ -230,6 +252,37 @@ function SoundBroadcast.Environment(
         category = "environment",
         soundType = soundType,
     }, radius or 150)
+end
+
+function SoundBroadcast.Collect(
+    player: Player,
+    position: Vector3,
+    rarity: string
+)
+    -- Rate limit: prevent collection spam
+    if not checkRateLimit(player.UserId, "collect", 0.05) then return end
+    
+    -- Map rarity to sound type (case-insensitive)
+    local rarityKey = string.upper(tostring(rarity or ""))
+    local rarityMap = {
+        RARE = "rare",
+        EPIC = "epic",
+        LEGENDARY = "legendary",
+        MYTHIC = "legendary",  -- Use legendary sound for mythic (or add mythic to SoundConfig)
+    }
+    local soundType = rarityMap[rarityKey] or "item"
+    
+    -- Get configured sound ID
+    local soundId = SoundConfig.SoundIDs.rewards[soundType] or SoundConfig.SoundIDs.rewards.item
+    
+    -- Use PlaySound remote for backward compatibility with ItemService
+    Remotes.RE.PlaySound:FireClient(player, {
+        soundId = soundId,
+        volume = 0.8, -- Slightly louder for pickup feedback
+        position = position,
+        category = "collect",
+        rarity = rarity,
+    })
 end
 
 return SoundBroadcast
