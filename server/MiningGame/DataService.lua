@@ -13,6 +13,7 @@ local GameConfig = require(Shared:WaitForChild("GameConfig"))
 local Types = require(Shared:WaitForChild("Types"))
 local Logger = require(Shared:WaitForChild("Logger"))
 local log = Logger.new("DataService")
+local Remotes = require(Shared:WaitForChild("Remotes"))
 
 -- Lazy-load UserMetricsService to avoid circular dependency
 local UserMetricsService
@@ -30,8 +31,8 @@ local success = pcall(function()
 end)
 
 if not success then
-    warn("[DataService] DataStore access disabled (Studio mode). Using mock data.")
-    warn("[DataService] Error:", success)
+    log:warn("DataStore access disabled (Studio mode). Using mock data.")
+    log:warn("Error: {}", tostring(success))
     -- Create mock stores for testing
     local mockData = {}
     PlayerDataStore = {
@@ -182,13 +183,13 @@ function DataService:LoadPlayerAsync(player: Player): Types.PlayerStats?
     
     -- Check for existing session
     if isSessionLocked(userId) then
-        warn("[DataService] Player", player.Name, "has active session elsewhere")
+        log:warn("Player {} has active session elsewhere", player.Name)
         return nil
     end
     
     -- Acquire lock
     if not acquireSessionLock(userId) then
-        warn("[DataService] Failed to acquire lock for", player.Name)
+        log:warn("Failed to acquire lock for {}", player.Name)
         return nil
     end
     
@@ -201,7 +202,7 @@ function DataService:LoadPlayerAsync(player: Player): Types.PlayerStats?
     end)
     
     if not success then
-        warn("[DataService] Failed to load data for", player.Name, ":", result)
+        log:error("Failed to load data for {}: {}", player.Name, tostring(result))
         releaseSessionLock(userId)
         return nil
     end
@@ -276,7 +277,7 @@ function DataService:LoadCubeAsync(player: Player): Types.CubeState?
     local profile = playerData[player]
     
     if not profile then
-        warn("[DataService] No profile loaded for", player.Name)
+        log:warn("No profile loaded for {}", player.Name)
         return nil
     end
     
@@ -287,7 +288,7 @@ function DataService:LoadCubeAsync(player: Player): Types.CubeState?
     end)
     
     if not success then
-        warn("[DataService] Failed to load cube for", player.Name, ":", result)
+        log:error("Failed to load cube for {}: {}", player.Name, tostring(result))
         return nil
     end
     
@@ -322,7 +323,7 @@ function DataService:SavePlayerAsync(player: Player): boolean
     end)
     
     if not success then
-        warn("[DataService] Failed to save data for", player.Name, ":", err)
+        log:error("Failed to save data for {}: {}", player.Name, tostring(err))
         return false
     end
     
@@ -365,7 +366,7 @@ function DataService:SaveCubeAsync(player: Player): boolean
     end)
     
     if not success then
-        warn("[DataService] Failed to save cube for", player.Name, ":", err)
+        log:error("Failed to save cube for {}: {}", player.Name, tostring(err))
         return false
     end
     
@@ -452,7 +453,7 @@ function DataService:AddCurrency(player: Player, currencyType: string, amount: n
     if not UserMetricsService then
         UserMetricsService = require(script.Parent.UserMetricsService)
     end
-    pcall(function() UserMetricsService:Invalidate(player) end)
+    pcall(function() UserMetricsService:Invalidate(player, "currency_change") end)
     
     self:QueueSave(player)
     return true
@@ -556,7 +557,7 @@ function DataService:EnsureLoaded(player: Player): boolean
         end
         
         -- Still no data after timeout? Synthesize defaults as fallback
-        warn("[DataService] EnsureLoaded: synthesizing default data for", player.Name)
+        log:warn("EnsureLoaded: synthesizing default data for {}", player.Name)
         local profile = createDefaultProfile(player.UserId)
         playerData[player] = profile
         local cube = createDefaultCube(player.UserId, profile.materialId)
@@ -659,7 +660,7 @@ function DataService:EnqueueReceiptGrant(userId: number, grant: any): boolean
     
     -- Validate grant payload
     if not _validGrant(grant) then
-        warn("[DataService] Invalid grant payload for user", userId, 
+        log:error("Invalid grant payload for user {},", userId, 
              "- kind:", tostring(grant.kind), 
              "id:", tostring(grant.id), 
              "price:", tostring(grant.price), 
@@ -691,7 +692,7 @@ function DataService:EnqueueReceiptGrant(userId: number, grant: any): boolean
     end)
     
     if not success then
-        warn("[DataService] Failed to enqueue receipt grant for user", userId, "err:", err)
+        log:error("Failed to enqueue receipt grant for user {}, err: {}", userId, tostring(err))
         return false
     end
     
@@ -723,7 +724,7 @@ function DataService:ConsumePendingGrants(userId: number): {any}
     end)
     
     if not success then
-        warn("[DataService] Failed to consume pending grants for", userId, "err:", err)
+        log:error("Failed to consume pending grants for {}, err: {}", userId, tostring(err))
         return {}
     end
     
@@ -753,6 +754,11 @@ end
 -- Function to initialize player data
 local function onPlayerAdded(player)
     log:info("Player joined: %s", player.Name)
+    log:event("player_joined", {
+        uid = player.UserId,
+        name = player.Name,
+        timestamp = os.time()
+    })
     
     -- Load data asynchronously
     spawn(function()
@@ -764,9 +770,14 @@ local function onPlayerAdded(player)
                 -- Notify other services that data is loaded
                 player:SetAttribute("DataLoaded", true)
                 log:info("Data loaded for %s", player.Name)
+                log:event("data_loaded", {
+                    uid = player.UserId,
+                    hasProfile = profile ~= nil,
+                    hasCube = cube ~= nil
+                })
             else
                 -- Create default cube if loading failed
-                warn("[DataService] Failed to load cube, creating default")
+                log:warn("Failed to load cube, creating default")
                 local defaultCube = createDefaultCube(player.UserId, profile.materialId)
                 playerCubes[player] = defaultCube
                 player:SetAttribute("DataLoaded", true)
@@ -774,7 +785,7 @@ local function onPlayerAdded(player)
         else
             -- In Studio with no DataStore access, create default data
             if not canUseDataStore then
-                print("[DataService] No DataStore access - creating default data for", player.Name)
+                log:info("No DataStore access - creating default data for {}", player.Name)
                 local profile = createDefaultProfile(player.UserId)
                 playerData[player] = profile
                 local cube = createDefaultCube(player.UserId, profile.materialId)
@@ -782,7 +793,7 @@ local function onPlayerAdded(player)
                 player:SetAttribute("DataLoaded", true)
             else
                 -- Production failure - should not happen
-                warn("[DataService] Failed to load profile in production for", player.Name)
+                log:error("Failed to load profile in production for {}", player.Name)
                 player:Kick("Failed to load profile data. Please try again.")
             end
         end
@@ -799,6 +810,11 @@ end
 
 -- Handle player leaving
 Players.PlayerRemoving:Connect(function(player)
+    log:event("player_leaving", {
+        uid = player.UserId,
+        name = player.Name,
+        timestamp = os.time()
+    })
     -- Save data
     if playerData[player] then
         DataService:SaveAllAsync(player)
@@ -835,7 +851,7 @@ spawn(autoSaveLoop)
 local function setupWipeCommand(player)
     player.Chatted:Connect(function(message)
         if message == "/wipedata" then
-            print("[DataService] Wipe command received from", player.Name)
+            log:info("Wipe command received from {}", player.Name)
             
             -- Wipe the player's data
             local profile = playerData[player]
@@ -853,12 +869,16 @@ local function setupWipeCommand(player)
                 -- Force save using the actual save method
                 DataService:SaveAllAsync(player)
                 
-                print("[DataService] Wiped data for", player.Name)
+                log:info("Wiped data for {}", player.Name)
+                log:event("data_wiped", {
+                    uid = player.UserId,
+                    timestamp = os.time()
+                })
                 
                 -- Kick player to force reload
                 player:Kick("Data wiped! Please rejoin.")
             else
-                warn("[DataService] No profile found for", player.Name)
+                log:warn("No profile found for {}", player.Name)
             end
         end
     end)
