@@ -1,6 +1,15 @@
 --!strict
--- InventoryService.server.lua
--- Manages player inventory, items, and equipment
+--[[
+    InventoryService.server.lua
+    Manages player inventory, equipment, and item transactions.
+    
+    Features:
+    - Stack management with per-type limits
+    - Equipment system for cosmetics and tools
+    - Bulk operations for efficiency
+    - Auto-selling resources
+    - Inventory change notifications
+]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -28,7 +37,14 @@ local MAX_STACK_SIZE = {
     cosmetic = 1,
 }
 
--- Add item to inventory
+--[[
+    Add an item to the player's inventory with stack limit checking.
+    
+    @param player: Player - The player receiving the item
+    @param itemId: string - The item identifier
+    @param count: number - Number of items to add
+    @return boolean - True if any items were added
+]]
 function InventoryService:AddItem(player: Player, itemId: string, count: number): boolean
     local profile = DataService:GetPlayerData(player)
     if not profile then
@@ -38,7 +54,7 @@ function InventoryService:AddItem(player: Player, itemId: string, count: number)
     -- Get item definition
     local itemDef = LootService:GetItemDefinition(itemId)
     if not itemDef then
-        warn("[InventoryService] Unknown item:", itemId)
+        log:warn("Unknown item: {}", itemId)
         return false
     end
     
@@ -72,7 +88,14 @@ function InventoryService:AddItem(player: Player, itemId: string, count: number)
     return true
 end
 
--- Add multiple items in bulk (efficient for large operations)
+--[[
+    Add multiple items in a single operation for better performance.
+    Useful for processing multi-cell dig results.
+    
+    @param player: Player - The player receiving items
+    @param countsById: {[string]: number} - Map of itemId to count
+    @return {[string]: number} - Map of items actually added
+]]
 function InventoryService:AddItemsBulk(player: Player, countsById: {[string]: number}): {[string]: number}
     local profile = DataService:GetPlayerData(player)
     if not profile then
@@ -167,7 +190,13 @@ function InventoryService:GetItemCount(player: Player, itemId: string): number
     return profile.inventory[itemId] or 0
 end
 
--- Sell items for coins
+--[[
+    Sell items from inventory for coins based on rarity values.
+    
+    @param player: Player - The player selling items
+    @param items: {[string]: number} - Map of itemId to quantity to sell
+    @return {success: boolean, coinsEarned: number?, reason: string?} - Sale result
+]]
 function InventoryService:SellItems(player: Player, items: {[string]: number}): {success: boolean, coinsEarned: number?, reason: string?}
     local profile = DataService:GetPlayerData(player)
     if not profile then
