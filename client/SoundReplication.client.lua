@@ -125,4 +125,31 @@ Remotes.RE.OnSoundEffect.OnClientEvent:Connect(function(data: {
     end
 end)
 
+-- Handle collection sounds (backward compatible with ItemService)
+Remotes.RE.PlaySound.OnClientEvent:Connect(function(data: {
+    soundId: string,
+    volume: number?,
+    position: Vector3?,
+    category: string?,
+    rarity: string?
+})
+    -- Play collection sound directly
+    if data.soundId then
+        SoundManager.PlayId(data.soundId, {
+            Volume = data.volume or 0.6,
+            Position = data.position,
+        })
+    end
+end)
+
+-- Handle item collected feedback
+Remotes.RE.OnItemCollected.OnClientEvent:Connect(function(data: {
+    itemId: string,
+    count: number,
+    rarity: string
+})
+    -- Visual/UI feedback for item collection could go here
+    print(string.format("Collected %s x%d [%s]", data.itemId, data.count, data.rarity))
+end)
+
 print("[SoundReplication] Client sound replication initialized")
