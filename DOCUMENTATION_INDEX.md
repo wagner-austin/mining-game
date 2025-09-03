@@ -8,7 +8,10 @@ All documentation is organized in the `/docs/` directory for better organization
 
 ### System Architecture
 - **[README.md](README.md)** - Project overview and setup
-- **[docs/API_DOCUMENTATION.md](docs/API_DOCUMENTATION.md)** - Server API reference
+- **[docs/API_DOCUMENTATION.md](docs/API_DOCUMENTATION.md)** - API documentation index ✅
+  - **[docs/API_REMOTE_FUNCTIONS.md](docs/API_REMOTE_FUNCTIONS.md)** - RemoteFunction reference (33 functions)
+  - **[docs/API_REMOTE_EVENTS.md](docs/API_REMOTE_EVENTS.md)** - RemoteEvent reference (14 events)
+  - **[docs/API_BEST_PRACTICES.md](docs/API_BEST_PRACTICES.md)** - Best practices, examples, testing
 - **[docs/MASTER_IMPLEMENTATION_ROADMAP.md](docs/MASTER_IMPLEMENTATION_ROADMAP.md)** - Development roadmap
 - **[docs/PLANNING_INDEX.md](docs/PLANNING_INDEX.md)** - Planning documents overview
 - **[docs/CURRENT_IMPLEMENTATION_PLAN.md](docs/CURRENT_IMPLEMENTATION_PLAN.md)** - Current sprint/implementation status
@@ -32,6 +35,10 @@ All documentation is organized in the `/docs/` directory for better organization
 - **[docs/SOUND_INTEGRATION_REVIEW.md](docs/SOUND_INTEGRATION_REVIEW.md)** - Sound system architecture
 - **[docs/AMBIENT_ZONE_DOCUMENTATION.md](docs/AMBIENT_ZONE_DOCUMENTATION.md)** - Ambient sound zone system
 
+#### Animation & Visual Systems ✅
+- **[docs/CLOTH_SYSTEM.md](docs/CLOTH_SYSTEM.md)** - Cloth simulation with bone deformation
+- **[docs/SKINNED_MESH_ANIMATION_GUIDE.md](docs/SKINNED_MESH_ANIMATION_GUIDE.md)** - Skinned mesh animation guide
+
 ### Game Systems Documentation
 
 #### Loot & Rewards
@@ -43,20 +50,23 @@ All documentation is organized in the `/docs/` directory for better organization
 - **[docs/SPAWN_AND_DECORATION_PLAN.md](docs/SPAWN_AND_DECORATION_PLAN.md)** - Spawn system design
 
 #### Game Mechanics
+- **[docs/DIG_SERVICE.md](docs/DIG_SERVICE.md)** - Mining/digging mechanics and boundary validation ✅
 - **[docs/EXTRACTION_QUOTA_SYSTEM.md](docs/EXTRACTION_QUOTA_SYSTEM.md)** - Quota mechanics
 
 ## Documentation Status
 
 ### Fully Documented ✅
+- API System (Complete RemoteFunction/RemoteEvent reference with schemas)
 - UI System (Architecture, Components, Creation Guide)
 - Account & Profile System (DataService, SessionService, AccountDataProvider)
 - Material System (Definitions, Keys, Adding Materials)
 - Sound System (Manager, Zones, Integration)
+- Cloth Simulation System (Bone deformation, server-client replication)
 - Playtime Tracking
 - Drop/Loot System (Drop tables, rarity, modifiers)
+- Dig Service (Mining mechanics, boundary validation, rate limiting)
 
 ### Partially Documented ⚠️
-- API Endpoints (needs update for new systems)
 - Map System (design document exists, not implemented)
 - Spawn System (design document exists)
 - Extraction/Quota System (design document exists)
@@ -65,7 +75,6 @@ All documentation is organized in the `/docs/` directory for better organization
 ### Needs Documentation ❌
 - Movement System (double jump, terrain-based speed, gravity)
 - Grid Service (voxel terrain management, chunk system)
-- Dig Service (mining mechanics, rate limiting)
 - Inventory Service (item management, stacking)
 - Upgrade Service (player progression, tool upgrades)
 - Development Setup Guide
@@ -125,13 +134,13 @@ Common use cases with code
 Common issues and solutions
 ```
 
-## Recent Updates (Current Session)
+## Recent Updates (September 3, 2025)
 
-- ✅ Moved all documentation to `/docs/` folder for better organization
-- ✅ Created comprehensive UI system documentation
-- ✅ Created Account & Profile system documentation  
-- ✅ Created UI Component Creation Guide
-- ✅ Updated DOCUMENTATION_INDEX.md with new structure
+- ✅ Created comprehensive Cloth System documentation
+- ✅ Updated Skinned Mesh Animation Guide with bone replication discoveries
+- ✅ Updated implementation plans with current project status
+- ✅ Corrected remote counts (42 RF, 24 RE)
+- ✅ Added timeline reality check to implementation plan
 
 ## Next Documentation Priorities
 
