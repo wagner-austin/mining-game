@@ -10,6 +10,11 @@ local UI = MiningGame:WaitForChild("UI")
 local Theme = require(UI:WaitForChild("Theme"))
 local ThemeRefresher = require(UI:WaitForChild("ThemeRefresher"))
 
+-- Try to get PlayerProfileGuard if available (client-side only)
+local PlayerProfileGuard = nil
+local okPPG, ppg = pcall(function() return require(MiningGame:FindFirstChild("PlayerProfileGuard")) end)
+if okPPG then PlayerProfileGuard = ppg end
+
 local UIUtils = {}
 
 -- Registry of frosted backgrounds for live theme refreshing
@@ -106,18 +111,19 @@ function UIUtils.getProfileWithRetry(remotes: any, maxAttempts: number?, delaySe
     
     local lastErr
     for i = 1, maxAttempts do
-        local success, result = pcall(function()
-            return remotes.RF.GetProfile:InvokeServer()
-        end)
-        
-        if success and result then
-            return result
+        -- Guard-only approach
+        if PlayerProfileGuard and type(PlayerProfileGuard.get) == "function" then
+            local p, err = PlayerProfileGuard.get()
+            if p then
+                return p
+            end
+            lastErr = err
+        else
+            lastErr = "PlayerProfileGuard unavailable"
         end
         
-        if not success then lastErr = result end
-        
         if i < maxAttempts then
-            task.wait(delaySec)
+            task.wait(delaySec or 1)
         end
     end
     
@@ -264,7 +270,7 @@ function UIUtils.applyPressAnimation(container: Frame, intensity: number?)
         if input.UserInputType == Enum.UserInputType.MouseButton1
             or input.UserInputType == Enum.UserInputType.Touch then
             pressed = true
-            TweenService:Create(scale, TweenInfo.new(0.1, Enum.EasingStyle.Quad), { Scale = squish }):Play()
+            TweenService:Create(scale, Theme.animations.Quick, { Scale = squish }):Play()
         end
     end)
 
