@@ -1,288 +1,115 @@
 --!strict
 -- init.server.lua
--- Bootstrap script that initializes all mining game services
+-- Bootstrap script using new ServiceContainer architecture
+
+-- NOTE:
+-- Service boot is driven by ServiceManager + ServiceContainer.
+-- The old ServicesManifest.lua is deprecated and has been removed.
+-- To register/reorder services, edit server/MiningGame/ServiceManager.lua.
+-- RFs are precreated/registered via RFRegistry after services start.
+-- In Studio, use _G.MiningGameServices.container to inspect services.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
 -- Wait for shared modules
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame", 30)
 local Logger = require(MiningGame:WaitForChild("Logger"))
+local Time = require(MiningGame:WaitForChild("Time"))
 local log = Logger.new("Bootstrap")
-local GameConfig = require(MiningGame:WaitForChild("GameConfig"))
 
-log:info("Starting MiningGame initialization...")
-log:debug("Script name: %s", script.Name)
-log:debug("Script parent: %s", tostring(script.Parent))
+log:info("Starting MiningGame server initialization...")
 
 -- Assert correct Rojo mapping
 assert(MiningGame, "Missing ReplicatedStorage.MiningGame (check Rojo mapping)")
-log:info("Found ReplicatedStorage.MiningGame")
 
--- Create remotes first (before other services need them)
-local RemotesCreator = require(script.Remotes) -- creates instances under RS.Remotes.MiningGame
-log:info("Remotes created")
-
--- Create Unix time sync remote for day/night cycle
-local GetServerUnix = Instance.new("RemoteFunction")
-GetServerUnix.Name = "GetServerUnix"
-GetServerUnix.Parent = ReplicatedStorage
-GetServerUnix.OnServerInvoke = function()
-	return os.time()
+-- Step 1: Ensure ReplicatedStorage.MiningGame.Remotes folder exists
+local remotesFolder = MiningGame:FindFirstChild("Remotes")
+if not remotesFolder then
+    remotesFolder = Instance.new("Folder")
+    remotesFolder.Name = "Remotes"
+    remotesFolder.Parent = MiningGame
 end
-log:info("Time sync remote created")
+log:info("Remotes folder ensured")
 
--- Initialize core services (order matters)
-local DataService = require(script.DataService)
-log:info("DataService loaded")
-
--- Initialize SessionService early so PlayerAdded hooks are active
-local SessionService = require(script.SessionService)
-log:info("SessionService loaded")
-
-local GridService = require(script.GridService)
-log:info("GridService loaded")
-
-local LootService = require(script.LootService)
-log:info("LootService loaded")
-
-local UpgradeService = require(script.UpgradeService)
-log:info("UpgradeService loaded")
-
-local InventoryService = require(script.InventoryService)
-log:info("InventoryService loaded")
-
-local MonetizationService = require(script.MonetizationService)
-log:info("MonetizationService loaded")
-
-local ThemeSettingsService = require(script.ThemeSettingsService)
-log:info("ThemeSettingsService loaded")
-
-local CubePositionService = require(script.CubePositionService)
-log:info("CubePositionService loaded")
-
-local CubeMaterialService = require(script.CubeMaterialService)
-log:info("CubeMaterialService loaded")
-
-local SpawnService = require(script.SpawnService)
-log:info("SpawnService loaded")
-
-local DigService = require(script.DigService)
-log:info("DigService loaded")
-
--- Initialize UserMetricsService
-local UserMetricsService = require(script.UserMetricsService)
-log:info("UserMetricsService loaded")
-
--- Initialize SimAgents (Studio testing only)
-if RunService:IsStudio() then
-    local ok, err = pcall(function()
-        local SimAgents = require(script.SimAgents)
-        log:info("SimAgents loaded (Studio mode)")
-        return SimAgents
-    end)
-    if not ok then
-        log:warn("Failed to load SimAgents: {}", tostring(err))
-    end
+-- Ensure EventBus RemoteEvent exists early (RemoteEventBridge will use it)
+if not remotesFolder:FindFirstChild("EventBus") then
+    local eventBusRE = Instance.new("RemoteEvent")
+    eventBusRE.Name = "EventBus"
+    eventBusRE.Parent = remotesFolder
+    log:info("EventBus RemoteEvent created")
 end
 
-log:info("Backend initialization complete!")
+-- Pre-create RemoteFunction instances (with temporary error handlers)
+-- This prevents "Missing RemoteFunction" errors while services initialize
+local RFRegistry = require(script.RFRegistry)
+local precreateStats = RFRegistry.precreate(remotesFolder)
+log:info("RF precreate complete: %d created, %d existed", precreateStats.created, precreateStats.existed)
 
--- Export services for debugging
-_G.MiningGameServices = {
-    DataService = DataService,
-    GridService = GridService,
-    LootService = LootService,
-    UpgradeService = UpgradeService,
-    InventoryService = InventoryService,
-    MonetizationService = MonetizationService,
-    CubePositionService = CubePositionService,
-    SpawnService = SpawnService,
-    DigService = DigService,
-    Remotes = RemotesCreator,
-}
+-- Step 1.5: Configure EventBus before services start
+local EventBus = require(MiningGame:WaitForChild("EventBus"))
+local GameConfig = require(MiningGame:WaitForChild("GameConfig"))
+local Bus = EventBus.global()
 
--- Helper function to check if player is developer/tester
-local function isDev(p: Player): boolean
-    return RunService:IsStudio() -- Studio-only for now
-end
-
--- Set up teleportation handler
-RemotesCreator.RF.TeleportToHome.OnServerInvoke = function(player: Player)
-    -- Use SpawnService to teleport player to their spawn point
-    SpawnService:Respawn(player)
-    
-    return {success = true}
-end
-
--- Set up non-destructive cube respawn (available to all players)
-RemotesCreator.RF.RespawnCubeModel.OnServerInvoke = function(player: Player)
-    log:info("RespawnCubeModel requested by %s", player.Name)
-    
-    local cube = DigService.playerCubes and DigService.playerCubes[player]
-    
-    -- If model exists, just ensure it's parented to workspace
-    if cube and cube.model then
-        log:info("Cube model exists for %s, ensuring it's in workspace", player.Name)
-        cube.model.Parent = workspace
-        return {success = true, message = "Cube present"}
-    end
-    
-    -- Otherwise rebuild from saved state (non-destructive)
-    log:info("Cube model missing for %s, reinitializing...", player.Name)
-    DigService:InitializePlayerCube(player)
-    return {success = true, message = "Cube reinitialized"}
-end
-
--- Set up debug remote handlers (protected)
-RemotesCreator.RF.DebugAddCurrency.OnServerInvoke = function(player: Player, currencyType: string, amount: number)
-    -- Security check
-    if not isDev(player) then
-        return {success = false, reason = "Not authorized"}
-    end
-    -- Validate inputs
-    if currencyType ~= "coins" and currencyType ~= "gems" then
-        return {success = false, reason = "Invalid currency type"}
-    end
-    
-    if type(amount) ~= "number" or amount <= 0 then
-        return {success = false, reason = "Invalid amount"}
-    end
-    
-    -- Add the currency
-    DataService:AddCurrency(player, currencyType, amount)
-    
-    return {success = true, added = amount}
-end
-
-RemotesCreator.RF.DebugResetCube.OnServerInvoke = function(player: Player)
-    -- Security check
-    if not isDev(player) then
-        return {success = false, reason = "Not authorized"}
-    end
-    -- Reset the player's cube to fresh state
-    local cubeData = DataService:GetCubeData(player)
-    if cubeData then
-        -- Clear all chunks (reset to undug state)
-        cubeData.chunks = {}
-        cubeData.totalDug = 0
-        
-        -- Force save
-        DataService:SaveCubeAsync(player)
-        
-        -- Get the player's cube from DigService and destroy it
-        local DigService = require(script.DigService)
-        local playerCubes = DigService.playerCubes
-        if playerCubes and playerCubes[player] then
-            if playerCubes[player].model then
-                playerCubes[player].model:Destroy()
+-- Throttled drop logging to prevent spam during event floods
+do
+    local lastDropLog, dropCount = 0, 0
+    Bus:configure({
+        maxQueue = (GameConfig.Debug and GameConfig.Debug.EVENTBUS_MAX_QUEUE) or 1000,
+        onDrop = function(evt, _, qlen)
+            dropCount = dropCount + 1
+            local now = Time.mono()
+            if now - lastDropLog > 1 then -- Log at most once per second
+                log:warn("[EventBus] Dropped %d events (last='%s') at queue length %d", dropCount, evt, qlen)
+                lastDropLog = now
+                dropCount = 0
             end
-            playerCubes[player] = nil
         end
-        
-        -- Re-initialize the cube (creates fresh terrain)
-        DigService:InitializePlayerCube(player)
-        
-        -- The InitializePlayerCube already fires OnCubeOriginChanged event
-        -- so the client will be notified automatically
-        
-        return {success = true, message = "Cube reset to fresh state"}
-    end
-    
-    return {success = false, reason = "No cube data found"}
+    })
+end
+log:info("EventBus configured with maxQueue=%d", (GameConfig.Debug and GameConfig.Debug.EVENTBUS_MAX_QUEUE) or 1000)
+
+-- Step 2: Start services via the new container
+local ServiceManager = require(script.ServiceManager)
+local container = ServiceManager.start()
+
+-- Export for Studio debugging (per doc)
+if RunService:IsStudio() then
+    _G.MiningGameServices = { container = container }
 end
 
--- Create logger for metrics
-local metricsLog = Logger.new("Metrics")
+-- Step 3: Register RFs AFTER services are live
+local rfStats = RFRegistry.register(container)  -- pass DI container
+log:info("RF registration complete: %d registered, %d skipped", 
+    rfStats.registeredCount, 
+    rfStats.skippedCount)
 
--- Set up metrics remote handlers
-RemotesCreator.RF.GetMetrics.OnServerInvoke = function(player: Player)
-    metricsLog:debug("GetMetrics requested by %s", player.Name)
-    local metrics = UserMetricsService:GetMetrics(player)
-    metricsLog:debug("Returning metrics: %s", tostring(metrics ~= nil))
-    return metrics
+-- Mark server as ready for clients
+MiningGame:SetAttribute("ServerReady", true)
+log:info("ServerReady attribute set")
+
+-- Step 4: Bind cleanup on shutdown
+game:BindToClose(function()
+    log:info("Server shutting down...")
+    pcall(function() container:stop() end)
+    task.wait(1) -- Give services time to clean up
+end)
+
+-- Step 5: Report initialization complete
+log:info("MiningGame server initialization complete!")
+if RunService:IsStudio() then
+    log:debug("Running in Studio mode - debug features enabled")
+    log:debug("Access services via: _G.MiningGameServices.container:Get('ServiceName')")
 end
 
--- Gate server metrics to staff/developers
-local function canSeeServerMetrics(p: Player)
-    if RunService:IsStudio() then return true end
-    -- Replace with your user ID or group/rank check
-    -- Example: return p.UserId == 12345678 or p:GetRankInGroup(GROUP_ID) >= RANK
-    return false -- Default: only in Studio
-end
-
-RemotesCreator.RF.GetServerMetrics.OnServerInvoke = function(player: Player)
-    if not canSeeServerMetrics(player) then
-        -- Return limited info for regular players
-        return {
-            totalPlayers = #Players:GetPlayers(),
-            serverUptimeSec = workspace.DistributedGameTime,
-        }
-    end
-    return UserMetricsService:GetServerMetrics()
-end
-
--- Set up spawn strategy remote handlers
-RemotesCreator.RF.SpawnStrategy_Get.OnServerInvoke = function(player: Player)
-    return (GameConfig.Multiplayer and GameConfig.Multiplayer.SPAWN_STRATEGY) or "grid"
-end
-
-RemotesCreator.RF.SpawnStrategy_List.OnServerInvoke = function(player: Player)
-    -- Return available strategies
-    return {"grid", "grid_altitude_noise", "grid_terrain_snap", "pcg_probe"}
-end
-
-RemotesCreator.RF.SpawnStrategy_Set.OnServerInvoke = function(player: Player, strategy: string)
-    -- Security check
-    if not isDev(player) then
-        return {success = false, reason = "Not authorized"}
-    end
-    
-    -- Validate strategy
-    local valid = {grid = true, grid_altitude_noise = true, grid_terrain_snap = true, pcg_probe = true}
-    if not valid[strategy] then
-        return {success = false, reason = "Invalid strategy"}
-    end
-    
-    -- Update config (runtime only, doesn't persist)
-    GameConfig.Multiplayer.SPAWN_STRATEGY = strategy
-    log:info("Spawn strategy changed to {} by {}", strategy, player.Name)
-    
-    return {success = true, strategy = strategy}
-end
-
-RemotesCreator.RF.DebugResetStats.OnServerInvoke = function(player: Player)
-    -- Security check
-    if not isDev(player) then
-        return {success = false, reason = "Not authorized"}
-    end
-    -- Reset player's stats to default
-    local data = DataService:GetPlayerData(player)
-    if data then
-        -- Reset core stats
-        data.coins = 0
-        data.gems = 0
-        data.upgrades.speed = 0
-        data.upgrades.size = 0
-        data.totalBlocksDug = 0
-        data.sessionStartBlocks = 0
-        data.inventory = {}
-        data.equipped = {
-            pickaxe = nil,
-            head = nil,
-            back = nil,
-            aura = nil,
-            trail = nil,
-        }
-        data.boosts = {}
-        data.pets = {}
-        
-        -- Force save
-        DataService:SavePlayerAsync(player)
-        
-        return {success = true, message = "Stats reset successfully"}
-    end
-    
-    return {success = false, reason = "Failed to get player data"}
+-- Step 6: Heartbeat spike monitor
+do
+    local GameConfig = require(MiningGame:WaitForChild("GameConfig"))
+    local hlog = Logger.new(Logger.CAT.Heartbeat)
+    local THRESH = (GameConfig.Performance and GameConfig.Performance.HEARTBEAT_WARN_DT) or 0.066 -- ~15 FPS
+    RunService.Heartbeat:Connect(function(dt)
+        if dt > THRESH then
+            hlog:warn("Heartbeat spike: dt=%.3f (threshold=%.3f)", dt, THRESH)
+        end
+    end)
 end
