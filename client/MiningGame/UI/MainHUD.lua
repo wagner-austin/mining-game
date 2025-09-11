@@ -6,27 +6,49 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 
-local UI = ReplicatedStorage:WaitForChild("MiningGame"):WaitForChild("UI")
+local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
+local UI = MiningGame:WaitForChild("UI")
 local Theme = require(UI:WaitForChild("Theme"))
+local UIx = require(UI:WaitForChild("UIConstants"))
 local CurrencyChip = require(script.Parent:WaitForChild("Components"):WaitForChild("CurrencyChip"))
 local HomeButton = require(script.Parent:WaitForChild("Components"):WaitForChild("HomeButton"))
 local SettingsButton = require(script.Parent:WaitForChild("Components"):WaitForChild("SettingsButton"))
+local ClientRF = require(MiningGame:WaitForChild("ClientRF"))
 
 local MainHUD = {}
 MainHUD.__index = MainHUD
 
-function MainHUD.new()
+type MainHUDT = typeof(setmetatable({} :: any, MainHUD)) & {
+    name: string,
+    frame: Frame?,
+    topRightGroup: Frame?,
+    centerTopGroup: Frame?,
+    coinsChip: any?,
+    gemsChip: any?,
+    homeButton: any?,
+    settingsButton: any?,
+    actionChip: any?,
+    _cons: {RBXScriptConnection},
+    _activeTweens: {any},
+    _hideTask: thread?,
+    _timers: {thread},
+    new: () -> MainHUDT,
+}
+
+function MainHUD.new(): MainHUDT
     return setmetatable({
         name = "MainHUD",
         frame = nil :: Frame?,
         _cons = {},
         _activeTweens = {}, -- Track active tweens to cancel them
         _hideTask = nil,    -- Track hide delay task
+        _timers = {} :: {thread}, -- Track timers for cleanup
     }, MainHUD)
 end
 
 function MainHUD:init(manager)
     self.manager = manager  -- Store manager reference
+    self._cons = self._cons or {} -- Initialize connections table if not already
     local colors = Theme.colors
     local fonts = Theme.fonts
     local sizes = Theme.sizes
@@ -43,7 +65,7 @@ function MainHUD:init(manager)
     -- === TOP-RIGHT GROUP (coins, gems, settings) ===
     local chipConfig = Theme.currencyChip
     local settingsConfig = Theme.settingsButton
-    local rightMargin = 20
+    local rightMargin = UIx.Spacing.LG
     local topMargin = Theme.sizes.TopMargin  -- Use Theme value
     
     -- Container anchored to top-right; auto-sizes horizontally to fit children
@@ -121,25 +143,66 @@ function MainHUD:init(manager)
         parent = homeSlot,
         onClick = function()
             -- Call teleport to home remote
-            local Remotes = require(ReplicatedStorage:WaitForChild("MiningGame"):WaitForChild("Remotes"))
-            local success, result = pcall(function()
-                return Remotes.RF.TeleportToHome:InvokeServer()
-            end)
-            if success then
+            local data, err = ClientRF.call("TeleportToHome")
+            if not err then
                 print("[MainHUD] Teleporting home...")
             else
-                print("[MainHUD] Failed to teleport home:", result)
+                print("[MainHUD] Failed to teleport home:", err)
             end
         end
     })
     -- HomeButton centers itself now, no manual positioning needed
+    
+    -- === BOTTOM CENTER ACTION CHIP (for tree climbing, etc.) ===
+    -- EXACTLY mirror the home button pattern (use Theme sizes like Home button)
+    local actionConfig = Theme.homeButton
+    local actionChipWidth = actionConfig.width
+    local actionChipHeight = actionConfig.height
+    
+    local bottomCenterGroup = Instance.new("Frame")
+    bottomCenterGroup.Name = "BottomCenterGroup"
+    bottomCenterGroup.BackgroundTransparency = 1
+    bottomCenterGroup.Size = UDim2.fromOffset(actionChipWidth, actionChipHeight)
+    bottomCenterGroup.AnchorPoint = Vector2.new(0.5, 1)
+    bottomCenterGroup.Position = UDim2.new(0.5, 0, 1, -(UIx.Spacing.LG * 4)) -- Bottom with margin
+    bottomCenterGroup.Visible = false -- Hidden by default
+    bottomCenterGroup.Parent = root
+    self.bottomCenterGroup = bottomCenterGroup
+    
+    -- Function to update bottom margin dynamically (same as home button logic)
+    local function updateBottomMargin()
+        local bottomMargin = UIx.Spacing.LG * 4 -- Simple fixed margin like we might do for testing
+        self.bottomCenterGroup.Position = UDim2.new(0.5, 0, 1, -bottomMargin)
+    end
+    updateBottomMargin()
+    
+    -- Update on viewport changes (rotation, device changes)
+    local camera = workspace.CurrentCamera
+    if camera then
+        local viewportConnection = camera:GetPropertyChangedSignal("ViewportSize"):Connect(updateBottomMargin)
+        table.insert(self._cons, viewportConnection)
+    end
+    
+    -- Debug check for centering (simplified)
+    self:_setTimeout(0.5, function()
+        if camera and self.bottomCenterGroup then
+            local screenCenterX = camera.ViewportSize.X / 2
+            local chipPos = self.bottomCenterGroup.AbsolutePosition
+            local chipSize = self.bottomCenterGroup.AbsoluteSize
+            local chipCenterX = chipPos.X + chipSize.X / 2
+            local delta = chipCenterX - screenCenterX
+            
+            print(string.format("[MainHUD] Action chip center: %.1f, Screen center: %.1f, Delta: %.1f", 
+                chipCenterX, screenCenterX, delta))
+        end
+    end)
     
     -- Track last values for pulse effect
     local lastCoins = 0
     
     -- Update toast position now that chips are created
     if manager.updateToastPosition then
-        manager.updateToastPosition()
+        manager:updateToastPosition()
     end
 
     -- Extraction bar removed - no longer needed
@@ -160,6 +223,61 @@ function MainHUD:init(manager)
     end
 
     -- SetExtraction removed - no longer needed
+    
+    -- === ACTION CHIP METHODS ===
+    function self:showActionChip(text: string, icon: string?, onActivate: () -> ())
+        if not self.bottomCenterGroup then return end
+        
+        -- Destroy existing chip if any
+        if self.actionChip then
+            self.actionChip:destroy()
+            self.actionChip = nil
+        end
+        
+        -- Create slot frame (exactly like home button does)
+        local actionSlot = Instance.new("Frame")
+        actionSlot.Name = "ActionSlot"
+        actionSlot.BackgroundTransparency = 1
+        actionSlot.Size = UDim2.fromScale(1, 1)
+        actionSlot.Parent = self.bottomCenterGroup
+        
+        -- Create new action chip using HUDActionChip component
+        local HUDActionChip = require(script.Parent:WaitForChild("Components"):WaitForChild("HUDActionChip"))
+        self.actionChip = HUDActionChip.new({
+            parent = actionSlot,
+            text = text or "Interact",
+            icon = icon or "🌳",
+            key = Enum.KeyCode.E,
+            onActivate = onActivate,
+        })
+        
+        -- Show with animation
+        self.bottomCenterGroup.Visible = true
+        self:_tweenTransparency(self.bottomCenterGroup, false)
+        self.actionChip:show()
+    end
+    
+    function self:hideActionChip()
+        if not self.bottomCenterGroup then return end
+        
+        -- Fade out then hide
+        self:_tweenTransparency(self.bottomCenterGroup, true)
+        self:_setTimeout(Theme.animations.Standard.Time, function()
+            if self.bottomCenterGroup then
+                self.bottomCenterGroup.Visible = false
+            end
+            if self.actionChip then
+                self.actionChip:destroy()
+                self.actionChip = nil
+            end
+        end)
+    end
+    
+    function self:updateActionChip(text: string?, icon: string?)
+        if not self.actionChip then return end
+        if text then self.actionChip:setText(text) end
+        if icon then self.actionChip:setIcon(icon) end
+    end
 end
 
 -- === Fade helpers ===
@@ -190,7 +308,7 @@ end
 -- Cancel the delayed visibility-off task, if any
 function MainHUD:_cancelHideTask()
     if self._hideTask then
-        task.cancel(self._hideTask)
+        self:_clearTimeout(self._hideTask)
         self._hideTask = nil
     end
 end
@@ -247,6 +365,30 @@ function MainHUD:_tweenTransparency(root: Instance, toHidden: boolean)
     end
 end
 
+-- Timer helpers
+function MainHUD:_setTimeout(delay: number, fn: () -> ())
+    local th
+    th = task.delay(delay, function()
+        if self and self.frame then
+            local ok, err = pcall(fn)
+            if not ok then warn(("[MainHUD] timer error: %s"):format(tostring(err))) end
+        end
+        for i, h in ipairs(self._timers) do
+            if h == th then table.remove(self._timers, i) break end
+        end
+    end)
+    table.insert(self._timers, th)
+    return th
+end
+
+function MainHUD:_clearTimeout(h: thread?)
+    if not h then return end
+    pcall(task.cancel, h)
+    for i, hh in ipairs(self._timers) do
+        if hh == h then table.remove(self._timers, i) break end
+    end
+end
+
 function MainHUD:fadeOutChips()
     if self.topRightGroup then
         self:_tweenTransparency(self.topRightGroup, true)
@@ -286,7 +428,7 @@ function MainHUD:hide()
     -- Cross-fade with the next panel; hide after tween completes
     self:fadeOutChips()
     local t = Theme.animations.Standard.Time + Theme.animations.Standard.DelayTime
-    self._hideTask = task.delay(t, function()
+    self._hideTask = self:_setTimeout(t, function()
         if self and self.frame then
             self.frame.Visible = false
         end
@@ -295,6 +437,12 @@ function MainHUD:hide()
 end
 
 function MainHUD:cleanup()
+    -- Cancel all timers first
+    if self._timers then
+        for _, h in ipairs(self._timers) do pcall(task.cancel, h) end
+        self._timers = {}
+    end
+    
     -- Cancel any pending animations/tasks
     self:_cancelHideTask()
     self:_cancelAllTweens()
@@ -318,6 +466,9 @@ function MainHUD:cleanup()
     end
     if self.settingsButton then
         self.settingsButton:destroy()
+    end
+    if self.actionChip then
+        self.actionChip:destroy()
     end
     
     -- Destroy the top-right group container
