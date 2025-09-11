@@ -13,13 +13,46 @@ local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
 local GameConfig = require(MiningGame:WaitForChild("GameConfig"))
 local Logger = require(MiningGame:WaitForChild("Logger"))
 local log = Logger.new("SimAgents")
+local MathUtils = require(MiningGame:WaitForChild("MathUtils"))
 local Remotes = require(MiningGame:WaitForChild("Remotes"))
 
 local SpawnService = require(script.Parent:WaitForChild("SpawnService"))
 local GridService = require(script.Parent:WaitForChild("GridService"))
 local CubePositionService = require(script.Parent:WaitForChild("CubePositionService"))
+local MixedMaterialService = require(script.Parent:WaitForChild("MixedMaterialService"))
+local SpawnStrategies = require(script.Parent:WaitForChild("SpawnStrategies"))
+local PCGConfig = require(MiningGame:WaitForChild("PCGConfig"))
+local CubeThemes = require(MiningGame:WaitForChild("CubeThemes"))
+local MaterialDefinitions = require(MiningGame:WaitForChild("MaterialDefinitions"))
 
 local SimAgents = {}
+
+-- Pick from real IDs in CubeThemes.Themes
+local THEME_IDS = { "classic_mine", "volcanic_rift", "icy_cavern", "desert_oasis", "swamp_bog" }
+
+local function themeConfigFor(ord: number, seed: number)
+    local themeId = THEME_IDS[(ord % #THEME_IDS) + 1]
+    local theme = CubeThemes.GetTheme(themeId) or CubeThemes.GetTheme("classic_mine")
+
+    -- convert theme.{materials, scales} -> swathes[]
+    local swathes = {}
+    for materialKey, weight in pairs(theme.materials) do
+        local matEnum = MaterialDefinitions.GetEnum(materialKey)
+        if matEnum then
+            table.insert(swathes, {
+                material = matEnum,
+                weight   = weight,
+                scale    = theme.scales[materialKey] or 25,
+            })
+        end
+    end
+
+    return {
+        seed = seed,
+        blendMode = "hard",
+        swathes = swathes,
+    }
+end
 
 -- Future-proof respawn adapter (works even if SpawnService changes during refactor)
 local function safeRespawn(character: Model, originCFrame: CFrame)
@@ -174,22 +207,32 @@ local function spawnOne(index: number)
     -- Place SimAgents AFTER real players to avoid overlap
     local playerCount = #Players:GetPlayers()
     local ord = playerCount + index  -- always after real players
+    
+    -- ALWAYS recalculate position with current strategy
     local cf = CubePositionService:ComputeDefaultOriginForOrdinal(ord)
     CubePositionService:RegisterSimulatedPosition(userId, cf)
     
-    log:debug("Spawning SimAgent {} at ordinal {}, pos {}", id, ord, tostring(cf.Position))
+    log:info("Spawning SimAgent %d at ordinal %d with strategy '%s', pos %s", 
+        id, ord, SpawnStrategies.GetCurrentStrategyName(), tostring(cf.Position))
     
     -- Create cube (terrain or ghost)
     local cubeModel
     if CONFIG.CREATE_TERRAIN_CUBES then
-        -- Create real terrain cube
-        cubeModel = GridService:CreateTerrainCube(
-            cf,
-            CONFIG.CUBE_SIZE,
-            Enum.Material.Rock,
-            Enum.Material.Grass
-        )
+        -- Create real terrain cube with mixed materials (like real players)
+        local cubeState
+        local ok, res = pcall(function() return GridService:CreateCubeState(userId, "tier1") end)
+        cubeState = ok and res or nil
+        
+        cubeModel = GridService:RestoreCube(cf, cubeState, Enum.Material.Grass)
         cubeModel.Name = "SimCube_" .. id
+        cubeModel.Parent = Workspace
+        
+        -- Apply mixed materials with deterministic seed
+        local seed = PCGConfig.Seeds.SIM_AGENTS + ord * 947 + 17
+        log:debug("Applying mixed materials for agent {} with seed {}", id, seed)
+        
+        local cfg = themeConfigFor(ord, seed)
+        MixedMaterialService:ApplyMixedMaterials(cf, CONFIG.CUBE_SIZE, cfg)
     else
         -- Create ghost visualization
         local ghost = createCubeGhost(cf, CONFIG.CUBE_SIZE)
@@ -216,9 +259,18 @@ local function spawnOne(index: number)
         cubeCFrame = cf,
         cubeModel = cubeModel,
         userId = userId,
+        ordinal = ord,  -- Store ordinal for consistent respawning
     }
     
     log:info("✓ Spawned SimAgent {} - position: {}", id, tostring(cf.Position))
+end
+
+-- Helper to erase terrain volume
+local function eraseCubeVolume(cf: CFrame, size: number)
+    local terrain = Workspace.Terrain
+    -- Fill with air using FillBlock
+    terrain:FillBlock(cf, Vector3.new(size, size, size), Enum.Material.Air)
+    log:debug("Erased terrain volume at {}", tostring(cf.Position))
 end
 
 -- Clear all agents
@@ -235,6 +287,12 @@ local function clearAll()
         end
         if agent.cubeModel and agent.cubeModel.Parent then
             agent.cubeModel:Destroy()
+        end
+        -- Erase terrain if it was created
+        if CONFIG.CREATE_TERRAIN_CUBES and agent.cubeCFrame then
+            pcall(function()
+                eraseCubeVolume(agent.cubeCFrame, CONFIG.CUBE_SIZE)
+            end)
         end
         -- Unregister from CubePositionService
         CubePositionService:UnregisterSimulatedPosition(agent.userId)
@@ -276,7 +334,7 @@ function SimAgents:SetCount(n: number)
         return
     end
     
-    local targetCount = math.max(0, math.floor(n))
+    local targetCount = MathUtils.nonNegative(math.floor(n))
     log:info("Repopulating with {} agents...", targetCount)
     repopulate(targetCount)
 end
@@ -292,11 +350,70 @@ end
 function SimAgents:RespawnAll()
     if not CONFIG.ENABLED then return end
     
-    for _, agent in pairs(agents) do
-        safeRespawn(agent.char, agent.cubeCFrame)
+    log:info("RespawnAll: Recalculating positions with strategy '{}'", 
+        SpawnStrategies.GetCurrentStrategyName())
+    
+    local agentCount = 0
+    
+    for id, agent in pairs(agents) do
+        agentCount = agentCount + 1
+        
+        -- Use stored ordinal for consistent positioning
+        local ord = assert(agent.ordinal, "SimAgent missing ordinal")
+        local newCf = CubePositionService:ComputeDefaultOriginForOrdinal(ord)
+        
+        -- Keep old position for terrain erase
+        local oldCf = agent.cubeCFrame
+        agent.cubeCFrame = newCf
+        
+        -- Update registration
+        CubePositionService:RegisterSimulatedPosition(agent.userId, newCf)
+        
+        -- Recreate cube at new position (terrain doesn't move)
+        if agent.cubeModel then
+            agent.cubeModel:Destroy()
+        end
+        
+        if CONFIG.CREATE_TERRAIN_CUBES then
+            -- Erase old terrain
+            if oldCf then
+                pcall(function()
+                    eraseCubeVolume(oldCf, CONFIG.CUBE_SIZE)
+                end)
+            end
+            
+            -- Create new terrain cube with mixed materials
+            local cubeState
+            local ok, res = pcall(function() return GridService:CreateCubeState(agent.userId, "tier1") end)
+            cubeState = ok and res or nil
+            
+            agent.cubeModel = GridService:RestoreCube(newCf, cubeState, Enum.Material.Grass)
+            agent.cubeModel.Name = "SimCube_" .. id
+            agent.cubeModel.Parent = Workspace
+            
+            -- Apply mixed materials with deterministic seed
+            local seed = PCGConfig.Seeds.SIM_AGENTS + ord * 947 + 17
+            log:debug("Applying mixed materials for agent {} with seed {}", id, seed)
+            
+            local cfg = themeConfigFor(ord, seed)
+            MixedMaterialService:ApplyMixedMaterials(newCf, CONFIG.CUBE_SIZE, cfg)
+        else
+            -- Create ghost visualization
+            local ghost = createCubeGhost(newCf, CONFIG.CUBE_SIZE)
+            agent.cubeModel = Instance.new("Model")
+            agent.cubeModel.Name = "SimCube_" .. id
+            agent.cubeModel.PrimaryPart = ghost
+            ghost.Parent = agent.cubeModel
+            agent.cubeModel.Parent = ensureFolder()
+        end
+        
+        -- Respawn character at new position
+        safeRespawn(agent.char, newCf)
+        
+        log:debug("Respawned agent {} at new position {}", id, tostring(newCf.Position))
     end
     
-    log:info("Respawned all SimAgents")
+    log:info("Respawned all {} SimAgents with updated positions", agentCount)
 end
 
 function SimAgents:Clear()
@@ -317,72 +434,33 @@ function SimAgents:GetAgents()
     return agents
 end
 
--- Remote handlers for UI control
+function SimAgents:GetStatus()
+    -- Return current status of SimAgents system
+    local agentList = {}
+    for id, agent in pairs(agents) do
+        table.insert(agentList, {
+            id = id,
+            userId = agent.userId,
+            ordinal = agent.ordinal,
+            position = agent.cubeModel and agent.cubeModel:GetPivot().Position or Vector3.new(),
+            hasCube = agent.cubeModel ~= nil
+        })
+    end
+    
+    return {
+        enabled = CONFIG.ENABLED,
+        count = self:GetCount(),
+        maxAgents = CONFIG.MAX_AGENTS,
+        terrainCubes = CONFIG.CREATE_TERRAIN_CUBES,
+        currentStrategy = SpawnStrategies.GetCurrentStrategyName(),
+        agents = agentList
+    }
+end
+
+-- [MIGRATED TO SimAgentsRemotes.lua]
+-- All remote handlers now use centralized RemoteManager pattern
 local function setupRemotes()
-    log:info("Setting up remote handlers...")
-    
-    -- Handle UI requests
-    Remotes.RF.SimAgents_SetCount.OnServerInvoke = function(player: Player, count: number)
-        log:info("SimAgents_SetCount called by {} with count: {}", player.Name, count)
-        
-        if not CONFIG.ENABLED then
-            log:warn("SimAgents disabled - not in Studio")
-            return false, "SimAgents only available in Studio"
-        end
-        
-        SimAgents:SetCount(count)
-        local newCount = SimAgents:GetCount()
-        log:info("SimAgents count set to: {}", newCount)
-        return true, newCount
-    end
-    
-    Remotes.RF.SimAgents_GetStatus.OnServerInvoke = function(player: Player)
-        log:debug("SimAgents_GetStatus called by {}", player.Name)
-        local status = {
-            enabled = CONFIG.ENABLED,
-            count = SimAgents:GetCount(),
-            maxCount = CONFIG.MAX_AGENTS,
-            useTerrainCubes = CONFIG.CREATE_TERRAIN_CUBES,
-            -- Added fields for UI display
-            playerCount = #Players:GetPlayers(),
-            strategy = (GameConfig.Multiplayer and GameConfig.Multiplayer.SPAWN_STRATEGY) or "grid",
-        }
-        log:debug("Returning status: enabled={}, count={}, maxCount={}", status.enabled, status.count, status.maxCount)
-        return status
-    end
-    
-    Remotes.RF.SimAgents_RespawnAll.OnServerInvoke = function(player: Player)
-        log:info("SimAgents_RespawnAll called by {}", player.Name)
-        
-        if not CONFIG.ENABLED then
-            log:warn("SimAgents disabled - not in Studio")
-            return false, "SimAgents only available in Studio"
-        end
-        
-        SimAgents:RespawnAll()
-        log:info("Respawned all {} agents", SimAgents:GetCount())
-        return true
-    end
-    
-    Remotes.RF.SimAgents_Clear.OnServerInvoke = function(player: Player)
-        if not CONFIG.ENABLED then
-            return false, "SimAgents only available in Studio"
-        end
-        
-        SimAgents:Clear()
-        return true
-    end
-    
-    Remotes.RF.SimAgents_SetTerrainCubes.OnServerInvoke = function(player: Player, enabled: boolean)
-        if not CONFIG.ENABLED then
-            return false, "SimAgents only available in Studio"
-        end
-        
-        SimAgents:SetTerrainCubes(enabled)
-        return true
-    end
-    
-    log:info("Remote handlers ready.")
+    log:info("Remote handlers have been migrated to SimAgentsRemotes.lua")
 end
 
 -- Initialize
