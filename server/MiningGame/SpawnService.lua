@@ -19,10 +19,96 @@ local MiningGame = ReplicatedStorage:WaitForChild("MiningGame", 30)
 local Logger = require(MiningGame:WaitForChild("Logger"))
 local log = Logger.new("SpawnService")
 local GameConfig = require(MiningGame:WaitForChild("GameConfig"))
+local ServiceValidator = require(MiningGame:WaitForChild("ServiceValidator"))
+local EventBus = require(MiningGame:WaitForChild("EventBus"))
+local EventNames = require(MiningGame:WaitForChild("EventNames"))
+local Time = require(MiningGame:WaitForChild("Time"))
+local Bus = EventBus.global()
 
-local CubePositionService = require(script.Parent.CubePositionService)
+-- Services (injected via Init)
+local CubePositionService
+local GridService
+local DigService
+
+-- Forward declare handler (defined after Start)
+local onCharacterAdded: (Model) -> ()
 
 local SpawnService = {}
+SpawnService.__index = SpawnService
+
+-- Respawn throttling to prevent spam
+local lastRespawnAt: {[Player]: number} = {}
+-- Forensics: last committed spawn time and origin to analyze duplicate spawns
+local lastCommittedSpawnAt: {[Player]: number} = {}
+local lastCommittedOrigin: {[Player]: CFrame} = {}
+local DEBUG_SPAWN_LOGS = false
+local function canRespawn(player: Player): boolean
+    local now = Time.mono()
+    if lastRespawnAt[player] and now - lastRespawnAt[player] < 1.0 then 
+        return false 
+    end
+    lastRespawnAt[player] = now
+    return true
+end
+
+-- Initialize with DI container
+function SpawnService:Init(container)
+    GridService = ServiceValidator.get(container, "GridService")
+    CubePositionService = ServiceValidator.get(container, "CubePositionService", {"GetOrigin", "SetOrigin"})
+    DigService = ServiceValidator.get(container, "DigService", {"SetPlayerOrigin"})
+    log:info("Initialized with dependencies")
+end
+
+-- Start method to connect player events after all services are initialized
+function SpawnService:Start(container)
+    -- Connect player events now that dependencies are ready
+    Players.PlayerAdded:Connect(function(plr)
+        plr.CharacterAdded:Connect(onCharacterAdded)
+    end)
+    
+    -- Handle players already present (Studio)
+    for _, plr in ipairs(Players:GetPlayers()) do
+        plr.CharacterAdded:Connect(onCharacterAdded)
+        -- Check if character already exists and handle it
+        if plr.Character then
+            log:debug("Player %s already has character on Start", plr.Name)
+            onCharacterAdded(plr.Character)
+        end
+    end
+    
+    -- Clean up throttle table when player leaves
+    Players.PlayerRemoving:Connect(function(player)
+        lastRespawnAt[player] = nil
+        lastCommittedSpawnAt[player] = nil
+        lastCommittedOrigin[player] = nil
+    end)
+    
+    -- Reposition when DigService announces the origin
+    Bus:on(EventNames.CUBE_ORIGIN_CHANGED, function(evt)
+        local to = evt and evt.to
+        local player = to and to.player
+        if not player or not player.Parent or not player.Character then return end
+        
+        local payload = evt and evt.payload
+        local origin = payload and payload.origin
+        
+        -- Skip if we're already at the right origin to prevent double-spawning
+        local currentOrigin = CubePositionService:GetOrigin(player)
+        if currentOrigin and origin and (currentOrigin.Position - origin.Position).Magnitude < 1 then
+            log:debug("Already at correct origin, skipping respawn")
+            return
+        end
+        
+        if not canRespawn(player) then 
+            log:debug("Spawn throttled for %s", player.Name)
+            return 
+        end
+        
+        SpawnService:Respawn(player, "CUBE_ORIGIN_CHANGED")
+    end)
+    
+    log:info("Started with player connections and event listeners")
+end
 
 -- tunables
 local CELL = GameConfig.Grid.CELL_SIZE_STUDS or 4
@@ -79,16 +165,20 @@ local function computeSpawnCFrame(cubeOrigin: CFrame): CFrame
     -- "front" = opposite of cube's forward vector (so player looks toward cube)
     local frontDir = -cubeOrigin.LookVector.Unit
     local target   = cubeOrigin.Position
-
+    
     -- place player (half cube + padding) away from cube center, on ground
     local spawnFlat = target + frontDir * (HALF_STUDS + FRONT_PADDING)
     local y = groundAtOrDefault(spawnFlat)
-
     local spawnPos = Vector3.new(spawnFlat.X, y, spawnFlat.Z)
 
     -- face the cube horizontally (keep player upright)
     local lookAt = Vector3.new(target.X, y, target.Z)
-    return CFrame.lookAt(spawnPos, lookAt)
+    local cf = CFrame.lookAt(spawnPos, lookAt)
+    log:debug("computeSpawnCFrame: spawnPos=(%.1f, %.1f, %.1f), lookAt=(%.1f, %.1f, %.1f)",
+        spawnPos.X, spawnPos.Y, spawnPos.Z,
+        lookAt.X, lookAt.Y, lookAt.Z)
+    
+    return cf
 end
 
 --[[
@@ -97,14 +187,33 @@ end
     
     @param player: Player - The player to respawn
 ]]
-function SpawnService:Respawn(player: Player)
-    if not player.Character then return end
+function SpawnService:Respawn(player: Player, source: string?)
+    if not player.Character then 
+        log:warn("No character for %s", player.Name)
+        return 
+    end
     local hrp = player.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
-    if not hrp then return end
+    if not hrp then 
+        log:warn("No HRP for %s", player.Name)
+        return 
+    end
+
 
     -- ensure we have an origin for this player
-    local cubeOrigin = CubePositionService:GetOrigin(player)
-    if not cubeOrigin then return end
+    local cubeOrigin = CubePositionService and CubePositionService:GetOrigin(player)
+    if not cubeOrigin then 
+        log:warn("GetOrigin returned nil; skipping respawn for %s", player.Name)
+        return 
+    end
+    
+    
+    -- Set origin in both services (authoritative source)
+    CubePositionService:SetOrigin(player, cubeOrigin)   -- authoritative source of truth
+    DigService:SetPlayerOrigin(player, cubeOrigin)      -- keep DigService cache in sync
+    
+    
+    -- SpawnService is the sole owner of cube creation timing
+    DigService:InitializePlayerCube(player)
 
     -- request streaming around the spawn (helps with streaming-enabled worlds)
     task.spawn(function()
@@ -112,6 +221,27 @@ function SpawnService:Respawn(player: Player)
     end)
 
     local cf = computeSpawnCFrame(cubeOrigin)
+
+
+    if DEBUG_SPAWN_LOGS then
+        local expected = HALF_STUDS + FRONT_PADDING
+        local delta = cf.Position - cubeOrigin.Position
+        local horiz = math.sqrt(delta.X*delta.X + delta.Z*delta.Z)
+        local now = Time.mono()
+        local dt = lastCommittedSpawnAt[player] and (now - lastCommittedSpawnAt[player]) or -1
+        local prevOrigin = lastCommittedOrigin[player]
+        local originChanged = (prevOrigin ~= nil) and (prevOrigin.Position - cubeOrigin.Position).Magnitude > 0.1
+        log:debug(
+            "spawn_forensics | src=%s | origin=(%.1f,%.1f,%.1f) -> spawn=(%.1f,%.1f,%.1f) | delta=(%.1f,%.1f,%.1f) | horiz=%.1f | expected=%.1f | dtPrev=%.2f | originChanged=%s",
+            tostring(source or "(unknown)"),
+            cubeOrigin.Position.X, cubeOrigin.Position.Y, cubeOrigin.Position.Z,
+            cf.Position.X, cf.Position.Y, cf.Position.Z,
+            delta.X, delta.Y, delta.Z,
+            horiz, expected,
+            dt,
+            tostring(originChanged)
+        )
+    end
     hrp.CFrame = cf
 
     -- small nudge to settle
@@ -120,28 +250,41 @@ function SpawnService:Respawn(player: Player)
         humanoid:Move(Vector3.zero, true)
     end
 
-    log:info("Spawned {} at ({:.1f}, {:.1f}, {:.1f}) facing cube",
+    log:info("Spawned %s at (%.1f, %.1f, %.1f) facing cube",
         player.Name, cf.Position.X, cf.Position.Y, cf.Position.Z)
+
+
+    -- Update forensics state after a successful spawn
+    lastCommittedSpawnAt[player] = Time.mono()
+    lastCommittedOrigin[player] = cubeOrigin
 end
 
--- hook character spawns
-local function onCharacterAdded(char: Model)
+-- hook character spawns (called from Start method after dependencies are ready)
+onCharacterAdded = function(char: Model)
     local plr = Players:GetPlayerFromCharacter(char)
     if not plr then return end
+    
+    
+    
     -- wait for HRP
-    char:WaitForChild("HumanoidRootPart", 10)
-    SpawnService:Respawn(plr)
+    local hrp = char:WaitForChild("HumanoidRootPart", 10)
+    if not hrp then
+        log:error("No HumanoidRootPart found for %s", plr.Name)
+        return
+    end
+    
+    
+    -- If we already know an origin (e.g., cube finished first), snap now.
+    local origin = CubePositionService and CubePositionService:GetOrigin(plr)
+    if origin and canRespawn(plr) then
+        log:debug("Cube ready on CharacterAdded, spawning %s immediately", plr.Name)
+        SpawnService:Respawn(plr, "CharacterAdded")
+    else
+        log:debug("Waiting for CUBE_ORIGIN_CHANGED for %s", plr.Name)
+    end
 end
 
-Players.PlayerAdded:Connect(function(plr)
-    plr.CharacterAdded:Connect(onCharacterAdded)
-end)
-
--- handle players already present (Studio)
-for _, plr in ipairs(Players:GetPlayers()) do
-    plr.CharacterAdded:Connect(onCharacterAdded)
-    if plr.Character then onCharacterAdded(plr.Character) end
-end
+-- Player events moved to Start method
 
 -- Helper for testing with simulated characters (no Player instance required)
 function SpawnService:RespawnCharacterAtOrigin(character: Model, cubeOrigin: CFrame, skipStream: boolean?)
@@ -164,7 +307,7 @@ function SpawnService:RespawnCharacterAtOrigin(character: Model, cubeOrigin: CFr
         humanoid:Move(Vector3.zero, true)
     end
 
-    log:info("SimSpawned char {} at ({:.1f}, {:.1f}, {:.1f}) facing cube",
+    log:info("SimSpawned char %s at (%.1f, %.1f, %.1f) facing cube",
         character.Name, cf.Position.X, cf.Position.Y, cf.Position.Z)
 end
 
