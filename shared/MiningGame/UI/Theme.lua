@@ -16,6 +16,7 @@ end
 -- Main color palette
 Theme.colors = {
     Primary = hexToColor3("#6C63FF"),    -- Vibrant Purple - Main actions, buttons
+    OnPrimary = hexToColor3("#FFFFFF"),  -- White - Text on Primary buttons
     Secondary = hexToColor3("#FF6B9D"),  -- Bubblegum Pink - Highlights, special items
     Accent = hexToColor3("#FFD93D"),     -- Golden Yellow - Rewards, achievements
     Success = hexToColor3("#6BCF7F"),    -- Mint Green - Positive feedback, purchases
@@ -24,6 +25,7 @@ Theme.colors = {
     Surface = hexToColor3("#0F2C4F"),    -- Card Blue - UI panels
     Text = hexToColor3("#FFFFFF"),       -- White - Primary text
     TextDim = hexToColor3("#B0B0B0"),    -- Gray - Secondary text
+    TextSecondary = hexToColor3("#808080"), -- Darker Gray - Used for sliders/tracks
 }
 
 -- Rarity colors (consistent everywhere)
@@ -134,6 +136,22 @@ Theme.ui = {
     dividerTransparency = 0.8,  -- Divider lines: 20% visible (subtle separators)
 }
 
+-- Font configuration (frozen to prevent accidental mutation)
+Theme.fonts = table.freeze({
+    Primary = Enum.Font.SourceSans,      -- Main UI font
+    Secondary = Enum.Font.Gotham,        -- Headers and emphasis
+    Monospace = Enum.Font.Code,          -- Debug/technical text
+})
+
+-- Text sizes
+Theme.buttonSize = 18  -- Default button text size
+
+-- Initialize optional tables for ThemeManager
+Theme.effects = Theme.effects or {}
+Theme.tabs = Theme.tabs or {}
+Theme.glassEdge = Theme.glassEdge or {}
+Theme.postProcessing = Theme.postProcessing or {}
+
 -- Panel responsive sizing
 Theme.panels = {
     margins = {
@@ -176,10 +194,10 @@ Theme.textSizes = {
 
 -- Animation presets
 Theme.animations = {
-    Quick = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-    Standard = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
-    Smooth = TweenInfo.new(0.5, Enum.EasingStyle.Quart, Enum.EasingDirection.InOut),
-    Bounce = TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+    Quick = TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+    Standard = TweenInfo.new(0.15, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
+    Smooth = TweenInfo.new(0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.InOut),
+    Bounce = TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
 }
 
 -- Responsive breakpoints
@@ -234,13 +252,23 @@ Theme.toast = {
     anchor = "topRight",     -- "topRight" | "topCenter"
     maxWidth = 300,
     gap = 8,
-    duration = 3.0,          -- seconds
+    duration = 1.5,          -- base duration in seconds
+    minDuration = 1.0,       -- minimum duration for short messages
+    maxDuration = 3.0,       -- maximum duration for long messages
+    perChar = 0.01,          -- additional seconds per character
+    maxVisible = 3,          -- maximum toasts visible at once
     padding = 10,
-    icon = { info = "🔔", success = "✅", error = "⚠️" },
+    icon = { 
+        info = "🔔", 
+        success = "✅", 
+        error = "❌",
+        warning = "⚠️"
+    },
     tint = {
         info    = Theme.colors.Primary,
         success = Theme.colors.Success,
         error   = Theme.colors.Error,
+        warning = Theme.colors.Accent,  -- Golden Yellow for warnings
     },
 }
 
@@ -264,5 +292,8 @@ function Theme.scaleForMinDim(minDim: number): number
     if minDim < Theme.breakpoints.large then return 0.9 end
     return 1
 end
+
+-- Post-processing overrides (populated by theme packs)
+Theme.postProcessing = {}
 
 return Theme
