@@ -6,11 +6,16 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
-local Theme = require(MiningGame:WaitForChild("UI"):WaitForChild("Theme"))
+local UIFolder = MiningGame:WaitForChild("UI")
+local Theme = require(UIFolder:WaitForChild("Theme"))
+local UIx = require(UIFolder:WaitForChild("UIConstants"))
+local GameConfig = require(MiningGame:WaitForChild("GameConfig"))
 local TabbedPanel = require(script.Parent.Parent:WaitForChild("Components"):WaitForChild("TabbedPanel"))
 local MaterialsTab = require(script.Parent.Parent:WaitForChild("Components"):WaitForChild("MaterialsTab"))
 local AccountTab = require(script.Parent.Parent:WaitForChild("Components"):WaitForChild("AccountTab"))
 local ThemeTab = require(script.Parent.Parent:WaitForChild("Components"):WaitForChild("ThemeTab"))
+local UpgradeTab = require(script.Parent.Parent:WaitForChild("Components"):WaitForChild("UpgradeTab"))
+local InventoryTab = require(script.Parent.Parent:WaitForChild("Components"):WaitForChild("InventoryTab"))
 
 -- Only load MetricsTab and DebugTab in Studio for testing
 local MetricsTab, DebugTab
@@ -24,7 +29,30 @@ SettingsPanel.__index = SettingsPanel
 
 type Providers = { accountDataProvider: any? }
 
-function SettingsPanel.new(providers: Providers?)
+type SettingsPanelT = typeof(setmetatable({} :: any, SettingsPanel)) & {
+    name: string,
+    _widgets: {any},
+    panel: any?,
+    frame: Frame?,
+    lastTab: string,
+    _providers: Providers,
+    materialsTab: any?,
+    themeTab: any?,
+    upgradesTab: any?,
+    inventoryTab: any?,
+    accountTab: any?,
+    metricsTab: any?,
+    debugTab: any?,
+    manager: any?,
+    new: (providers: Providers?) -> SettingsPanelT,
+    init: (self: SettingsPanelT, manager: any) -> (),
+    switchTab: (self: SettingsPanelT, tabName: string) -> (),
+    show: (self: SettingsPanelT) -> (),
+    hide: (self: SettingsPanelT) -> (),
+    cleanup: (self: SettingsPanelT) -> (),
+}
+
+function SettingsPanel.new(providers: Providers?): SettingsPanelT
     local self = setmetatable({
         name = "SettingsPanel",
         _widgets = {},   -- Track tab widgets for cleanup
@@ -34,7 +62,7 @@ function SettingsPanel.new(providers: Providers?)
         _providers = providers or {},
     }, SettingsPanel)
     
-    return self
+    return self :: any
 end
 
 function SettingsPanel:init(manager)
@@ -47,8 +75,15 @@ function SettingsPanel:init(manager)
     local tabs = {
         { name = "Materials" },
         { name = "Theme" },
-        { name = "Account" },
     }
+    
+    -- Check feature flag for upgrades
+    if GameConfig.Features.SHOW_UPGRADE_TAB then
+        table.insert(tabs, { name = "Upgrades" })
+    end
+    
+    table.insert(tabs, { name = "Inventory" })
+    table.insert(tabs, { name = "Account" })
     
     -- Add Metrics and Debug tabs in Studio only
     if RunService:IsStudio() then
@@ -77,6 +112,10 @@ function SettingsPanel:init(manager)
         defaultTab = self.lastTab or "Materials",
         onTabChange = function(newTab)
             self.lastTab = newTab
+            -- Activate/deactivate Inventory tab to avoid background rebuilds
+            if self.inventoryTab and self.inventoryTab.setActive then
+                self.inventoryTab:setActive(newTab == "Inventory")
+            end
         end,
     })
     
@@ -87,8 +126,7 @@ function SettingsPanel:init(manager)
     local materialsRoot = self.panel:getTabContent("Materials") :: Frame
     self.materialsTab = MaterialsTab.new({
         parent = materialsRoot,
-        position = UDim2.new(0, 0, 0, 0),
-        size = UDim2.new(1, 0, 0, 0),
+        -- Let the tab auto-size based on content
         portalParent = self.panel.popoverLayer, -- use panel's popover
     })
     table.insert(self._widgets, self.materialsTab)
@@ -97,18 +135,41 @@ function SettingsPanel:init(manager)
     local themeRoot = self.panel:getTabContent("Theme") :: Frame
     self.themeTab = ThemeTab.new({
         parent = themeRoot,
-        position = UDim2.new(0, 0, 0, 0),
-        size = UDim2.new(1, 0, 0, 0),
+        -- Let the tab auto-size based on content
         portalParent = self.panel.popoverLayer, -- use panel's popover
     })
     table.insert(self._widgets, self.themeTab)
+    
+    -- Mount Upgrades tab (if enabled)
+    if GameConfig.Features.SHOW_UPGRADE_TAB then
+        local upgradesRoot = self.panel:getTabContent("Upgrades") :: Frame
+        self.upgradesTab = UpgradeTab.new({
+            parent = upgradesRoot,
+            -- Let the tab auto-size based on content
+            dataProvider = self._providers and self._providers.accountDataProvider,
+        })
+        table.insert(self._widgets, self.upgradesTab)
+    end
+    
+    -- Mount Inventory tab
+    local inventoryRoot = self.panel:getTabContent("Inventory") :: Frame
+    self.inventoryTab = InventoryTab.new({
+        parent = inventoryRoot,
+        -- Let the tab auto-size based on content
+        dataProvider = self._providers and self._providers.accountDataProvider,
+    })
+    table.insert(self._widgets, self.inventoryTab)
+    -- Set initial active state based on current tab
+    local currentTab = self.panel:getCurrentTab()
+    if self.inventoryTab and self.inventoryTab.setActive then
+        self.inventoryTab:setActive(currentTab == "Inventory")
+    end
     
     -- Mount Account tab
     local accountRoot = self.panel:getTabContent("Account") :: Frame
     self.accountTab = AccountTab.new({
         parent = accountRoot,
-        position = UDim2.new(0, 0, 0, 0),
-        size = UDim2.new(1, 0, 0, 0),
+        -- Let the tab auto-size based on content
         dataProvider = self._providers.accountDataProvider,
     })
     table.insert(self._widgets, self.accountTab)
@@ -118,8 +179,8 @@ function SettingsPanel:init(manager)
         local metricsRoot = self.panel:getTabContent("Metrics") :: Frame
         self.metricsTab = MetricsTab.new({
             parent = metricsRoot,
-            position = UDim2.new(0, 0, 0, 0),
-            size = UDim2.new(1, 0, 1, 0),  -- Fixed: full height instead of 0 height
+            -- Let the tab auto-size based on content
+            dataProvider = self._providers and self._providers.accountDataProvider,
         })
         table.insert(self._widgets, self.metricsTab)
     end
@@ -129,9 +190,9 @@ function SettingsPanel:init(manager)
         local debugRoot = self.panel:getTabContent("Debug") :: Frame
         self.debugTab = DebugTab.new({
             parent = debugRoot,
-            position = UDim2.new(0, 0, 0, 0),
-            size = UDim2.new(1, 0, 0, 0),
+            -- Let the tab auto-size based on content
             portalParent = self.panel.popoverLayer,
+            dataProvider = self._providers and self._providers.accountDataProvider,
         })
         table.insert(self._widgets, self.debugTab)
     end
@@ -155,6 +216,16 @@ function SettingsPanel:show()
     local SoundManager = require(ReplicatedStorage.MiningGame:WaitForChild("SoundManager"))
     SoundManager.PlayUI("openmenu")
     self.panel:show()
+    
+    -- Refresh inventory display after BasePanel's hide made everything transparent
+    if self.inventoryTab and self.inventoryTab.refresh then
+        self.inventoryTab:refresh()
+        -- Ensure active state reflects visible tab
+        if self.inventoryTab.setActive then
+            local currentTab = self.panel:getCurrentTab()
+            self.inventoryTab:setActive(currentTab == "Inventory")
+        end
+    end
 end
 
 function SettingsPanel:hide()
@@ -165,6 +236,10 @@ function SettingsPanel:hide()
     local vf = _G.MiningGameVisualFeedback
     if vf and vf.Resume then 
         pcall(function() vf:Resume() end) 
+    end
+    -- Deactivate inventory while hidden
+    if self.inventoryTab and self.inventoryTab.setActive then
+        self.inventoryTab:setActive(false)
     end
 end
 
