@@ -1,21 +1,26 @@
 --!strict
 -- AccountTab.lua — modular account settings tab component
+-- Migrated to use BaseTabComponent for consistent UI patterns
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
-local TweenService = game:GetService("TweenService")
-local RunService = game:GetService("RunService")
 
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
+local Time = require(MiningGame:WaitForChild("Time"))
+local MathUtils = require(MiningGame:WaitForChild("MathUtils"))
 local UIFolder = MiningGame:WaitForChild("UI")
 local Theme = require(UIFolder:WaitForChild("Theme"))
+local UIx = require(UIFolder:WaitForChild("UIConstants"))
 
 -- UIUtils is optional; guard in case the module doesn't exist
 local uiUtilsModule = UIFolder:FindFirstChild("UIUtils")
 local UIUtils = uiUtilsModule and require(uiUtilsModule) or nil
 
+local BaseTabComponent = require(script.Parent:WaitForChild("BaseTabComponent"))
+
 local AccountTab = {}
 AccountTab.__index = AccountTab
+setmetatable(AccountTab, { __index = BaseTabComponent })
 
 type Props = {
     parent: GuiObject,
@@ -24,292 +29,163 @@ type Props = {
     dataProvider: any?, -- injected provider
 }
 
-function AccountTab.new(props: Props)
-    local self = setmetatable({}, AccountTab)
+type AccountTabT = typeof(setmetatable({} :: any, AccountTab)) & {
+    _joinTime: number,
+    _baseLifetimeSeconds: number,
+    statsGrid: Frame?,
+    new: (props: Props) -> AccountTabT,
+}
 
-    local colors = Theme.colors
-    self._connections = {}
-    self._dataProvider = props.dataProvider
-    self._labels = {} :: {[string]: TextLabel}
-    self._joinTime = os.time()
+function AccountTab.new(props: Props): AccountTabT
+    -- Initialize base component
+    local self = setmetatable(BaseTabComponent.new({
+        parent = props.parent,
+        position = props.position,
+        size = props.size,
+        dataProvider = props.dataProvider,
+        stacked = true,
+        name = "AccountTab",
+    }), AccountTab)
+    
+    -- Tab-specific state
+    self._joinTime = Time.unix()
     self._baseLifetimeSeconds = 0
-
-    -- Main container
-    local container = Instance.new("Frame")
-    container.Name = "AccountTab"
-    container.Size = props.size or UDim2.new(1, 0, 0, 0)
-    container.Position = props.position or UDim2.new(0, 0, 0, 0)
-    container.AutomaticSize = Enum.AutomaticSize.Y
-    container.BackgroundTransparency = 1
-    container.Parent = props.parent
-    self.container = container
-
-    -- Stack sections vertically
-    local layout = Instance.new("UIListLayout")
-    layout.FillDirection = Enum.FillDirection.Vertical
-    layout.Padding = UDim.new(0, 16)
-    layout.Parent = container
-
-    local padding = Instance.new("UIPadding")
-    padding.PaddingTop = UDim.new(0, 12)
-    padding.PaddingBottom = UDim.new(0, 12)
-    padding.PaddingLeft = UDim.new(0, 16)
-    padding.PaddingRight = UDim.new(0, 16)
-    padding.Parent = container
-
-    -- Sections
+    
+    -- Build UI sections
     self:_createUserInfoSection()
     self:_createStatsSection()
     self:_createActionsSection()
-
-    -- Hook provider if available
-    if self._dataProvider then
-        local snapshot = self._dataProvider:getSnapshot()
-        self:_applySnapshot(snapshot)
-        local conn = self._dataProvider:onChanged():Connect(function(_, _, snap)
-            self:_applySnapshot(snap)
+    
+    -- Hook data provider if available (base handles this but we need custom apply)
+    if props.dataProvider then
+        self:connectDataProvider(props.dataProvider, function(snapshot)
+            self:_applySnapshot(snapshot)
         end)
-        table.insert(self._connections, conn)
     end
-
-    -- Update playtime display once per second
-    self._playtimeTick = true
-    task.spawn(function()
-        while self._playtimeTick do
-            self:_updatePlaytime()
-            task.wait(1)
-        end
+    
+    -- Start periodic playtime update (1 second interval)
+    self:startPeriodicUpdate(1, function()
+        self:_updatePlaytime()
     end)
-
-    return self
-end
-
-function AccountTab:_sectionCard(height: number?): Frame
-    local colors = Theme.colors
-    local card = Instance.new("Frame")
-    card.Name = "Card"
-    card.Size = height and UDim2.new(1, 0, 0, height) or UDim2.new(1, 0, 0, 0)
-    card.AutomaticSize = height and Enum.AutomaticSize.None or Enum.AutomaticSize.Y
-    card.BackgroundColor3 = colors.Surface
-    card.BackgroundTransparency = Theme.card.backgroundTransparency
-    card.Parent = self.container
-
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, Theme.sizes.CornerRadius)
-    corner.Parent = card
-
-    local pad = Instance.new("UIPadding")
-    pad.PaddingTop = UDim.new(0, 12)
-    pad.PaddingBottom = UDim.new(0, 12)
-    pad.PaddingLeft = UDim.new(0, 16)
-    pad.PaddingRight = UDim.new(0, 16)
-    pad.Parent = card
-
-    return card
+    
+    return self :: any
 end
 
 function AccountTab:_createUserInfoSection()
-    local colors = Theme.colors
     local player = Players.LocalPlayer
-
-    local section = self:_sectionCard(100)
-
+    
+    -- Create card with fixed height
+    local section = self:createSectionCard(self.container, { 
+        size = UIx.px(nil, UIx.Size.ACCOUNT_SECTION_HEIGHT),
+        autoSize = false
+    })
+    
     -- Avatar
     local avatar = Instance.new("ImageLabel")
     avatar.Name = "Avatar"
-    avatar.Size = UDim2.new(0, 80, 0, 80)
+    avatar.Size = UIx.avatar()
     avatar.BackgroundTransparency = 1
     avatar.Image = "rbxthumb://type=AvatarHeadShot&id=" .. player.UserId .. "&w=150&h=150"
     avatar.Parent = section
-
+    
     local avatarCorner = Instance.new("UICorner")
     avatarCorner.CornerRadius = UDim.new(0.5, 0)
     avatarCorner.Parent = avatar
-
+    
     -- Info text
-    local info = Instance.new("TextLabel")
-    info.Name = "Info"
-    info.Size = UDim2.new(1, -100, 1, 0)
-    info.Position = UDim2.new(0, 100, 0, 0)
-    info.BackgroundTransparency = 1
-    info.Text = string.format("%s\n@%s\nID: %d", player.DisplayName, player.Name, player.UserId)
-    info.TextColor3 = colors.Text
-    info.TextXAlignment = Enum.TextXAlignment.Left
+    local info = self:createLabel(section, 
+        string.format("%s\n@%s\nID: %d", player.DisplayName, player.Name, player.UserId), 
+        {
+            position = UDim2.new(0, UIx.Size.AVATAR_PX + UIx.Spacing.INPUT_MARGIN, 0, 0),
+            size = UDim2.new(1, -(UIx.Size.AVATAR_PX + UIx.Spacing.INPUT_MARGIN), 1, 0),
+            alignment = Enum.TextXAlignment.Left,
+            textSize = UIx.Visual.TEXT_BODY + 2
+        }
+    )
     info.TextYAlignment = Enum.TextYAlignment.Top
-    info.Font = Theme.fonts.Primary
-    info.TextSize = 18
-    info.Parent = section
 end
 
 function AccountTab:_createStatsSection()
-    local colors = Theme.colors
-    local section = self:_sectionCard()
-
-    local title = Instance.new("TextLabel")
-    title.Name = "Title"
-    title.Size = UDim2.new(1, 0, 0, 24)
-    title.BackgroundTransparency = 1
-    title.Text = "Account Statistics"
-    title.TextColor3 = colors.Text  -- Use primary text for better visibility
-    title.TextXAlignment = Enum.TextXAlignment.Left
-    title.Font = Theme.fonts.Primary
-    title.TextSize = 18  -- Slightly bigger
-    title.Parent = section
-
+    local section = self:createSectionCard(self.container)
+    
+    -- Title
+    self:createSectionTitle(section, "Account Statistics")
+    
+    -- Stats grid container
     local grid = Instance.new("Frame")
     grid.Name = "StatsGrid"
     grid.Size = UDim2.new(1, 0, 0, 0)
-    grid.Position = UDim2.new(0, 0, 0, 28)
     grid.BackgroundTransparency = 1
     grid.Parent = section
-
+    
     local gridLayout = Instance.new("UIGridLayout")
-    gridLayout.CellSize = UDim2.new(0.5, -10, 0, 40) -- two columns
-    gridLayout.CellPadding = UDim2.new(0, 10, 0, 10)
+    gridLayout.CellSize = UDim2.new(0.5, -UIx.Spacing.SECTION, 0, UIx.Size.ROW_LARGE) -- two columns
+    gridLayout.CellPadding = UDim2.new(0, UIx.Spacing.SECTION, 0, UIx.Spacing.SECTION)
     gridLayout.SortOrder = Enum.SortOrder.LayoutOrder
     gridLayout.Parent = grid
-
+    
     -- Make the grid auto-height based on content
     local function updateGridHeight()
         grid.Size = UDim2.new(1, 0, 0, gridLayout.AbsoluteContentSize.Y)
     end
-    gridLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateGridHeight)
+    local conn = gridLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateGridHeight)
+    self:addConnection(conn)
     updateGridHeight()
-
+    
     local stats = {
         { key = "playTime",   label = "Session Time",  value = "0m", icon = "⏱️" },
         { key = "lifetime",   label = "Total Playtime", value = "—", icon = "📈" },
         { key = "coins",      label = "Coins",         value = "0",  icon = "💰" },
         { key = "blocksDug",  label = "Blocks Dug",    value = "0",  icon = "⛏️" },
     }
-
+    
     for i, stat in ipairs(stats) do
         local item = Instance.new("Frame")
         item.Name = "Stat_" .. i
         item.BackgroundTransparency = 1
         item.Parent = grid
-
+        
+        -- Icon
         local icon = Instance.new("TextLabel")
-        icon.Size = UDim2.new(0, 24, 0, 24)
+        icon.Size = UIx.square(UIx.Size.ICON_PX)
         icon.BackgroundTransparency = 1
         icon.Text = stat.icon
         icon.TextScaled = true
-        icon.Font = Theme.fonts.Primary
+        icon.Font = self._theme.fonts.Primary
         icon.Parent = item
-
-        local label = Instance.new("TextLabel")
-        label.Size = UDim2.new(1, -34, 0, 16)
-        label.Position = UDim2.new(0, 34, 0, 0)
-        label.BackgroundTransparency = 1
-        label.Text = stat.label
-        label.TextColor3 = colors.Text  -- Use primary text for better visibility
-        label.TextXAlignment = Enum.TextXAlignment.Left
-        label.Font = Theme.fonts.Primary
-        label.TextSize = 16  -- Bigger for readability
-        label.Parent = item
-
-        local value = Instance.new("TextLabel")
-        value.Size = UDim2.new(1, -34, 0, 16)
-        value.Position = UDim2.new(0, 34, 0, 18)
-        value.BackgroundTransparency = 1
-        value.Text = stat.value
-        value.TextColor3 = colors.Text
-        value.TextXAlignment = Enum.TextXAlignment.Left
-        value.Font = Theme.fonts.Primary
-        value.TextSize = 16
-        value.Parent = item
-
+        
+        -- Label
+        local label = self:createLabel(item, stat.label, {
+            position = UDim2.new(0, UIx.Size.ICON_PX + UIx.Spacing.SECTION, 0, 0),
+            size = UDim2.new(1, -(UIx.Size.ICON_PX + UIx.Spacing.SECTION), 0, UIx.Size.ROW_TINY),
+            alignment = Enum.TextXAlignment.Left
+        })
+        
+        -- Value
+        local value = self:createLabel(item, stat.value, {
+            position = UDim2.new(0, UIx.Size.ICON_PX + UIx.Spacing.SECTION, 0, UIx.Size.ROW_TINY + UIx.Spacing.TINY / 2),
+            size = UDim2.new(1, -(UIx.Size.ICON_PX + UIx.Spacing.SECTION), 0, UIx.Size.ROW_TINY),
+            alignment = Enum.TextXAlignment.Left
+        })
+        
         if stat.key then
             self._labels[stat.key] = value
         end
     end
-
+    
     self.statsGrid = grid
 end
 
-function AccountTab:_actionButton(parent: Instance, text: string, icon: string, color: Color3, onClick: () -> ())
-    local colors = Theme.colors
-
-    local btn = Instance.new("TextButton")
-    btn.Name = "ActionButton"
-    btn.Size = UDim2.new(1, 0, 0, 44)
-    btn.BackgroundColor3 = colors.Surface
-    btn.BackgroundTransparency = Theme.button.surfaceTransparency
-    btn.Text = ""
-    btn.AutoButtonColor = false
-    btn.Parent = parent
-
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, Theme.sizes.CornerRadius)
-    corner.Parent = btn
-
-    local row = Instance.new("Frame")
-    row.BackgroundTransparency = 1
-    row.Size = UDim2.new(1, 0, 1, 0)
-    row.Parent = btn
-
-    local rowLayout = Instance.new("UIListLayout")
-    rowLayout.FillDirection = Enum.FillDirection.Horizontal
-    rowLayout.VerticalAlignment = Enum.VerticalAlignment.Center
-    rowLayout.Padding = UDim.new(0, 10)
-    rowLayout.Parent = row
-
-    local rowPad = Instance.new("UIPadding")
-    rowPad.PaddingLeft = UDim.new(0, 14)
-    rowPad.PaddingRight = UDim.new(0, 14)
-    rowPad.Parent = row
-
-    local i = Instance.new("TextLabel")
-    i.Size = UDim2.new(0, 24, 0, 24)
-    i.BackgroundTransparency = 1
-    i.Text = icon
-    i.TextScaled = true
-    i.Font = Theme.fonts.Primary
-    i.Parent = row
-
-    local t = Instance.new("TextLabel")
-    t.Size = UDim2.new(1, -28, 0, 24)
-    t.BackgroundTransparency = 1
-    t.Text = text
-    t.TextColor3 = color
-    t.TextXAlignment = Enum.TextXAlignment.Left
-    t.Font = Theme.fonts.Primary
-    t.TextSize = 16
-    t.Parent = row
-
-    btn.MouseEnter:Connect(function()
-        TweenService:Create(btn, TweenInfo.new(0.15), { BackgroundTransparency = Theme.button.surfaceHoverTransparency }):Play()
-    end)
-    btn.MouseLeave:Connect(function()
-        TweenService:Create(btn, TweenInfo.new(0.15), { BackgroundTransparency = Theme.button.surfaceTransparency }):Play()
-    end)
-    btn.Activated:Connect(function()
-        local mg = ReplicatedStorage:FindFirstChild("MiningGame")
-        local sm = mg and mg:FindFirstChild("SoundManager")
-        if sm then 
-            pcall(function() 
-                require(sm).PlayUI("buttonclick") 
-            end) 
-        end
-        onClick()
-    end)
-
-    if UIUtils and UIUtils.applyPressAnimation then
-        UIUtils.applyPressAnimation(btn, 0.95)
-    end
-
-    return btn
-end
-
 function AccountTab:_createActionsSection()
-    -- Removed placeholder actions - can add real actions later if needed
+    -- Actions section removed until properly implemented
+    -- Previously had non-functional "Open Settings" and "Rejoin" buttons
 end
 
 function AccountTab:updateStats(statsData: {[string]: any}?)
     if statsData and statsData.profile then
-        self:_applySnapshot({ profile = statsData.profile, lastUpdated = os.time(), isLoading = false })
+        self:_applySnapshot({ profile = statsData.profile, lastUpdated = Time.unix(), isLoading = false })
     elseif statsData then
-        self:_applySnapshot({ profile = statsData, lastUpdated = os.time(), isLoading = false })
+        self:_applySnapshot({ profile = statsData, lastUpdated = Time.unix(), isLoading = false })
     end
 end
 
@@ -354,51 +230,30 @@ function AccountTab:_applySnapshot(snapshot: {profile: {[string]: any}, cubeStat
 end
 
 function AccountTab:_updatePlaytime()
-    local now = os.time()
-    local sessionElapsed = math.max(0, now - (self._joinTime or now))
+    local now = Time.unix()
+    local sessionElapsed = MathUtils.nonNegative(now - (self._joinTime or now))
     
     -- Update session time
     if self._labels.playTime then
-        self._labels.playTime.Text = self:_formatDuration(sessionElapsed)
+        self._labels.playTime.Text = self:formatDuration(sessionElapsed)
     end
     
     -- Update lifetime playtime (base + current session)
     if self._labels.lifetime then
-        local total = math.max(0, (self._baseLifetimeSeconds or 0) + sessionElapsed)
-        self._labels.lifetime.Text = self:_formatDuration(total)
+        local total = MathUtils.nonNegative((self._baseLifetimeSeconds or 0) + sessionElapsed)
+        self._labels.lifetime.Text = self:formatDuration(total)
     end
 end
 
-function AccountTab:_formatDuration(seconds: number): string
-    seconds = math.max(0, math.floor(seconds))
-    local days = math.floor(seconds / 86400)
-    local hours = math.floor((seconds % 86400) / 3600)
-    local minutes = math.floor((seconds % 3600) / 60)
-    
-    if days > 0 then
-        return string.format("%dd %dh", days, hours)
-    elseif hours > 0 then
-        return string.format("%dh %dm", hours, minutes)
-    else
-        return string.format("%dm", minutes)
-    end
-end
-
+-- Override destroy for tab-specific cleanup
 function AccountTab:destroy()
-    self._playtimeTick = false
-    if self._playtimeConnection then
-        self._playtimeConnection:Disconnect()
-    end
+    -- Clear tab-specific state
+    self._joinTime = nil
+    self._baseLifetimeSeconds = nil
+    self.statsGrid = nil
     
-    for _, conn in ipairs(self._connections) do
-        if conn then conn:Disconnect() end
-    end
-    self._connections = {}
-    
-    if self.container then
-        self.container:Destroy()
-        self.container = nil
-    end
+    -- Call base destroy (handles periodic updates, connections, container)
+    BaseTabComponent.destroy(self)
 end
 
 return AccountTab
