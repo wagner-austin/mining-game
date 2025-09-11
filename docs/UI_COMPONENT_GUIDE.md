@@ -599,7 +599,7 @@ end
 -- Debouncing example
 local lastClick = 0
 function Component:onClick()
-    local now = tick()
+    local now = Time.mono()
     if now - lastClick < 0.5 then return end
     lastClick = now
     
