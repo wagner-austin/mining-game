@@ -11,30 +11,108 @@
     - Inventory change notifications
 ]]
 
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 -- Shared modules
 local Shared = ReplicatedStorage:WaitForChild("MiningGame")
+local Time = require(Shared:WaitForChild("Time"))
 local Logger = require(Shared:WaitForChild("Logger"))
 local log = Logger.new("InventoryService")
 local GameConfig = require(Shared:WaitForChild("GameConfig"))
 local Types = require(Shared:WaitForChild("Types"))
+local MathUtils = require(Shared:WaitForChild("MathUtils"))
+local Guard = require(Shared:WaitForChild("Guard"))
+local ServiceValidator = require(Shared:WaitForChild("ServiceValidator"))
 
--- Server siblings
-local DataService = require(script.Parent.DataService)
-local LootService = require(script.Parent.LootService)
+-- Server siblings - resolved via DI
+local DataService
+local LootService
+local AchievementService
+local CurrencyService
+local CompositionService  -- Optional for terrain theme equipment
+local ErrorService = require(script.Parent.ErrorService)  -- Foundation service
+local Schema = require(script.Parent.SchemaValidators)  -- Not a service
 
 -- Shared remotes accessor
 local Remotes = require(ReplicatedStorage.MiningGame.Remotes)
 
+-- Event Bus for decoupled communication
+local EventBus = require(Shared:WaitForChild("EventBus"))
+local EventNames = require(Shared:WaitForChild("EventNames"))
+local Contracts = require(Shared:WaitForChild("EventContracts"))
+local Bus = EventBus.global()
+
 local InventoryService = {}
+
+-- Player debounce tracking (moved before Start method to avoid forward reference)
+local paletteDebounce: {[Player]: number} = {}
+
+-- Initialize with dependency injection
+function InventoryService:Init(container)
+    -- Hard dependencies
+    DataService = ServiceValidator.get(container, "DataService", {"GetPlayerData", "QueueSave"})
+    LootService = ServiceValidator.get(container, "LootService", {"GetItemDefinition", "CalculateSellValue", "GetRarityColor"})
+    AchievementService = ServiceValidator.get(container, "AchievementService", {"SetRewardItemCallback", "RecordFirstCosmeticEquip"})
+    CurrencyService = ServiceValidator.get(container, "CurrencyService", {"add"})
+    
+    -- Optional dependency for terrain theme equipment
+    CompositionService = ServiceValidator.tryGet(container, "CompositionService", {"ApplyComposition"})
+    
+    -- Register callback with AchievementService now that deps are wired
+    AchievementService.SetRewardItemCallback(function(player: Player, itemId: string, count: number)
+        InventoryService:AddItem(player, itemId, count)
+    end)
+    
+    log:info("Initialized with dependencies")
+end
+
+-- Start method to connect events after all services are initialized
+function InventoryService:Start(container)
+    -- Clean up debounce on player leave
+    Players.PlayerRemoving:Connect(function(player)
+        paletteDebounce[player] = nil
+    end)
+    
+    log:info("Started with player connections")
+end
+
+-- Helper to preserve : method syntax with Guard wrappers
+local function asMethod(wrapped)
+    return function(self, ...) return wrapped(self, ...) end
+end
+
+-- Helper to emit inventory snapshot consistently
+local function emitInventorySnapshot(player: Player, profile: Types.PlayerStats)
+    Bus:emit(EventNames.INVENTORY_CHANGED, {
+        to = { kind = "player", player = player },
+        payload = Contracts.INVENTORY_CHANGED(profile.inventory),
+    })
+    -- Also send full profile update so UI has both inventory and equipped data
+    Bus:emit(EventNames.PROFILE_UPDATED, {
+        to = { kind = "player", player = player },
+        payload = profile
+    })
+end
+
+-- Emit only deltas for lightweight updates
+local function emitInventoryDelta(player: Player, delta: {[string]: number})
+    if not delta or next(delta) == nil then return end
+    Bus:emit(EventNames.INVENTORY_DELTA, {
+        to = { kind = "player", player = player },
+        payload = Contracts.INVENTORY_DELTA(delta),
+    })
+end
+
+-- Debounce for palette refreshes (per-player) - already declared at top
+local PALETTE_DEBOUNCE_TIME = 0.5 -- seconds
 
 -- Maximum stack sizes by item type
 local MAX_STACK_SIZE = {
     resource = 9999,
     consumable = 999,
-    pickaxe = 1,
-    cosmetic = 1,
+    pickaxe = 99,   -- Allow pickaxes to stack so drops are collectible
+    cosmetic = 99,  -- Make cosmetics stackable (for duplicates/trading)
 }
 
 --[[
@@ -63,7 +141,7 @@ function InventoryService:AddItem(player: Player, itemId: string, count: number)
     
     -- Calculate how much we can actually add
     local currentCount = profile.inventory[itemId] or 0
-    local addable = math.max(0, math.min(count, maxStack - currentCount))
+    local addable = MathUtils.nonNegative(math.min(count, maxStack - currentCount))
     
     -- Skip if nothing to add (already at cap)
     if addable <= 0 then
@@ -77,13 +155,8 @@ function InventoryService:AddItem(player: Player, itemId: string, count: number)
     -- Queue save
     DataService:QueueSave(player)
     
-    -- Notify client
-    Remotes.RE.OnInventoryChanged:FireClient(player, {
-        action = "add",
-        itemId = itemId,
-        count = addable,
-        total = newCount,
-    })
+    -- Notify client with delta for this single add
+    emitInventoryDelta(player, {[itemId] = addable})
     
     return true
 end
@@ -101,38 +174,36 @@ function InventoryService:AddItemsBulk(player: Player, countsById: {[string]: nu
     if not profile then
         return {}
     end
-    
+
     local actuallyAdded = {}
     local needsSave = false
-    
+
     for itemId, count in pairs(countsById) do
         local itemDef = LootService:GetItemDefinition(itemId)
         if itemDef then
             local maxStack = MAX_STACK_SIZE[itemDef.type] or 1
             local currentCount = profile.inventory[itemId] or 0
-            local addable = math.max(0, math.min(count, maxStack - currentCount))
-            
+            local addable = MathUtils.nonNegative(math.min(count, maxStack - currentCount))
+
             if addable > 0 then
                 profile.inventory[itemId] = currentCount + addable
                 actuallyAdded[itemId] = addable
                 needsSave = true
-                
-                -- Send individual inventory change events
-                Remotes.RE.OnInventoryChanged:FireClient(player, {
-                    action = "add",
-                    itemId = itemId,
-                    count = addable,
-                    total = profile.inventory[itemId],
-                })
+
+                -- Track that we need to emit inventory change
+                -- (Will emit once after all items processed)
             end
         end
     end
-    
-    -- Queue save only once if anything was added
+
+    -- Queue save and emit inventory change once if anything was added
     if needsSave then
         DataService:QueueSave(player)
+        -- Emit only deltas for efficiency; profile snapshots are
+        -- still sent by higher-level flows (e.g., equip/unequip, login)
+        emitInventoryDelta(player, actuallyAdded)
     end
-    
+
     return actuallyAdded
 end
 
@@ -158,13 +229,9 @@ function InventoryService:RemoveItem(player: Player, itemId: string, count: numb
     -- Queue save
     DataService:QueueSave(player)
     
-    -- Notify client
-    Remotes.RE.OnInventoryChanged:FireClient(player, {
-        action = "remove",
-        itemId = itemId,
-        count = count,
-        total = newCount,
-    })
+    -- Notify client with negative delta for removal
+    local removed = math.min(count, currentCount)
+    emitInventoryDelta(player, {[itemId] = -removed})
     
     return true
 end
@@ -197,41 +264,67 @@ end
     @param items: {[string]: number} - Map of itemId to quantity to sell
     @return {success: boolean, coinsEarned: number?, reason: string?} - Sale result
 ]]
-function InventoryService:SellItems(player: Player, items: {[string]: number}): {success: boolean, coinsEarned: number?, reason: string?}
+InventoryService.SellItems = asMethod(Guard.args(
+    { Schema.Table, Schema.InstanceIsA("Player"), Schema.ItemCounts },
+    function(self, player: Player, items: {[string]: number}): {success: boolean, coinsEarned: number?, reason: string?}
     local profile = DataService:GetPlayerData(player)
     if not profile then
         return {success = false, reason = "No profile"}
     end
     
-    -- Check if player has all items
+    -- Filter out unsellable items (cosmetics, pickaxes, valueless items)
+    local sellable: {[string]: number} = {}
     for itemId, count in pairs(items) do
-        if not self:HasItem(player, itemId, count) then
-            return {success = false, reason = "Insufficient items"}
+        local def = LootService:GetItemDefinition(itemId)
+        -- Only allow selling resources and consumables with value > 0
+        local isSellable = def 
+            and def.type ~= "cosmetic" 
+            and def.type ~= "pickaxe" 
+            and def.value 
+            and def.value > 0
+        
+        if isSellable then
+            -- Also verify player has the items
+            if not self:HasItem(player, itemId, count) then
+                return {success = false, reason = "Insufficient items"}
+            end
+            sellable[itemId] = count
         end
     end
     
-    -- Calculate total value
-    local totalValue = LootService:CalculateSellValue(items)
+    -- Nothing sellable? Bail gracefully with clear message
+    if next(sellable) == nil then
+        return {success = false, reason = "Only resources and consumables can be sold"}
+    end
     
-    -- Remove items and add coins
-    for itemId, count in pairs(items) do
+    -- Calculate total value using only the filtered sellable items
+    local totalValue = LootService:CalculateSellValue(sellable)
+    
+    -- Remove only the sellable items (cosmetics stay in inventory!)
+    for itemId, count in pairs(sellable) do
         self:RemoveItem(player, itemId, count)
     end
     
-    DataService:AddCurrency(player, "coins", totalValue)
+    CurrencyService.add(player, "coins", totalValue)
     
     -- Notify client
-    Remotes.RE.OnNotification:FireClient(player, {
-        type = "sell",
-        message = string.format("Sold items for %d coins!", totalValue),
-        color = Color3.new(1, 0.8, 0),
+    Bus:emit(EventNames.NOTIFICATION_PUSH, {
+        to = { kind = "player", player = player },
+        payload = Contracts.NOTIFICATION_PUSH({
+            type = "success",
+            message = string.format("Sold items for %d coins!", totalValue),
+            color = Color3.new(1, 0.8, 0),
+        })
     })
     
     return {success = true, coinsEarned = totalValue}
-end
+    end
+))
 
 -- Equip an item
-function InventoryService:EquipItem(player: Player, itemId: string): {success: boolean, reason: string?}
+InventoryService.EquipItem = asMethod(Guard.args(
+    { Schema.Table, Schema.InstanceIsA("Player"), Schema.String },
+    function(self, player: Player, itemId: string): {success: boolean, reason: string?}
     local profile = DataService:GetPlayerData(player)
     if not profile then
         return {success = false, reason = "No profile"}
@@ -248,6 +341,11 @@ function InventoryService:EquipItem(player: Player, itemId: string): {success: b
         return {success = false, reason = "Unknown item"}
     end
     
+    -- Check if cosmetics are enabled
+    if itemDef.type == "cosmetic" and not GameConfig.Features.COSMETICS_ENABLED then
+        return {success = false, reason = "Cosmetics are disabled"}
+    end
+    
     -- Determine slot
     local slot = nil
     if itemDef.type == "pickaxe" then
@@ -262,30 +360,103 @@ function InventoryService:EquipItem(player: Player, itemId: string): {success: b
         return {success = false, reason = "No equipment slot"}
     end
     
-    -- Unequip current item in slot
+    -- Guard: Skip if already equipped in same slot
     local currentEquipped = profile.equipped[slot]
-    if currentEquipped then
-        -- Item stays in inventory, just unequipped
+    if currentEquipped == itemId then
+        log:debug("Item %s already equipped in slot %s for %s", itemId, slot, player.Name)
+        return {success = true, reason = "Already equipped"}
     end
     
     -- Equip new item
     profile.equipped[slot] = itemId
     
+    log:info("Equipped %s in slot %s for %s", itemId, slot, player.Name)
+    
+    -- Special handling for terrain theme -> mirror to palette preference
+    if slot == "terrainTheme" then
+        local palette = itemDef.palette
+        if palette then
+            profile.materialPreferences = profile.materialPreferences or {}
+            profile.materialPreferences.palette = palette
+            
+            -- Apply the palette immediately if player has an active composition
+            if profile.materialPreferences.compositionId then
+                -- Check debounce to prevent paint storms
+                local now = Time.mono()
+                local lastRefresh = paletteDebounce[player] or 0
+                
+                if now - lastRefresh >= PALETTE_DEBOUNCE_TIME then
+                    paletteDebounce[player] = now
+                    
+                    local compId = profile.materialPreferences.compositionId
+                    local mode = profile.materialPreferences.variationMode
+                    
+                    -- Defer and protect the heavy repaint operation
+                    task.defer(function()
+                        -- Check player is still in game
+                        if player.Parent == nil then 
+                            log:debug("Player %s left before palette apply", player.Name)
+                            return 
+                        end
+                        
+                        -- Use DI'd CompositionService if available
+                        if CompositionService then
+                            local ok = ErrorService.safecall("CompositionService:ApplyComposition(equip)", function()
+                                CompositionService:ApplyComposition(player, compId, mode, true)
+                            end, { uid = player.UserId, compId = compId, mode = mode })
+                            if ok then
+                                log:info("Applied terrain theme palette for %s", player.Name)
+                            else
+                                log:warn("Failed to apply terrain theme for %s", player.Name)
+                            end
+                        else
+                            log:debug("CompositionService not available for terrain theme")
+                        end
+                    end)
+                end
+            end
+            
+            -- Notify client about theme change
+            Bus:emit(EventNames.NOTIFICATION_PUSH, {
+                to = { kind = "player", player = player },
+                payload = Contracts.NOTIFICATION_PUSH({
+                    type = "info",
+                    message = string.format("Applied terrain theme: %s", itemDef.name or palette),
+                    color = Color3.new(0.4, 0.8, 1),
+                })
+            })
+        end
+    end
+    
     -- Queue save
     DataService:QueueSave(player)
     
-    -- Notify client
-    Remotes.RE.OnInventoryChanged:FireClient(player, {
-        action = "equip",
-        itemId = itemId,
-        slot = slot,
+    -- Track cosmetic achievements
+    if itemDef.type == "cosmetic" then
+        AchievementService.RecordFirstCosmeticEquip(player)
+    end
+    
+    -- Notify client with full inventory snapshot
+    emitInventorySnapshot(player, profile)
+    
+    -- Broadcast to all clients for cosmetic rendering
+    Bus:emit(EventNames.EQUIPMENT_CHANGED, {
+        to = { kind = "all" },
+        payload = Contracts.EQUIPMENT_CHANGED({
+            playerUserId = player.UserId,
+            slot = slot,
+            itemId = itemId,
+        })
     })
     
     return {success = true}
-end
+    end
+))
 
 -- Unequip an item
-function InventoryService:UnequipItem(player: Player, slot: string): {success: boolean, reason: string?}
+InventoryService.UnequipItem = asMethod(Guard.args(
+    { Schema.Table, Schema.InstanceIsA("Player"), Schema.EquipmentSlot },
+    function(self, player: Player, slot: string): {success: boolean, reason: string?}
     local profile = DataService:GetPlayerData(player)
     if not profile then
         return {success = false, reason = "No profile"}
@@ -303,17 +474,27 @@ function InventoryService:UnequipItem(player: Player, slot: string): {success: b
     DataService:QueueSave(player)
     
     -- Notify client
-    Remotes.RE.OnInventoryChanged:FireClient(player, {
-        action = "unequip",
-        slot = slot,
-        itemId = itemId,
+    -- Emit full inventory snapshot
+    emitInventorySnapshot(player, profile)
+    
+    -- Broadcast to all clients for cosmetic rendering
+    Bus:emit(EventNames.EQUIPMENT_CHANGED, {
+        to = { kind = "all" },
+        payload = Contracts.EQUIPMENT_CHANGED({
+            playerUserId = player.UserId,
+            slot = slot,
+            itemId = nil,  -- nil = unequipped
+        })
     })
     
     return {success = true}
-end
+    end
+))
 
 -- Use a consumable
-function InventoryService:UseConsumable(player: Player, itemId: string): {success: boolean, reason: string?}
+InventoryService.UseConsumable = asMethod(Guard.args(
+    { Schema.Table, Schema.InstanceIsA("Player"), Schema.String },
+    function(self, player: Player, itemId: string): {success: boolean, reason: string?}
     local profile = DataService:GetPlayerData(player)
     if not profile then
         return {success = false, reason = "No profile"}
@@ -335,33 +516,40 @@ function InventoryService:UseConsumable(player: Player, itemId: string): {succes
     
     -- Apply effect
     if itemDef.effect == "speed" then
-        profile.boosts.speed = os.time() + (itemDef.duration or 300)
+        profile.boosts.speed = Time.unix() + (itemDef.duration or 300)
     elseif itemDef.effect == "size" then
-        profile.boosts.size = os.time() + (itemDef.duration or 300)
+        profile.boosts.size = Time.unix() + (itemDef.duration or 300)
     elseif itemDef.effect == "luck" then
-        profile.boosts.luck = os.time() + (itemDef.duration or 300)
+        profile.boosts.luck = Time.unix() + (itemDef.duration or 300)
     elseif itemDef.effect == "all" then
         -- Mega potion affects multiple stats
         local duration = itemDef.duration or 900
-        profile.boosts.speed = os.time() + duration
-        profile.boosts.size = os.time() + duration
-        profile.boosts.luck = os.time() + duration
+        profile.boosts.speed = Time.unix() + duration
+        profile.boosts.size = Time.unix() + duration
+        profile.boosts.luck = Time.unix() + duration
     end
     
     -- Queue save
     DataService:QueueSave(player)
     
     -- Notify client
-    Remotes.RE.OnBoostsChanged:FireClient(player, profile.boosts)
+    Bus:emit(EventNames.BOOSTS_CHANGED, {
+        to = { kind = "player", player = player },
+        payload = Contracts.BOOSTS_CHANGED(profile.boosts)
+    })
     
-    Remotes.RE.OnNotification:FireClient(player, {
-        type = "consumable",
-        message = string.format("Used %s!", itemDef.name),
-        color = LootService:GetRarityColor(itemDef.rarity),
+    Bus:emit(EventNames.NOTIFICATION_PUSH, {
+        to = { kind = "player", player = player },
+        payload = Contracts.NOTIFICATION_PUSH({
+            type = "success",
+            message = string.format("Used %s!", itemDef.name),
+            color = LootService:GetRarityColor(itemDef.rarity),
+        })
     })
     
     return {success = true}
-end
+    end
+))
 
 -- Get inventory value
 function InventoryService:GetInventoryValue(player: Player): number
@@ -383,34 +571,12 @@ function InventoryService:GetEquippedItems(player: Player): Types.EquippedItems
     return profile.equipped
 end
 
--- Setup remote handlers
-local function setupRemotes()
-    -- Sell items
-    Remotes.RF.SellItems.OnServerInvoke = function(player: Player, items: {[string]: number})
-        if not DataService:EnsureLoaded(player) then
-            return {success = false, reason = "No profile"}
-        end
-        return InventoryService:SellItems(player, items)
-    end
-    
-    -- Equip item
-    Remotes.RF.EquipItem.OnServerInvoke = function(player: Player, itemId: string)
-        return InventoryService:EquipItem(player, itemId)
-    end
-    
-    -- Unequip item
-    Remotes.RF.UnequipItem.OnServerInvoke = function(player: Player, slot: string)
-        return InventoryService:UnequipItem(player, slot)
-    end
-    
-    -- Use consumable
-    Remotes.RF.UseConsumable.OnServerInvoke = function(player: Player, itemId: string)
-        return InventoryService:UseConsumable(player, itemId)
-    end
-end
+-- Remote handlers moved to RemoteFns/Inventory.rf.lua via RFRegistry
 
--- Initialize
-setupRemotes()
+-- Initialize (remotes now handled by InventoryServiceRemotes.lua)
+-- setupRemotes()  -- LEGACY: Moved to RemoteManager pattern
+
+-- Player events moved to Start method
 
 log:info("Initialized")
 
