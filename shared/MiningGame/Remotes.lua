@@ -1,128 +1,50 @@
 --!strict
 -- Remotes.lua (Accessor)
--- Provides access to RemoteEvents and RemoteFunctions for client/server
+-- Dynamically discovers RemoteEvents and RemoteFunctions for client/server
+-- This ensures any new remotes added to the server are automatically available
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local mg = ReplicatedStorage:WaitForChild("Remotes", 30):WaitForChild("MiningGame", 30)
+
+-- Use canonical path: ReplicatedStorage.MiningGame.Remotes
+local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
+local folder = MiningGame:WaitForChild("Remotes")
+
+export type RemotesIndex = {
+    RF: {[string]: RemoteFunction},
+    RE: {[string]: RemoteEvent},
+    Folder: Folder,
+}
+
+local RF: {[string]: RemoteFunction} = {}
+local RE: {[string]: RemoteEvent} = {}
+
+local function indexChild(inst: Instance)
+    if inst:IsA("RemoteFunction") then
+        RF[inst.Name] = inst
+    elseif inst:IsA("RemoteEvent") then
+        RE[inst.Name] = inst
+    end
+end
+
+-- Initial population - index all existing remotes
+for _, child in ipairs(folder:GetChildren()) do
+    indexChild(child)
+end
+
+-- Watch for new remotes added at runtime (future-proof)
+folder.ChildAdded:Connect(indexChild)
+
+-- Also handle removal in case remotes are destroyed
+folder.ChildRemoved:Connect(function(inst: Instance)
+    if inst:IsA("RemoteFunction") then
+        RF[inst.Name] = nil
+    elseif inst:IsA("RemoteEvent") then
+        RE[inst.Name] = nil
+    end
+end)
 
 return {
-    RF = {
-        -- Core gameplay
-        GetProfile = mg:WaitForChild("GetProfile"),
-        RequestDig = mg:WaitForChild("RequestDig"),
-        StartContinuousDig = mg:WaitForChild("StartContinuousDig"),
-        StopContinuousDig = mg:WaitForChild("StopContinuousDig"),
-        
-        -- Purchases and upgrades
-        PurchaseUpgrade = mg:WaitForChild("PurchaseUpgrade"),
-        PurchaseProduct = mg:WaitForChild("PurchaseProduct"),
-        PurchaseMaterial = mg:WaitForChild("PurchaseMaterial"),
-        
-        -- Inventory management
-        SellItems = mg:WaitForChild("SellItems"),
-        EquipItem = mg:WaitForChild("EquipItem"),
-        UnequipItem = mg:WaitForChild("UnequipItem"),
-        UseConsumable = mg:WaitForChild("UseConsumable"),
-        
-        -- Pet management
-        EquipPet = mg:WaitForChild("EquipPet"),
-        UnequipPet = mg:WaitForChild("UnequipPet"),
-        UpgradePet = mg:WaitForChild("UpgradePet"),
-        
-        -- Multiplayer
-        VisitNeighbor = mg:WaitForChild("VisitNeighbor"),
-        ReturnHome = mg:WaitForChild("ReturnHome"),
-        GetNeighborhood = mg:WaitForChild("GetNeighborhood"),
-        
-        -- Settings
-        UpdateSettings = mg:WaitForChild("UpdateSettings"),
-        
-        -- Teleportation
-        TeleportToHome = mg:WaitForChild("TeleportToHome"),
-        RespawnCubeModel = mg:WaitForChild("RespawnCubeModel"),
-        
-        -- Debug
-        DebugAddCurrency = mg:WaitForChild("DebugAddCurrency"),
-        DebugResetStats = mg:WaitForChild("DebugResetStats"),
-        DebugResetCube = mg:WaitForChild("DebugResetCube"),
-        
-        -- Material changes
-        ApplyCubeSurfaceMaterial = mg:WaitForChild("ApplyCubeSurfaceMaterial"),
-        ApplyFloorMaterial = mg:WaitForChild("ApplyFloorMaterial"),
-        GetMaterialPreferences = mg:WaitForChild("GetMaterialPreferences"),
-        SetPalettePreference = mg:WaitForChild("SetPalettePreference"),
-        
-        -- Theme settings
-        GetThemeSettings = mg:WaitForChild("GetThemeSettings"),
-        UpdateThemeSettings = mg:WaitForChild("UpdateThemeSettings"),
-        
-        -- Metrics
-        GetMetrics = mg:WaitForChild("GetMetrics"),
-        GetServerMetrics = mg:WaitForChild("GetServerMetrics"),
-        
-        -- Item drops
-        PickupItem = mg:WaitForChild("PickupItem"),
-        SpawnTestItem = mg:WaitForChild("SpawnTestItem"),
-        
-        -- SimAgents (Studio testing)
-        SimAgents_SetCount = mg:WaitForChild("SimAgents_SetCount"),
-        SimAgents_GetStatus = mg:WaitForChild("SimAgents_GetStatus"),
-        SimAgents_RespawnAll = mg:WaitForChild("SimAgents_RespawnAll"),
-        SimAgents_Clear = mg:WaitForChild("SimAgents_Clear"),
-        SimAgents_SetTerrainCubes = mg:WaitForChild("SimAgents_SetTerrainCubes"),
-        
-        -- Spawn Strategy
-        SpawnStrategy_Get = mg:WaitForChild("SpawnStrategy_Get"),
-        SpawnStrategy_Set = mg:WaitForChild("SpawnStrategy_Set"),
-        SpawnStrategy_List = mg:WaitForChild("SpawnStrategy_List"),
-
-        -- Cloth tool (testing/util)
-        ClothSpawn = mg:WaitForChild("ClothSpawn"),
-        ClothDestroy = mg:WaitForChild("ClothDestroy"),
-    },
-    RE = {
-        -- State updates
-        OnProfileUpdate = mg:WaitForChild("OnProfileUpdate"),
-        OnCurrencyChanged = mg:WaitForChild("OnCurrencyChanged"),
-        OnInventoryChanged = mg:WaitForChild("OnInventoryChanged"),
-        OnUpgradesChanged = mg:WaitForChild("OnUpgradesChanged"),
-        OnBoostsChanged = mg:WaitForChild("OnBoostsChanged"),
-        OnPetsChanged = mg:WaitForChild("OnPetsChanged"),
-        
-        -- Dig feedback
-        OnDigFeedback = mg:WaitForChild("OnDigFeedback"),
-        OnTerrainUpdate = mg:WaitForChild("OnTerrainUpdate"),
-        OnLootDropped = mg:WaitForChild("OnLootDropped"),
-        OnFirstDig = mg:WaitForChild("OnFirstDig"),
-        
-        -- UI notifications
-        OnNotification = mg:WaitForChild("OnNotification"),
-        OnReward = mg:WaitForChild("OnReward"),
-        OnAchievement = mg:WaitForChild("OnAchievement"),
-        
-        -- Multiplayer events
-        OnNeighborJoined = mg:WaitForChild("OnNeighborJoined"),
-        OnNeighborLeft = mg:WaitForChild("OnNeighborLeft"),
-        OnCubeUpdate = mg:WaitForChild("OnCubeUpdate"),
-        
-        -- Effects
-        OnParticleEffect = mg:WaitForChild("OnParticleEffect"),
-        OnSoundEffect = mg:WaitForChild("OnSoundEffect"),
-        OnCameraShake = mg:WaitForChild("OnCameraShake"),
-        
-        -- Cube state changes
-        OnCubeOriginChanged = mg:WaitForChild("OnCubeOriginChanged"),
-        
-        -- Debug/Visual
-        OnTerrainPoke = mg:WaitForChild("OnTerrainPoke"),
-        
-        -- Item drops
-        OnItemCollected = mg:WaitForChild("OnItemCollected"),
-        ShowPickupPrompt = mg:WaitForChild("ShowPickupPrompt"),
-        PlaySound = mg:WaitForChild("PlaySound"),
-
-        -- Cloth simulation events
-        ClothUpdate = mg:WaitForChild("ClothUpdate"),
-    },
-    Folder = mg,
-}
+    RF = RF,
+    RE = RE,
+    Folder = folder,
+} :: RemotesIndex
