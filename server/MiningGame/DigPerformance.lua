@@ -2,6 +2,10 @@
 -- DigPerformance.lua
 -- Simple performance timing wrapper for dig operations
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
+local Time = require(MiningGame:WaitForChild("Time"))
+
 local DigPerformance = {}
 
 local timings = {}
@@ -12,9 +16,9 @@ function DigPerformance.measureSection(name: string, func: () -> ...any): ...any
         return func()
     end
     
-    local start = os.clock()
+    local start = Time.mono()
     local results = {func()}
-    local elapsed = os.clock() - start
+    local elapsed = Time.mono() - start
     
     -- Track timing
     if not timings[name] then
