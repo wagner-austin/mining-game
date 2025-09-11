@@ -7,6 +7,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 
 local Theme = require(ReplicatedStorage:WaitForChild("MiningGame"):WaitForChild("UI"):WaitForChild("Theme"))
+local UIx = require(ReplicatedStorage:WaitForChild("MiningGame"):WaitForChild("UI"):WaitForChild("UIConstants"))
 local UIUtils = require(ReplicatedStorage:WaitForChild("MiningGame"):WaitForChild("UI"):WaitForChild("UIUtils"))
 local ThemeRefresher = require(ReplicatedStorage:WaitForChild("MiningGame"):WaitForChild("UI"):WaitForChild("ThemeRefresher"))
 
@@ -84,7 +85,7 @@ function BaseChip.new(props: ChipProps)
     layout.FillDirection = Enum.FillDirection.Horizontal
     layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
     layout.VerticalAlignment = Enum.VerticalAlignment.Center
-    layout.Padding = UDim.new(0, 6)
+    layout.Padding = UDim.new(0, UIx.Spacing.CHIP_INNER)
     layout.Parent = content
     
     -- Icon (optional)
@@ -150,8 +151,8 @@ function BaseChip.new(props: ChipProps)
         
         -- Add padding for text
         local padding = Instance.new("UIPadding")
-        padding.PaddingLeft = UDim.new(0, 4)
-        padding.PaddingRight = UDim.new(0, 8)
+        padding.PaddingLeft = UDim.new(0, UIx.Spacing.TINY)
+        padding.PaddingRight = UDim.new(0, UIx.Spacing.SM)
         padding.Parent = textLabel
     end
     
