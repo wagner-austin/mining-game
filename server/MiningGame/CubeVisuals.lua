@@ -18,6 +18,11 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("MiningGame")
 local GameConfig = require(Shared:WaitForChild("GameConfig"))
 local Logger = require(Shared:WaitForChild("Logger"))
+local MaterialDefinitions = require(Shared:WaitForChild("MaterialDefinitions"))
+local MaterialKeys = require(Shared:WaitForChild("MaterialKeys"))
+local MIN_WATER = GameConfig.Terrain.MIN_WATER_OCCUPANCY
+local VOX = GameConfig.Terrain.VOXEL_RESOLUTION
+local VIS = GameConfig.Visuals
 local log = Logger.new("CubeVisuals")
 
 local CubeVisuals = {}
@@ -50,18 +55,18 @@ function CubeVisuals.CreateFloorGlow(model: Model, cubeOrigin: CFrame, size: num
     
     -- Get config values or use defaults
     local config = GameConfig.Visuals
-    local thickness = config and config.FLOOR_GLOW_THICKNESS or 0.5
-    local width = config and config.FLOOR_GLOW_WIDTH or 4
-    local marginMin = config and config.FLOOR_GLOW_MARGIN_MIN or 2
-    local marginMax = config and config.FLOOR_GLOW_MARGIN_MAX or 4
-    local glowColor = config and config.FLOOR_GLOW_COLOR or Color3.fromRGB(0, 255, 255)
+    local thickness = config and config.FLOOR_GLOW_THICKNESS or VIS.FLOOR_GLOW_THICKNESS
+    local width = config and config.FLOOR_GLOW_WIDTH or VIS.FLOOR_GLOW_WIDTH
+    local marginMin = config and config.FLOOR_GLOW_MARGIN_MIN or VIS.FLOOR_GLOW_MARGIN_MIN
+    local marginMax = config and config.FLOOR_GLOW_MARGIN_MAX or VIS.FLOOR_GLOW_MARGIN_MAX
+    local glowColor = config and config.FLOOR_GLOW_COLOR or VIS.FLOOR_GLOW_COLOR
     
     -- Slightly larger than the cube so the outline is visible
-    local margin = math.clamp(math.floor(size * 0.1), marginMin, marginMax)  -- 10% of size for longer bars
+    local margin = math.clamp(math.floor(size * VIS.MARGIN_PERCENT), marginMin, marginMax)  -- Margin based on config percentage
     local glowSize = size + (margin * 2)
     
     -- Position the edges using the configured ground clearance
-    local groundClearance = config and config.FLOOR_GLOW_GROUND_CLEARANCE or 9.83
+    local groundClearance = config and config.FLOOR_GLOW_GROUND_CLEARANCE or VIS.FLOOR_GLOW_GROUND_CLEARANCE
     local edgeY = groundClearance
     local floorY = cubeOrigin.Position.Y - (size/2)
     local barBottomY = edgeY - (thickness/2)
@@ -83,7 +88,7 @@ function CubeVisuals.CreateFloorGlow(model: Model, cubeOrigin: CFrame, size: num
         )
         p.Material = Enum.Material.Neon
         p.Color = glowColor
-        p.Transparency = 0.3  -- Add some transparency to reduce brightness
+        p.Transparency = VIS.EDGE_TRANSPARENCY  -- Configured transparency level
         p.Anchored = true
         p.CanCollide = false
         p.CanTouch = false
@@ -112,7 +117,7 @@ function CubeVisuals.CreateFloorGlow(model: Model, cubeOrigin: CFrame, size: num
     
     -- Create the four edges of the square outline
     -- Make the bars longer by increasing their actual size
-    local barLength = glowSize + 2  -- Add extra length to the bars themselves
+    local barLength = glowSize + VIS.BAR_EXTRA_LENGTH  -- Add configured extra length
     
     -- Front and back edges (parallel to X axis) - width goes in Z direction
     log:debug("Creating front/back edges - Size: (%.2f, %.2f, %.2f)", barLength, thickness, width)
@@ -126,14 +131,11 @@ function CubeVisuals.CreateFloorGlow(model: Model, cubeOrigin: CFrame, size: num
     
     -- Swap terrain under each neon bar, preserving shape
     local Terrain = workspace.Terrain
-    local RESOLUTION = GameConfig.Grid.CELL_SIZE_STUDS
     
     -- Get all terrain materials with fallback
-    local MaterialDefinitions = require(Shared:WaitForChild("MaterialDefinitions"))
     local allTerrainMaterials = MaterialDefinitions.AllTerrainEnums
     if not allTerrainMaterials then
         -- Fallback: build from MaterialKeys if AllTerrainEnums is missing
-        local MaterialKeys = require(Shared:WaitForChild("MaterialKeys"))
         allTerrainMaterials = {}
         for _, key in ipairs(MaterialKeys.TerrainKeys) do
             local em = MaterialKeys.EnumFromKey[key]
@@ -147,65 +149,65 @@ function CubeVisuals.CreateFloorGlow(model: Model, cubeOrigin: CFrame, size: num
     
     -- First, replace floor under the entire cube footprint at spawn
     local half = size / 2
-    local floorDepth = RESOLUTION * 3 -- 12 studs deep to match glow bar depth
+    local floorDepth = VOX * VIS.FLOOR_DEPTH_MULT -- Configured depth multiplier
     local cubeFloorRegion = Region3.new(
         Vector3.new(cubeOrigin.Position.X - half, floorY - floorDepth, cubeOrigin.Position.Z - half),
         Vector3.new(cubeOrigin.Position.X + half, floorY, cubeOrigin.Position.Z + half)
-    ):ExpandToGrid(RESOLUTION)
+    ):ExpandToGrid(VOX)
     
     log:debug("Replacing cube footprint with %s", tostring(replacementMat))
     
     if replacementMat == Enum.Material.Water then
-        local mats, occs = Terrain:ReadVoxels(cubeFloorRegion, RESOLUTION)
+        local mats, occs = Terrain:ReadVoxels(cubeFloorRegion, VOX)
         local sx, sy, sz = mats.Size.X, mats.Size.Y, mats.Size.Z
         for x = 1, sx do
             for y = 1, sy do
                 for z = 1, sz do
                     if occs[x][y][z] > 0 and mats[x][y][z] ~= Enum.Material.Air then
                         mats[x][y][z] = Enum.Material.Water
-                        if occs[x][y][z] < 0.3 then occs[x][y][z] = 0.3 end
+                        if occs[x][y][z] < MIN_WATER then occs[x][y][z] = MIN_WATER end
                     end
                 end
             end
         end
-        Terrain:WriteVoxels(cubeFloorRegion, RESOLUTION, mats, occs)
+        Terrain:WriteVoxels(cubeFloorRegion, VOX, mats, occs)
     else
         for _, src in ipairs(allTerrainMaterials) do
-            Terrain:ReplaceMaterial(cubeFloorRegion, RESOLUTION, src, replacementMat)
+            Terrain:ReplaceMaterial(cubeFloorRegion, VOX, src, replacementMat)
         end
     end
     
     -- Then, do each glow bar region with CONSISTENT depth and base Y
     local function replaceUnderEdge(edge: BasePart)
-        local pad = 1
-        local depth = RESOLUTION * 3 -- 12 studs deep to ensure no grass peeks through
+        local pad = VIS.SELECTION_PAD
+        local depth = VOX * VIS.FLOOR_DEPTH_MULT -- Configured depth to ensure no grass peeks through
         local y0 = barBottomY -- bottom of bar, consistent reference
         local region = Region3.new(
             Vector3.new(edge.Position.X - edge.Size.X/2 - pad, y0 - depth, edge.Position.Z - edge.Size.Z/2 - pad),
             Vector3.new(edge.Position.X + edge.Size.X/2 + pad, y0,         edge.Position.Z + edge.Size.Z/2 + pad)
-        ):ExpandToGrid(RESOLUTION)
+        ):ExpandToGrid(VOX)
         
         log:debug("Replacing materials under edge at Y=%.2f (region Y: %.2f to %.2f)", 
             edge.Position.Y, y0 - depth, y0)
         
         -- Handle water specially, otherwise replace all terrain materials
         if replacementMat == Enum.Material.Water then
-            local mats, occs = Terrain:ReadVoxels(region, RESOLUTION)
+            local mats, occs = Terrain:ReadVoxels(region, VOX)
             local sx, sy, sz = mats.Size.X, mats.Size.Y, mats.Size.Z
             for x = 1, sx do
                 for y = 1, sy do
                     for z = 1, sz do
                         if occs[x][y][z] > 0 and mats[x][y][z] ~= Enum.Material.Air then
                             mats[x][y][z] = Enum.Material.Water
-                            if occs[x][y][z] < 0.3 then occs[x][y][z] = 0.3 end
+                            if occs[x][y][z] < MIN_WATER then occs[x][y][z] = MIN_WATER end
                         end
                     end
                 end
             end
-            Terrain:WriteVoxels(region, RESOLUTION, mats, occs)
+            Terrain:WriteVoxels(region, VOX, mats, occs)
         else
             for _, src in ipairs(allTerrainMaterials) do
-                Terrain:ReplaceMaterial(region, RESOLUTION, src, replacementMat)
+                Terrain:ReplaceMaterial(region, VOX, src, replacementMat)
             end
         end
     end
@@ -218,7 +220,7 @@ function CubeVisuals.CreateFloorGlow(model: Model, cubeOrigin: CFrame, size: num
         local region = Region3.new(
             Vector3.new(edge.Position.X - edge.Size.X/2 - pad, yTop,          edge.Position.Z - edge.Size.Z/2 - pad),
             Vector3.new(edge.Position.X + edge.Size.X/2 + pad, yTop + height, edge.Position.Z + edge.Size.Z/2 + pad)
-        ):ExpandToGrid(RESOLUTION)
+        ):ExpandToGrid(VOX)
         Terrain:FillBlock(CFrame.new(region.CFrame.Position), region.Size, Enum.Material.Air)
     end
     
