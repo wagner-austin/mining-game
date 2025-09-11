@@ -1,0 +1,30 @@
+--!strict
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
+local GameConfig = require(MiningGame:WaitForChild("GameConfig"))
+local Time = require(MiningGame:WaitForChild("Time"))
+local RING_MAX = (GameConfig.Client and GameConfig.Client.CLIENT_ERROR_RING_SIZE) or 20
+
+local ClientError = {}
+type RingEntry = { tag: string, err: string, t: number }
+local ring: { RingEntry } = {}
+
+local function push(tag: string, err: string)
+  if #ring >= RING_MAX then table.remove(ring, 1) end
+  table.insert(ring, {tag=tag, err=err, t=Time.mono()})
+end
+
+function ClientError.try(tag: string, fn: () -> any): (boolean, any)
+  local ok, res = pcall(fn)
+  if not ok then
+    push(tag, tostring(res))
+    if _G.DEBUG_MODE then warn(("[Client][%s] %s"):format(tag, tostring(res))) end
+  end
+  return ok, res
+end
+
+function ClientError.recent(): { RingEntry }
+  return table.clone(ring) :: { RingEntry }
+end
+
+return ClientError
