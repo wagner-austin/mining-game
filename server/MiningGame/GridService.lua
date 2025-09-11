@@ -14,16 +14,22 @@
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
 
 local Terrain = Workspace.Terrain
 local Shared = ReplicatedStorage:WaitForChild("MiningGame")
 local Logger = require(Shared:WaitForChild("Logger"))
 local log = Logger.new("GridService")
+local MathUtils = require(Shared:WaitForChild("MathUtils"))
 
 local GameConfig = require(Shared:WaitForChild("GameConfig"))
 local Types = require(Shared:WaitForChild("Types"))
+local Time = require(Shared:WaitForChild("Time"))
+local TerrainSurfaceDetector = require(Shared:WaitForChild("TerrainSurfaceDetector"))
 local GridMath = require(Shared:WaitForChild("Utils"):WaitForChild("GridMath"))
 local ChunkCodec = require(Shared:WaitForChild("Utils"):WaitForChild("ChunkCodec"))
+local MaterialKeys = require(Shared:WaitForChild("MaterialKeys"))
+local MaterialDefinitions = require(Shared:WaitForChild("MaterialDefinitions"))
 
 -- Performance tracking (optional)
 local DigPerformance = require(script.Parent:WaitForChild("DigPerformance"))
@@ -31,15 +37,65 @@ local DigPerformance = require(script.Parent:WaitForChild("DigPerformance"))
 -- Visual indicators module
 local CubeVisuals = require(script.Parent:WaitForChild("CubeVisuals"))
 
+-- Additional modules
+local CubeThemes = require(ReplicatedStorage.MiningGame:WaitForChild("CubeThemes"))
+local ServiceValidator = require(Shared:WaitForChild("ServiceValidator"))
+
+-- Services (injected via Init)
+local DataService
+local MixedMaterialService  -- optional
+local ErrorService  -- For safe error handling
+
 local GridService = {}
+
+type Cell = { x: number, y: number, z: number }
+type SoundHint = { materialKey: string?, worldPos: Vector3? }
+
+-- Player tracking (moved before Start method to avoid forward reference)
+local lastWriteTime: {[Player]: number} = {}
+
+-- Connection tracking for cleanup
+local _conns = {}
+
+-- Initialize with DI container
+function GridService:Init(container)
+    DataService = ServiceValidator.get(container, "DataService", {"GetPlayerData", "GetMaterialPrefs", "QueueSave"})
+    -- MixedMaterialService is now required (boot order fixed in ServiceManager)
+    MixedMaterialService = ServiceValidator.get(container, "MixedMaterialService", {"ApplyMixedMaterials"})
+    -- Get ErrorService for safe error handling
+    ErrorService = ServiceValidator.get(container, "ErrorService", {"safecall"})
+    log:info("Initialized with dependencies")
+end
+
+-- Start lifecycle - setup connections
+function GridService:Start()
+    -- Setup player cleanup connection
+    table.insert(_conns, Players.PlayerRemoving:Connect(function(player)
+        -- Cleanup per-player caches
+        lastWriteTime[player] = nil
+        -- Any other player-specific cleanup
+    end))
+    log:info("Started with event connections")
+end
+
+-- Stop lifecycle - cleanup connections
+function GridService:Stop()
+    for _, c in ipairs(_conns) do 
+        if c and c.Disconnect then 
+            pcall(function() c:Disconnect() end) 
+        end 
+    end
+    table.clear(_conns)
+    log:info("Stopped and cleaned up connections")
+end
 
 -- Constants
 local CELL_SIZE = GameConfig.Grid.CELL_SIZE_STUDS
+local VOX = GameConfig.Terrain.VOXEL_RESOLUTION
 local CHUNK_SIZE = GameConfig.Grid.CHUNK_CELLS
 local CELLS_PER_CHUNK = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE
 
--- Throttling for terrain writes
-local lastWriteTime: {[Player]: number} = {}
+-- Throttling for terrain writes (lastWriteTime already declared at top)
 local WRITE_THROTTLE = GameConfig.Performance.GRID_WRITE_THROTTLE
 
 --[[
@@ -58,7 +114,7 @@ function GridService:CreateCubeState(ownerId: number, materialId: string): Types
         chunkSize = CHUNK_SIZE,
         chunks = {},
         totalDug = 0,
-        createdAt = os.time(),
+        createdAt = Time.unix(),
     }
 end
 
@@ -73,7 +129,7 @@ local function getOrCreateChunk(state: Types.CubeState, chunkX: number, chunkY: 
             size = CHUNK_SIZE,
             dugBits = ChunkCodec.empty(CELLS_PER_CHUNK),
             dirty = false,
-            lastModified = os.time(),
+            lastModified = Time.unix(),
         }
         state.chunks[key] = chunk
     end
@@ -99,7 +155,7 @@ local function markCellDug(state: Types.CubeState, cellX: number, cellY: number,
     -- Mark as dug
     chunk.dugBits = ChunkCodec.setBit(chunk.dugBits, index, true, CELLS_PER_CHUNK)
     chunk.dirty = true
-    chunk.lastModified = os.time()
+    chunk.lastModified = Time.unix()
     state.totalDug = state.totalDug + 1
     
     return true
@@ -107,8 +163,8 @@ end
 
 -- Check if we should throttle terrain writes
 local function shouldThrottle(player: Player): boolean
-    local now = tick()
-    local lastWrite = lastWriteTime[player] or 0
+    local now = Time.mono()
+    local lastWrite = lastWriteTime[player] or -math.huge
     
     if now - lastWrite < WRITE_THROTTLE then
         return true
@@ -129,7 +185,7 @@ end
     @param cellZ: number - Z coordinate of the center cell
     @param player: Player - The player performing the dig
     @param size: number - Radius of cells to dig (1 = single cell)
-    @return number - The number of cells actually destroyed
+    @return {Cell}, SoundHint? - Dug cell list and optional sound hint
 ]]
 function GridService:ApplyDig(
     player: Player,
@@ -139,7 +195,7 @@ function GridService:ApplyDig(
     cellY: number,
     cellZ: number,
     size: number
-): {{x: number, y: number, z: number}}
+): ({Cell}, SoundHint?)
     
     -- Throttle per-player writes
     if shouldThrottle(player) then
@@ -147,7 +203,7 @@ function GridService:ApplyDig(
     end
     
     -- Guard input to prevent negative size
-    size = math.max(0, size)
+    size = MathUtils.nonNegative(size)
     
     local halfCells = (GameConfig.Grid.CUBE_SIZE_STUDS / CELL_SIZE) / 2
     local minBound, maxBound = -halfCells, halfCells - 1
@@ -223,8 +279,16 @@ end
     @param cells: {{x: number, y: number, z: number}} - Array of cell coordinates to write
     @param materialId: string - The material to write ("air" for deletion)
 ]]
-function GridService:WriteCellsToTerrain(cubeOrigin: CFrame, cells: {{x: number, y: number, z: number}}, materialId: string)
-    if #cells == 0 then return end
+function GridService:WriteCellsToTerrain(
+    cubeOrigin: CFrame,
+    cells: {Cell},
+    materialId: string
+): SoundHint
+    -- Guard against nil or empty cells
+    if not cells or #cells == 0 then 
+        log:debug("WriteCellsToTerrain: no cells to write, skipping")
+        return 
+    end
     
     -- 1) Compute cell-space AABB of the dig set
     local minX, minY, minZ = math.huge, math.huge, math.huge
@@ -238,46 +302,74 @@ function GridService:WriteCellsToTerrain(cubeOrigin: CFrame, cells: {{x: number,
         if c.z > maxZ then maxZ = c.z end
     end
     
-    -- 2) Convert the cell AABB to world-space voxel-aligned Region3
-    local function cellToWorldCorner(cx, cy, cz)
-        -- cell center:
+    -- 2) Convert the cell AABB to robust world-space AABB, accounting for rotation
+    local function worldCornerForCellMinCorner(cx, cy, cz)
+        -- get min-corner of THAT cell in world space
         local center = GridMath.cellToWorld(cx, cy, cz, cubeOrigin, CELL_SIZE)
-        -- convert to min world corner of that cell
         return center - Vector3.new(CELL_SIZE/2, CELL_SIZE/2, CELL_SIZE/2)
     end
-    local cellMinWorld = cellToWorldCorner(minX, minY, minZ)
-    local cellMaxWorld = cellToWorldCorner(maxX, maxY, maxZ) + Vector3.new(CELL_SIZE, CELL_SIZE, CELL_SIZE)
     
-    -- align to 4-stud voxel grid
-    local function snapDown4(v)
-        return Vector3.new(
-            math.floor(v.X/4)*4, 
-            math.floor(v.Y/4)*4, 
-            math.floor(v.Z/4)*4
-        )
+    -- include the top-right-front boundary by using [min, max+1] on each axis
+    local ex = {minX, maxX + 1}
+    local ey = {minY, maxY + 1}
+    local ez = {minZ, maxZ + 1}
+    
+    local wmin = Vector3.new( math.huge,  math.huge,  math.huge)
+    local wmax = Vector3.new(-math.huge, -math.huge, -math.huge)
+    
+    for _, cx in ipairs(ex) do
+        for _, cy in ipairs(ey) do
+            for _, cz in ipairs(ez) do
+                local p = worldCornerForCellMinCorner(cx, cy, cz)
+                if p.X < wmin.X then wmin = Vector3.new(p.X, wmin.Y, wmin.Z) end
+                if p.Y < wmin.Y then wmin = Vector3.new(wmin.X, p.Y, wmin.Z) end
+                if p.Z < wmin.Z then wmin = Vector3.new(wmin.X, wmin.Y, p.Z) end
+                
+                if p.X > wmax.X then wmax = Vector3.new(p.X, wmax.Y, wmax.Z) end
+                if p.Y > wmax.Y then wmax = Vector3.new(wmax.X, p.Y, wmax.Z) end
+                if p.Z > wmax.Z then wmax = Vector3.new(wmax.X, wmax.Y, p.Z) end
+            end
+        end
     end
-    local function snapUp4(v)
-        return Vector3.new(
-            math.ceil(v.X/4)*4,
-            math.ceil(v.Y/4)*4,
-            math.ceil(v.Z/4)*4
-        )
+    
+    -- align to voxel grid (4 studs)
+    local function snapDown(v, s) return Vector3.new(
+        math.floor(v.X/s)*s, math.floor(v.Y/s)*s, math.floor(v.Z/s)*s) end
+    local function snapUp(v, s) return Vector3.new(
+        math.ceil(v.X/s)*s, math.ceil(v.Y/s)*s, math.ceil(v.Z/s)*s) end
+    
+    local s = VOX
+    local rmin = snapDown(wmin, s)
+    local rmax = snapUp(wmax, s)
+    
+    -- guard against degenerate region
+    local delta = rmax - rmin
+    if (delta.X <= 0) or (delta.Y <= 0) or (delta.Z <= 0) then
+        log:warn("WriteCellsToTerrain: empty region after snap (min=%s, max=%s)", tostring(rmin), tostring(rmax))
+        return
     end
     
-    local rmin = snapDown4(cellMinWorld)
-    local rmax = snapUp4(cellMaxWorld)
-    local region = Region3.new(rmin, rmax):ExpandToGrid(4)
+    local region = Region3.new(rmin, rmax):ExpandToGrid(s)
     
-    -- 3) Read once
-    local materials, occupancy = DigPerformance.measureSection("ReadVoxels", function()
-        return Terrain:ReadVoxels(region, 4)
-    end)
+    -- 3) Read once with error handling
+    local ok, vox = ErrorService.safecall("Terrain:ReadVoxels", function()
+        local mats, occ = DigPerformance.measureSection("ReadVoxels", function()
+            return Terrain:ReadVoxels(region, VOX)
+        end)
+        return { materials = mats, occupancy = occ }
+    end, { region = tostring(region) })
+    
+    if not ok then
+        log:warn("WriteCellsToTerrain: ReadVoxels failed (min={}, max={}): {}", tostring(rmin), tostring(rmax), tostring(vox))
+        return
+    end
+    local materials, occupancy = vox.materials, vox.occupancy
     local size = materials.Size  -- Vector3int16 of voxel counts
     
     -- 4) Mark only targeted voxels (optimized with inline calculations)
     local regionMin = region.CFrame.Position - region.Size/2
     local maxVX, maxVY, maxVZ = size.X, size.Y, size.Z
-    local invVoxel = 0.25  -- 1/4 for voxel size
+    local invVoxel = 1 / VOX
     
     -- Track materials for sound system
     local materialCounts = {}
@@ -287,12 +379,13 @@ function GridService:WriteCellsToTerrain(cubeOrigin: CFrame, cells: {{x: number,
         local c = cells[i]
         
         -- Inline world position calculation (saves function call overhead)
+        -- IMPORTANT: Terrain cubes are axis-aligned, don't apply rotation!
         local localPos = Vector3.new(
             (c.x + 0.5) * CELL_SIZE,
             (c.y + 0.5) * CELL_SIZE,
             (c.z + 0.5) * CELL_SIZE
         )
-        local wCenter = cubeOrigin:PointToWorldSpace(localPos)
+        local wCenter = cubeOrigin.Position + localPos
         local rel = wCenter - regionMin
         
         -- Use integer floor operator // to avoid function call
@@ -317,7 +410,13 @@ function GridService:WriteCellsToTerrain(cubeOrigin: CFrame, cells: {{x: number,
     
     -- 5) Write once
     DigPerformance.measureSection("WriteVoxels", function()
-        Terrain:WriteVoxels(region, 4, materials, occupancy)
+        ErrorService.safecall("Terrain:WriteVoxels", function()
+            Terrain:WriteVoxels(region, VOX, materials, occupancy)
+        end, { region = tostring(region) })
+        -- Clear surface detection cache after terrain modification
+        ErrorService.safecall("TerrainSurfaceDetector.ClearCache", function()
+            TerrainSurfaceDetector.ClearCache()
+        end)
     end)
     
     -- 6) Determine dominant material for sound
@@ -329,7 +428,6 @@ function GridService:WriteCellsToTerrain(cubeOrigin: CFrame, cells: {{x: number,
     end
     
     -- Use canonical mapping to get the terrain key
-    local MaterialKeys = require(ReplicatedStorage.MiningGame:WaitForChild("MaterialKeys"))
     local soundKey = dominantMaterial and MaterialKeys.KeyFromEnum[dominantMaterial] or nil
     
     return {
@@ -358,9 +456,15 @@ function GridService:CreateTerrainCube(cubeOrigin: CFrame, size: number, materia
         cubeOrigin.Position - Vector3.new(size/2, size/2, size/2),
         cubeOrigin.Position + Vector3.new(size/2, size/2, size/2)
     )
-    region = region:ExpandToGrid(4)
+    region = region:ExpandToGrid(VOX)
     
-    Terrain:FillBlock(cubeOrigin, Vector3.new(size, size, size), material)
+    ErrorService.safecall("Terrain:FillBlock", function()
+        Terrain:FillBlock(cubeOrigin, Vector3.new(size, size, size), material)
+    end, { origin = tostring(cubeOrigin.Position), size = size, material = tostring(material) })
+    -- Clear surface detection cache after terrain creation
+    ErrorService.safecall("TerrainSurfaceDetector.ClearCache", function()
+        TerrainSurfaceDetector.ClearCache()
+    end)
     
     -- Add bounds indicator
     local bounds = Instance.new("Part")
@@ -408,7 +512,6 @@ function GridService:RestoreCube(cubeOrigin: CFrame, state: Types.CubeState, ini
     end
     
     -- Get the terrain material enum from the terrainKey via the canonical map
-    local MaterialKeys = require(ReplicatedStorage.MiningGame:WaitForChild("MaterialKeys"))
     local terrainMaterial: Enum.Material = Enum.Material.Rock
     if materialData and materialData.terrainKey then
         terrainMaterial = MaterialKeys.EnumFromKey[materialData.terrainKey] or Enum.Material.Rock
@@ -425,6 +528,45 @@ function GridService:RestoreCube(cubeOrigin: CFrame, state: Types.CubeState, ini
         terrainMaterial,
         initialFloor
     )
+    
+    -- If player is in composition mode, overwrite terrain with mixed materials first
+    local ownerPlayer = Players:GetPlayerByUserId(state.ownerId)
+    if ownerPlayer then
+        local prefs = DataService:GetMaterialPrefs(ownerPlayer) or {}
+        if prefs.mode == "composition" then
+            -- Theme-only composition: get components from active theme
+            local themeId = prefs.activeThemeId or "underwater_cave"
+            local comps = CubeThemes.GetThemeComponents(themeId) or {}
+            local swathes = {}
+            for _, c in ipairs(comps) do
+                local matEnum = MaterialDefinitions.GetEnum(c.materialKey)
+                if matEnum then 
+                    table.insert(swathes, { 
+                        material = matEnum, 
+                        weight = c.weight, 
+                        scale = c.scale 
+                    }) 
+                end
+            end
+            if #swathes > 0 then
+                if MixedMaterialService then
+                    MixedMaterialService:ApplyMixedMaterials(
+                        cubeOrigin,
+                        GameConfig.Grid.CUBE_SIZE_STUDS,
+                        { 
+                            seed = prefs.compositionSeed or 1, 
+                            blendMode = "hard", 
+                            swathes = swathes 
+                        },
+                        false -- Don't preserve air on initial restore
+                    )
+                else
+                    log:warn("MixedMaterialService not available - skipping mixed materials for UID %s", tostring(state.ownerId))
+                end
+                log:debug("Restored theme '{}' ({} materials) for UID {}", themeId, #swathes, state.ownerId)
+            end
+        end
+    end
     
     -- Apply dug cells from state
     local cellsToCarve = {}
@@ -502,22 +644,19 @@ function GridService:GetChunkStats(state: Types.CubeState): {totalChunks: number
     }
 end
 
--- Clean up player throttle data
-local function cleanupPlayer(player: Player)
-    lastWriteTime[player] = nil
-end
+-- Cleanup is now handled in GridService:Start() lifecycle method
 
--- Connect cleanup
-game.Players.PlayerRemoving:Connect(cleanupPlayer)
-
-log:info("Initialized")
+log:info("Module loaded")
 
 -- Debug command to print performance report
-game:GetService("RunService").Heartbeat:Connect(function()
+local lastPerfLog = 0
+RunService.Heartbeat:Connect(function()
     local perfReport = DigPerformance.getReport()
     if perfReport and #perfReport > 50 then  -- Only print if there's data
-        -- Print every 30 seconds if there's new data
-        if tick() % 30 < 0.1 then
+        -- Print at most once every 30s if there's new data
+        local now = Time.mono()
+        if now - lastPerfLog >= 30 then
+            lastPerfLog = now
             log:debug(perfReport)
         end
     end
