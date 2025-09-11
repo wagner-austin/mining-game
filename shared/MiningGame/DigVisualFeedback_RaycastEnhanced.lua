@@ -1,5 +1,13 @@
 --!strict
 --[[
+    Note: Time module import added at top for consistency
+]]
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
+local Time = require(MiningGame:WaitForChild("Time"))
+local MathUtils = require(MiningGame:WaitForChild("MathUtils"))
+
+--[[
     DigVisualFeedback_RaycastEnhanced.lua
     
     Complete implementation with raycast-based terrain projection.
@@ -31,7 +39,7 @@ function DigVisualFeedback:_cellHasVisibleTerrain(cx: number, cy: number, cz: nu
     
     -- Check cache first
     local cacheKey = string.format("%d,%d,%d", cx, cy, cz)
-    local now = tick()
+    local now = Time.mono()
     local cached = self._terrainSurfaceCache[cacheKey]
     if cached and (now - cached.timestamp) < self._terrainCacheLifetime then
         return cached.hasTerrain, cached.position, cached.normal, false -- No raycast needed
@@ -51,7 +59,7 @@ function DigVisualFeedback:_cellHasVisibleTerrain(cx: number, cy: number, cz: nu
         
         local hit = workspace:Raycast(rayStart, rayDir, rayParams)
         didRaycast = true
-        self._raysRemaining = math.max(0, (self._raysRemaining or 0) - 1)
+        self._raysRemaining = MathUtils.saturatingSub(self._raysRemaining or 0, 1)
         
         if hit then
             -- Check if hit is within reasonable distance of cell center
@@ -114,7 +122,7 @@ end
 -- ==========================================
 -- Returns enriched data with position and normal for each visible cell
 function DigVisualFeedback:_computeAoEVisibleOffsets2D(cx: number, cy: number, cz: number, uAxis: string, vAxis: string, radius: number): {{du: number, dv: number, pos: Vector3?, normal: Vector3?}}
-    local now = tick()
+    local now = Time.mono()
     local key = string.format("%d,%d,%d|%s%s|%d", cx, cy, cz, uAxis, vAxis, (radius*2)+1)
     
     -- Use cached result if available and not expired
@@ -186,7 +194,7 @@ function DigVisualFeedback:_updateHoverIndicators(worldPos: Vector3, state: DigS
     local cx, cy, cz = GridMath.worldToCell(worldPos, self.playerCubeOrigin, GameConfig.Grid.CELL_SIZE_STUDS)
     
     -- Calculate radius for preview (size 1 = 3x3, size 2 = 5x5, etc)
-    local radius = math.max(0, tonumber(self.previewSize) or 0)
+    local radius = MathUtils.nonNegative(tonumber(self.previewSize) or 0)
     
     -- Determine which plane to show preview on based on surface normal
     local normalAxis, uAxis, vAxis = self:_planeAxesFromNormal(self._lastHitNormal)
