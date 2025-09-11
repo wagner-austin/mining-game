@@ -10,22 +10,11 @@ local MiningGame = RS:WaitForChild("MiningGame")
 local Logger = require(MiningGame:WaitForChild("Logger"))
 local log = Logger.new("ClothInit")
 
-local Remotes = require(MiningGame:WaitForChild("Remotes"))
-local RF = Remotes.RF
-
 -- Using simplified cloth service
 local ClothService = require(script:WaitForChild("ClothServiceSimple"))
 
--- Remote handlers
-RF.ClothSpawn.OnServerInvoke = function(player: Player, opts)
-    local ok = ClothService:spawnFor(player)  -- Simple version doesn't use opts
-    return { success = ok }
-end
-
-RF.ClothDestroy.OnServerInvoke = function(player: Player)
-    ClothService:destroyFor(player)
-    return { success = true }
-end
+-- Remote handlers are now managed by RFRegistry via ClothDebug.rf.lua
+-- The RF handlers in RemoteFns/ClothDebug.rf.lua will call ClothService methods
 
 
 -- Cleanup on leave
@@ -34,11 +23,7 @@ Players.PlayerRemoving:Connect(function(p)
 end)
 
 -- Simulation tick
-local last = tick()
-RunService.Heartbeat:Connect(function(_dt)
-    local now = tick()
-    local dt = now - last
-    last = now
+RunService.Heartbeat:Connect(function(dt)
     ClothService:step(dt)
 end)
 
