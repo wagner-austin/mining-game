@@ -13,6 +13,7 @@ local RunService = game:GetService("RunService")
 
 local MiningGame = RS:WaitForChild("MiningGame")
 local Logger = require(MiningGame:WaitForChild("Logger"))
+local MathUtils = require(MiningGame:WaitForChild("MathUtils"))
 local log = Logger.new("BlanketPreview")
 
 type Style = {
@@ -264,7 +265,7 @@ function BlanketPreview:update(centerPos: Vector3, centerNormal: Vector3, cubeOr
     self._targetPos = centerPos
     self._targetUp  = (centerNormal.Magnitude > 0) and centerNormal.Unit or Vector3.new(0,1,0)
     self._cubeCF    = cubeOrigin
-    self._radius    = math.max(0, radius)
+    self._radius    = MathUtils.nonNegative(radius)
     self._span      = (2*self._radius + 1) * self._cell
     self._color     = color
     
