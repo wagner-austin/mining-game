@@ -20,9 +20,26 @@
 
 local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
+local Time = require(MiningGame:WaitForChild("Time"))
 
 local Logger = {}
 Logger.__index = Logger
+
+-- Instance shape for Logger
+type LoggerT = {
+    category: string,
+    log: (self: LoggerT, level: number, message: string, ...any) -> (),
+    debug: (self: LoggerT, message: string, ...any) -> (),
+    info: (self: LoggerT, message: string, ...any) -> (),
+    warn: (self: LoggerT, message: string, ...any) -> (),
+    error: (self: LoggerT, message: string, ...any) -> (),
+    event: (self: LoggerT, eventName: string, data: {[string]: any}?) -> (),
+    metric: (self: LoggerT, name: string, value: any, fields: {[string]: any}?) -> (),
+    perf: (self: LoggerT, op: string, startedAt: number) -> (),
+}
 
 -- Node label for output
 local nodeLabel = RunService:IsServer() and "Server" or "Client"
@@ -58,6 +75,20 @@ Logger.CAT = {
 	AFK = "AFKService",
 	Cache = "CachePerf",
 	Perf = "Performance",
+	-- Missing categories for newer services
+	ServiceContainer = "ServiceContainer",
+	ErrorService = "ErrorService",
+	RemoteManager = "RemoteManager",
+	FloatingIslands = "FloatingIslandService",
+	CurrencyService = "CurrencyService",
+	AchievementService = "AchievementService",
+	InventoryService = "InventoryService",
+	ItemService = "ItemService",
+	AnnouncementService = "AnnouncementService",
+	CompositionService = "CompositionService",
+	CharacterStateManager = "CharacterStateManager",
+	EventBus = "EventBus",
+	Heartbeat = "HeartbeatMonitor",
 }
 
 -- Active categories (true = shown, false/nil = hidden)
@@ -101,16 +132,16 @@ local categoryStats = {}
 local rateWindow = 1.5 -- seconds; set to 0 to disable
 local categoryRateWindows = {} -- per-category overrides
 local lastByKey = {}
-local lastCleanup = time()
+local lastCleanup = Time.mono()
 
 -- Helper to normalize messages for rate limiting (collapse numbers)
-local function normalize(s)
+local function normalize(s: string): string
 	return (s:gsub("%d+%.?%d*", "{num}"))
 end
 
 -- Clean up old rate limit entries
-local function cleanupRateTable()
-	local now = time()
+local function cleanupRateTable(): ()
+	local now = Time.mono()
 	if now - lastCleanup < 10 then -- cleanup every 10 seconds
 		return
 	end
@@ -126,7 +157,7 @@ local function cleanupRateTable()
 end
 
 -- Check rate limiting
-local function passRateLimit(category, message)
+local function passRateLimit(category: string, message: string): boolean
 	cleanupRateTable()
 	
 	local window = categoryRateWindows[category] or rateWindow
@@ -135,7 +166,7 @@ local function passRateLimit(category, message)
 	end
 	
 	local key = category .. "|" .. normalize(message)
-	local now = time()
+	local now = Time.mono()
 	local last = lastByKey[key]
 	
 	if last and (now - last) < window then
@@ -147,9 +178,9 @@ local function passRateLimit(category, message)
 end
 
 -- Create a new logger instance for a category
-function Logger.new(category)
-	local self = setmetatable({}, Logger)
-	self.category = category
+function Logger.new(category: string): LoggerT
+    local self: LoggerT = setmetatable({}, Logger)
+    self.category = category
 	
 	-- Initialize category if not exists
 	if activeCategories[category] == nil then
@@ -169,7 +200,7 @@ function Logger.new(category)
 end
 
 -- Check if a category should log
-local function shouldLog(category, level)
+local function shouldLog(category: string, level: number): boolean
 	-- Check category-specific level first, then global
 	local floor = categoryLevels[category] or minLevel
 	if level < floor then
@@ -191,7 +222,7 @@ local function shouldLog(category, level)
 end
 
 -- Format the log message
-local function formatMessage(category, level, message)
+local function formatMessage(category: string, level: number, message: string): string
 	local timestamp = os.date("%H:%M:%S")
 	local levelStr = ""
 	
@@ -209,7 +240,7 @@ local function formatMessage(category, level, message)
 end
 
 -- Log a message
-function Logger:log(level, message, ...)
+function Logger:log(level: number, message: string, ...: any)
 	if not shouldLog(self.category, level) then
 		return
 	end
@@ -232,7 +263,7 @@ function Logger:log(level, message, ...)
 	-- Update stats
 	local stats = categoryStats[self.category]
 	stats.messages = stats.messages + 1
-	stats.lastMessage = time()
+	stats.lastMessage = Time.mono()
 	
 	-- Format and output
 	local output = formatMessage(self.category, level, message)
@@ -245,19 +276,19 @@ function Logger:log(level, message, ...)
 end
 
 -- Convenience methods
-function Logger:debug(message, ...)
+function Logger:debug(message: string, ...: any)
 	self:log(LogLevel.DEBUG, message, ...)
 end
 
-function Logger:info(message, ...)
+function Logger:info(message: string, ...: any)
 	self:log(LogLevel.INFO, message, ...)
 end
 
-function Logger:warn(message, ...)
+function Logger:warn(message: string, ...: any)
 	self:log(LogLevel.WARN, message, ...)
 end
 
-function Logger:error(message, ...)
+function Logger:error(message: string, ...: any)
 	self:log(LogLevel.ERROR, message, ...)
 end
 
@@ -278,7 +309,7 @@ function Logger:event(eventName: string, data: {[string]: any}?)
 end
 
 -- Structured logging helpers
-function Logger:metric(name, value, fields)
+function Logger:metric(name: string, value: any, fields: {[string]: any}?)
 	-- Cheap structured suffix; avoids JSON to keep DevConsole readable
 	if typeof(fields) == "table" then
 		local success, json = pcall(function() return HttpService:JSONEncode(fields) end)
@@ -292,10 +323,10 @@ function Logger:metric(name, value, fields)
 	end
 end
 
-function Logger:perf(op, startedAt)
-	local ms
+function Logger:perf(op: string, startedAt: number)
+    local ms: number
 	if typeof(startedAt) == "number" then
-		ms = (os.clock() - startedAt) * 1000
+		ms = (Time.mono() - startedAt) * 1000
 	else
 		ms = startedAt -- allow passing a precomputed ms
 	end
@@ -499,7 +530,7 @@ local quietByDefault = {
 	"Logger", "MetricsTab", "AmbientLogging", "TestClient", "CubeVisuals",
 	"DataService", "GridService", "MaterialsTab", "ThemeTab",
 	"CubeMaterialService", "SoundPreloader", "MaterialManager",
-	"SettingsPanel", "TimeService", "EventScheduler", "SpawnService",
+	"SettingsPanel", "TimeService", "EventScheduler",
 	"InventoryService", "LootService", "MonetizationService",
 	"CubePositionService", "ThemeSettingsService", "ThemeBootstrap",
 	"ThemeManager", "SoundThemeManager", "ClientUI", "UIManager",
