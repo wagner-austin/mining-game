@@ -2,70 +2,353 @@
 
 [← Back to API Documentation](API_DOCUMENTATION.md)
 
+[← Back to API Documentation](API_DOCUMENTATION.md)
+
 ## Table of Contents
 
+- [Architecture Patterns](#architecture-patterns)
 - [Client Implementation](#client-implementation)
+- [Server Implementation](#server-implementation)
+- [EventBus Patterns](#eventbus-patterns)
 - [Performance Optimization](#performance-optimization)
 - [Error Handling](#error-handling)
-- [Testing Checklist](#testing-checklist)
-- [Complete Client Example](#complete-client-example)
-- [Migration Notes](#migration-notes)
+- [Testing](#testing)
+- [Complete Examples](#complete-examples)
 
 ---
 
+## Architecture Patterns
+
+### Use the Modern Stack
+
+```lua
+-- Client-side
+local ClientRF = require(MiningGame.ClientRF)
+local EventBus = require(MiningGame.EventBus).global()
+local EventNames = require(MiningGame.EventNames)
+local RequestNames = require(MiningGame.RequestNames)
+local Bridge = require(MiningGame.RemoteEventBridge)
+
+-- Server-side (in services)
+local EventBus = require(Shared.EventBus).global()
+local Result = require(Shared.Result)
+local Time = require(Shared.Time)
+```
+
+### Service Architecture
+
+```lua
+-- Services use dependency injection
+function MyService:Init(container)
+    self.DataService = container:Get("DataService")
+    self.EventBus = EventBus.global()
+    self._connections = {}
+end
+
+function MyService:Start(container)
+    -- Safe to use dependencies
+    table.insert(self._connections, 
+        self.EventBus:on(EventNames.SOME_EVENT, function(data)
+            self:HandleEvent(data)
+        end))
+end
+
+function MyService:Stop()
+    -- Clean up
+    for _, conn in ipairs(self._connections) do
+        conn:Disconnect()
+    end
+end
+```
+
 ## Client Implementation
 
-### 1. Always Check Responses
-
-Never assume a RemoteFunction call succeeded:
+### 1. Always Use ClientRF
 
 ```lua
-local result = Remotes.RF.PurchaseUpgrade:InvokeServer("speed")
-if result.success then
-    -- Handle success
-    updateUpgradeUI(result.newLevel, result.nextCost)
-else
-    -- Handle failure
-    warn("Purchase failed:", result.reason)
-    showErrorMessage(result.reason)
+-- Good: Using ClientRF with automatic Result unwrapping
+local profile, err = ClientRF.call("GetProfile")
+if not profile then
+    warn("Failed to get profile:", err)
+    return
+end
+
+-- Bad: Direct RemoteFunction invoke
+local result = Remotes.RF.GetProfile:InvokeServer() -- Don't do this
+```
+
+### 2. Handle Errors Appropriately
+
+```lua
+local function safePurchase(itemId)
+    local result, err = ClientRF.call("PurchaseItem", itemId)
+    
+    if result then
+        return true, "Purchase successful"
+    end
+    
+    -- Handle specific errors
+    if err == "INSUFFICIENT_FUNDS" then
+        showNotification("Not enough coins!")
+    elseif err == "ITEM_NOT_FOUND" then
+        showNotification("Item not available")
+    elseif err == "RATE_LIMIT" then
+        showNotification("Too many requests, please wait")
+    else
+        showNotification("Purchase failed")
+    end
+    
+    return false, err
 end
 ```
 
-### 2. Cache GetProfile() Results
-
-Avoid unnecessary network calls by caching profile data:
+### 3. Use EventBus for State Updates
 
 ```lua
-local ProfileCache = {}
-ProfileCache.data = nil
-ProfileCache.lastUpdate = 0
-ProfileCache.UPDATE_INTERVAL = 60 -- seconds
+local UIComponent = {}
+
+function UIComponent:Init()
+    self.subscriptions = {}
+    
+    -- Subscribe to events
+    table.insert(self.subscriptions,
+        EventBus:on(EventNames.CURRENCY_CHANGED, function(data)
+            self:UpdateCurrency(data.payload)
+        end))
+    
+    table.insert(self.subscriptions,
+        EventBus:on(EventNames.INVENTORY_CHANGED, function(data)
+            self:UpdateInventory(data.payload)
+        end))
+end
+
+function UIComponent:Destroy()
+    -- Always clean up subscriptions
+    for _, unsub in ipairs(self.subscriptions) do
+        unsub()
+    end
+end
+```
+
+### 4. Cache When Appropriate
+
+```lua
+local ProfileCache = {
+    data = nil,
+    lastUpdate = 0,
+    UPDATE_INTERVAL = 60 -- seconds
+}
 
 function ProfileCache:get()
-    local now = tick()
+    local now = Time.mono()
+    
     if not self.data or (now - self.lastUpdate) > self.UPDATE_INTERVAL then
-        local success, result = pcall(function()
-            return Remotes.RF.GetProfile:InvokeServer()
-        end)
+        local profile, err = ClientRF.call("GetProfile")
         
-        if success and result then
-            self.data = result
+        if profile then
+            self.data = profile
             self.lastUpdate = now
+        elseif self.data then
+            -- Use stale data if fetch fails
+            warn("Using cached profile due to error:", err)
         end
     end
+    
     return self.data
-end
-
--- Usage
-local profile = ProfileCache:get()
-if profile then
-    displayStats(profile.effectiveStats)
 end
 ```
 
-### 3. Debounce User Actions
+### 5. Implement Retry Logic
 
-Prevent spam and improve UX:
+```lua
+-- For critical operations
+local inventory, err = ClientRF.callWithRetry("GetInventory", 3)
+if not inventory then
+    -- All retries failed
+    showErrorScreen("Failed to load inventory")
+    return
+end
+
+-- Custom retry with backoff
+local function retryWithBackoff(rfName, ...)
+    local args = {...}
+    local maxRetries = 3
+    
+    for attempt = 1, maxRetries do
+        local result, err = ClientRF.call(rfName, table.unpack(args))
+        
+        if result then
+            return result, nil
+        end
+        
+        -- Don't retry on logical errors
+        if err ~= "TIMEOUT" and not err:match("^RF call failed") then
+            return nil, err
+        end
+        
+        if attempt < maxRetries then
+            task.wait(math.pow(2, attempt - 1)) -- Exponential backoff
+        end
+    end
+    
+    return nil, "Max retries exceeded"
+end
+```
+
+## Server Implementation
+
+### 1. Define RF Specs Properly
+
+```lua
+-- In RemoteFns/MyFeature.rf.lua
+return {
+    {
+        name = "MyFunction",
+        validate = function(param1: string?, param2: number?)
+            if not param1 or #param1 == 0 then
+                return false, "param1 required"
+            end
+            if param2 and param2 < 0 then
+                return false, "param2 must be non-negative"
+            end
+            return true
+        end,
+        rateLimitSec = 1, -- Required field
+        requireProfile = true, -- Default true
+        handler = function(ctx, param1: string, param2: number?)
+            -- ctx.player always available
+            -- ctx.profile available if requireProfile = true
+            
+            local service = getService("MyService")
+            local result = service:DoSomething(ctx.player, param1, param2)
+            
+            if result then
+                return Result.ok(result)
+            else
+                return Result.err("OPERATION_FAILED", "Could not complete")
+            end
+        end
+    }
+}
+```
+
+### 2. Emit Events Properly
+
+```lua
+-- In service methods
+function InventoryService:AddItem(player, itemId, quantity)
+    -- Business logic
+    local success = self:InternalAddItem(player, itemId, quantity)
+    
+    if success then
+        -- Emit event for UI updates
+        self.EventBus:emit(EventNames.INVENTORY_CHANGED, {
+            to = {kind = "player", player = player},
+            payload = {
+                action = "add",
+                itemId = itemId,
+                quantity = quantity,
+                total = self:GetItemCount(player, itemId)
+            }
+        })
+    end
+    
+    return success
+end
+```
+
+### 3. Use Result Consistently
+
+```lua
+-- Good: Explicit Result usage
+function handler(ctx, itemId: string)
+    if not isValidItem(itemId) then
+        return Result.err("INVALID_ITEM", "Item does not exist")
+    end
+    
+    local owned = InventoryService:HasItem(ctx.player, itemId)
+    if owned then
+        return Result.err("ALREADY_OWNED", "You already have this item")
+    end
+    
+    local success = InventoryService:GrantItem(ctx.player, itemId)
+    if success then
+        return Result.ok({itemId = itemId, granted = true})
+    else
+        return Result.err("GRANT_FAILED", "Could not grant item")
+    end
+end
+```
+
+## EventBus Patterns
+
+### 1. Event Priority
+
+```lua
+-- Critical handlers run first
+EventBus:on(EventNames.CURRENCY_CHANGED, criticalHandler, 10)
+
+-- Normal priority (default 50)
+EventBus:on(EventNames.CURRENCY_CHANGED, normalHandler)
+
+-- Low priority cleanup
+EventBus:on(EventNames.CURRENCY_CHANGED, cleanupHandler, 100)
+```
+
+### 2. One-Time Subscriptions
+
+```lua
+-- Auto-unsubscribe after first event
+EventBus:once(EventNames.FIRST_DIG, function(data)
+    showTutorial("Great job! You dug your first block!")
+end)
+```
+
+### 3. Fast Path for Performance
+
+```lua
+-- Mark high-frequency events
+EventBus:markFastPath(EventNames.DIG_FEEDBACK)
+EventBus:markFastPath(EventNames.PARTICLE_EFFECT)
+```
+
+### 4. Middleware for Debugging
+
+```lua
+-- Development only
+if RunService:IsStudio() then
+    EventBus:use(function(ctx, next)
+        local start = Time.mono()
+        next()
+        local elapsed = Time.mono() - start
+        
+        if elapsed > 0.016 then -- Longer than a frame
+            warn(string.format("Slow event handler: %s took %.2fms", 
+                ctx.event, elapsed * 1000))
+        end
+    end)
+end
+```
+
+## Performance Optimization
+
+### 1. Batch Operations
+
+```lua
+-- Good: Single call for multiple items
+local results, err = ClientRF.call("SellMultipleItems", {
+    ["diamond"] = 5,
+    ["gold"] = 10,
+    ["iron"] = 20
+})
+
+-- Bad: Multiple individual calls
+for itemId, count in pairs(items) do
+    ClientRF.call("SellItems", itemId, count) -- Inefficient
+end
+```
+
+### 2. Debounce User Input
 
 ```lua
 local Debounce = {}
@@ -73,445 +356,384 @@ Debounce.__index = Debounce
 
 function Debounce.new(cooldown)
     return setmetatable({
-        cooldown = cooldown or 0.1,
-        active = false
+        cooldown = cooldown,
+        nextAllowed = 0
     }, Debounce)
 end
 
 function Debounce:run(callback)
-    if self.active then return false end
-    self.active = true
+    local now = Time.mono()
+    if now < self.nextAllowed then
+        return false
+    end
     
-    task.spawn(function()
-        callback()
-        task.wait(self.cooldown)
-        self.active = false
-    end)
-    
+    self.nextAllowed = now + self.cooldown
+    callback()
     return true
 end
 
 -- Usage
 local digDebounce = Debounce.new(0.1)
 
-mouse.Button1Down:Connect(function()
-    digDebounce:run(function()
-        local result = Remotes.RF.RequestDig:InvokeServer(targetPos)
-        handleDigResult(result)
-    end)
-end)
-```
-
-### 4. Handle Connection Failures
-
-Wrap remote calls in pcall for safety:
-
-```lua
-local function safeInvoke(remoteFunction, ...)
-    local success, result = pcall(function()
-        return remoteFunction:InvokeServer(...)
-    end)
-    
-    if not success then
-        warn("Remote invoke failed:", result)
-        return {
-            success = false,
-            reason = "Connection error"
-        }
-    end
-    
-    return result
-end
-
--- Usage
-local result = safeInvoke(Remotes.RF.GetProfile)
-if result and result.success ~= false then
-    updateUI(result)
-end
-```
-
----
-
-## Performance Optimization
-
-### 1. Batch Operations
-
-Combine multiple operations when possible:
-
-```lua
--- BAD: Multiple individual sells
-for itemId, count in pairs(itemsToSell) do
-    Remotes.RF.SellItems:InvokeServer({[itemId] = count})
-end
-
--- GOOD: Single batched sell
-Remotes.RF.SellItems:InvokeServer(itemsToSell)
-```
-
-### 2. Use Events Instead of Polling
-
-Listen to events rather than repeatedly requesting data:
-
-```lua
--- BAD: Polling for currency
-while true do
-    local profile = Remotes.RF.GetProfile:InvokeServer()
-    updateCurrency(profile.coins)
-    wait(1)
-end
-
--- GOOD: Event-driven updates
-Remotes.RE.OnCurrencyChanged.OnClientEvent:Connect(function(data)
-    if data.coins then
-        updateCurrency(data.coins)
+UserInputService.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        digDebounce:run(function()
+            Bridge.requestDig(targetPosition)
+        end)
     end
 end)
 ```
 
-### 3. Implement Client-Side Validation
-
-Validate before sending to reduce failed requests:
+### 3. Connection Pooling
 
 ```lua
-local function purchaseUpgrade(upgradeType)
-    local profile = ProfileCache:get()
-    if not profile then return end
+-- Reuse event connections
+local ConnectionPool = {}
+
+function ConnectionPool:get(event, handler)
+    local key = tostring(event) .. tostring(handler)
     
-    local currentLevel = profile.upgrades[upgradeType]
-    local cost = calculateUpgradeCost(upgradeType, currentLevel)
-    
-    -- Client-side validation
-    if profile.coins < cost then
-        showErrorMessage("Not enough coins!")
-        return
+    if not self[key] then
+        self[key] = EventBus:on(event, handler)
     end
     
-    -- Server will still validate, but this improves UX
-    local result = Remotes.RF.PurchaseUpgrade:InvokeServer(upgradeType)
-    handlePurchaseResult(result)
+    return self[key]
+end
+
+function ConnectionPool:cleanup()
+    for _, unsub in pairs(self) do
+        if type(unsub) == "function" then
+            unsub()
+        end
+    end
 end
 ```
-
-### 4. Connection Management
-
-Store and clean up connections properly:
-
-```lua
-local ConnectionManager = {}
-ConnectionManager.connections = {}
-
-function ConnectionManager:connect(name, event, handler)
-    -- Disconnect existing if any
-    if self.connections[name] then
-        self.connections[name]:Disconnect()
-    end
-    
-    -- Store new connection
-    self.connections[name] = event:Connect(handler)
-end
-
-function ConnectionManager:disconnect(name)
-    if self.connections[name] then
-        self.connections[name]:Disconnect()
-        self.connections[name] = nil
-    end
-end
-
-function ConnectionManager:disconnectAll()
-    for name, connection in pairs(self.connections) do
-        connection:Disconnect()
-    end
-    self.connections = {}
-end
-
--- Usage
-ConnectionManager:connect("currency", 
-    Remotes.RE.OnCurrencyChanged.OnClientEvent,
-    onCurrencyChanged
-)
-
--- Clean up when UI is destroyed
-gui.AncestryChanged:Connect(function()
-    if not gui.Parent then
-        ConnectionManager:disconnectAll()
-    end
-end)
-```
-
----
 
 ## Error Handling
 
-### Standard Error Response Pattern
-
-All RemoteFunctions follow this pattern:
+### 1. Comprehensive Error Codes
 
 ```lua
--- Success response
-{
-    success = true,
-    -- ... additional data
+local ErrorCodes = {
+    -- Network/System
+    TIMEOUT = "Request timed out",
+    RATE_LIMIT = "Too many requests",
+    NO_PROFILE = "Profile not loaded",
+    INTERNAL = "Server error",
+    
+    -- Validation
+    INVALID_INPUT = "Invalid input",
+    MISSING_PARAM = "Required parameter missing",
+    
+    -- Business Logic
+    INSUFFICIENT_FUNDS = "Not enough currency",
+    INSUFFICIENT_ITEMS = "Not enough items",
+    ITEM_NOT_FOUND = "Item doesn't exist",
+    ALREADY_OWNED = "Already purchased",
+    MAX_LEVEL = "Maximum level reached",
+    ON_COOLDOWN = "Action on cooldown"
 }
 
--- Error response
-{
-    success = false,
-    reason = string  -- Human-readable error message
-}
+function handleError(err)
+    local message = ErrorCodes[err] or "Unknown error"
+    showNotification(message)
+end
 ```
 
-### Error Handler Example
+### 2. Graceful Degradation
 
 ```lua
-local ErrorHandler = {}
-
-ErrorHandler.messages = {
-    ["Not enough coins"] = "You need more coins to purchase this!",
-    ["On cooldown"] = "Please wait before trying again.",
-    ["Data not loaded"] = "Your data is still loading, please wait.",
-    ["Studio only"] = "This feature is only available in Studio.",
-    ["Not authorized"] = "You don't have permission to do this."
-}
-
-function ErrorHandler:handle(result)
-    if result.success then
-        return true
+-- Fall back to defaults on error
+local function getPlayerSettings()
+    local settings, err = ClientRF.call("GetSettings")
+    
+    if not settings then
+        warn("Failed to load settings:", err)
+        -- Use defaults
+        return {
+            soundEnabled = true,
+            particlesEnabled = true,
+            theme = "default"
+        }
     end
     
-    local message = self.messages[result.reason] or result.reason
+    return settings
+end
+```
+
+## Testing
+
+### 1. Unit Test RF Specs
+
+```lua
+-- Test validation
+local spec = require(RemoteFns.Inventory)[1]
+
+-- Valid inputs
+assert(spec.validate("sword", 5) == true)
+assert(spec.validate("shield", 1) == true)
+
+-- Invalid inputs
+local valid, err = spec.validate(nil, 5)
+assert(valid == false)
+assert(err == "Missing itemType")
+
+local valid, err = spec.validate("sword", -1)
+assert(valid == false)
+assert(err == "Invalid count")
+```
+
+### 2. Integration Testing
+
+```lua
+-- In Studio console
+local ClientRF = require(game.ReplicatedStorage.MiningGame.ClientRF)
+
+-- Test successful flow
+local profile = ClientRF.call("GetProfile")
+assert(profile, "Should get profile")
+assert(profile.coins >= 0, "Coins should be non-negative")
+
+-- Test error handling
+local result, err = ClientRF.call("PurchaseItem", "invalid_item_xyz")
+assert(not result, "Should fail for invalid item")
+assert(err == "ITEM_NOT_FOUND", "Should return correct error")
+
+-- Test rate limiting
+for i = 1, 20 do
+    local _, err = ClientRF.call("RequestDig", Vector3.new(0,0,0))
+    if err == "RATE_LIMIT" then
+        print("Rate limited at request", i)
+        break
+    end
+end
+```
+
+### 3. Event Testing
+
+```lua
+-- Test event flow
+local received = false
+local unsub = EventBus:on("test.event", function(data)
+    received = true
+    assert(data.value == 123)
+end)
+
+EventBus:emit("test.event", {value = 123})
+assert(received, "Should receive event")
+
+unsub()
+```
+
+## Complete Examples
+
+### Client UI Component
+
+```lua
+local CurrencyDisplay = {}
+CurrencyDisplay.__index = CurrencyDisplay
+
+function CurrencyDisplay.new(gui)
+    local self = setmetatable({}, CurrencyDisplay)
     
-    -- Show error to player
-    game.StarterGui:SetCore("SendNotification", {
-        Title = "Error",
-        Text = message,
-        Duration = 3
+    self.gui = gui
+    self.coinsLabel = gui.CoinsLabel
+    self.gemsLabel = gui.GemsLabel
+    self.subscriptions = {}
+    
+    self:init()
+    return self
+end
+
+function CurrencyDisplay:init()
+    -- Initial load
+    local profile, err = ClientRF.call("GetProfile")
+    if profile then
+        self:updateDisplay(profile.coins, profile.gems)
+    else
+        warn("Failed to load initial currency:", err)
+    end
+    
+    -- Subscribe to updates
+    table.insert(self.subscriptions,
+        EventBus:on(EventNames.CURRENCY_CHANGED, function(data)
+            local p = data.payload
+            if p.currency == "coins" then
+                self:updateCoins(p.balance, p.delta)
+            elseif p.currency == "gems" then
+                self:updateGems(p.balance, p.delta)
+            end
+        end))
+end
+
+function CurrencyDisplay:updateDisplay(coins, gems)
+    self.coinsLabel.Text = tostring(coins or 0)
+    self.gemsLabel.Text = tostring(gems or 0)
+end
+
+function CurrencyDisplay:updateCoins(balance, delta)
+    self.coinsLabel.Text = tostring(balance)
+    
+    if delta and delta > 0 then
+        self:showAnimation(self.coinsLabel, "+" .. delta, Color3.new(1, 1, 0))
+    end
+end
+
+function CurrencyDisplay:updateGems(balance, delta)
+    self.gemsLabel.Text = tostring(balance)
+    
+    if delta and delta > 0 then
+        self:showAnimation(self.gemsLabel, "+" .. delta, Color3.new(0, 1, 1))
+    end
+end
+
+function CurrencyDisplay:showAnimation(label, text, color)
+    -- Create floating text animation
+    local floater = label:Clone()
+    floater.Text = text
+    floater.TextColor3 = color
+    floater.Parent = label.Parent
+    
+    -- Animate
+    local tween = TweenService:Create(floater, 
+        TweenInfo.new(1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+        {
+            Position = UDim2.new(floater.Position.X.Scale, 
+                               floater.Position.X.Offset,
+                               floater.Position.Y.Scale - 0.1,
+                               floater.Position.Y.Offset),
+            TextTransparency = 1
+        })
+    
+    tween:Play()
+    tween.Completed:Connect(function()
+        floater:Destroy()
+    end)
+end
+
+function CurrencyDisplay:destroy()
+    for _, unsub in ipairs(self.subscriptions) do
+        unsub()
+    end
+end
+
+return CurrencyDisplay
+```
+
+### Server Service with Events
+
+```lua
+local InventoryService = {}
+InventoryService.__index = InventoryService
+
+function InventoryService.new()
+    return setmetatable({
+        inventories = {},
+        maxStackSize = 999
+    }, InventoryService)
+end
+
+function InventoryService:Init(container)
+    self.DataService = container:Get("DataService")
+    self.EventBus = EventBus.global()
+end
+
+function InventoryService:Start(container)
+    -- Service is ready
+end
+
+function InventoryService:AddItem(player: Player, itemId: string, quantity: number)
+    assert(quantity > 0, "Quantity must be positive")
+    
+    local inventory = self:GetInventory(player)
+    local current = inventory[itemId] or 0
+    local new = math.min(current + quantity, self.maxStackSize)
+    local added = new - current
+    
+    if added > 0 then
+        inventory[itemId] = new
+        
+        -- Emit event
+        self.EventBus:emit(EventNames.INVENTORY_CHANGED, {
+            to = {kind = "player", player = player},
+            payload = {
+                action = "add",
+                itemId = itemId,
+                quantity = added,
+                total = new
+            }
+        })
+        
+        -- Check achievements
+        self.EventBus:emit(EventNames.ACHIEVEMENT_CHECK, {
+            to = {kind = "server"},
+            payload = {
+                player = player,
+                type = "inventory",
+                itemId = itemId,
+                count = new
+            }
+        })
+    end
+    
+    return added
+end
+
+function InventoryService:RemoveItem(player: Player, itemId: string, quantity: number)
+    assert(quantity > 0, "Quantity must be positive")
+    
+    local inventory = self:GetInventory(player)
+    local current = inventory[itemId] or 0
+    
+    if current < quantity then
+        return false, "Insufficient items"
+    end
+    
+    inventory[itemId] = current - quantity
+    
+    if inventory[itemId] == 0 then
+        inventory[itemId] = nil
+    end
+    
+    -- Emit event
+    self.EventBus:emit(EventNames.INVENTORY_CHANGED, {
+        to = {kind = "player", player = player},
+        payload = {
+            action = "remove",
+            itemId = itemId,
+            quantity = quantity,
+            total = inventory[itemId] or 0
+        }
     })
     
-    warn("API Error:", result.reason)
-    return false
+    return true
 end
 
--- Usage
-local result = Remotes.RF.PurchaseUpgrade:InvokeServer("speed")
-if ErrorHandler:handle(result) then
-    -- Success path
-    updateUpgradeUI(result)
+function InventoryService:GetInventory(player: Player)
+    if not self.inventories[player] then
+        local profile = self.DataService:GetPlayerData(player)
+        self.inventories[player] = profile and profile.inventory or {}
+    end
+    return self.inventories[player]
 end
+
+function InventoryService:Stop()
+    -- Save all inventories
+    for player, inventory in pairs(self.inventories) do
+        local profile = self.DataService:GetPlayerData(player)
+        if profile then
+            profile.inventory = inventory
+        end
+    end
+end
+
+return InventoryService.new()
 ```
 
----
+## See Also
 
-## Testing Checklist
-
-### Core Functionality
-- [ ] Dig request → terrain update → loot grant
-- [ ] Currency updates propagate to UI
-- [ ] Inventory operations (add/remove/equip)
-- [ ] Purchase flows complete successfully
-- [ ] Rate limiting prevents spam
-
-### Error Handling
-- [ ] Network failures handled gracefully
-- [ ] Invalid input shows appropriate errors
-- [ ] Insufficient funds prevented client-side
-- [ ] Cooldowns enforced properly
-
-### Performance
-- [ ] No memory leaks from event connections
-- [ ] Debouncing prevents request spam
-- [ ] UI updates batched appropriately
-- [ ] Profile caching reduces network calls
-
-### Mobile
-- [ ] Touch inputs trigger correct functions
-- [ ] UI scales properly on different screens
-- [ ] Performance acceptable on low-end devices
-- [ ] Network lag doesn't break functionality
-
----
-
-## Complete Client Example
-
-Here's a complete example of a well-structured client:
-
-```lua
---!strict
--- MiningGameClient.client.lua
-
-local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
-
-local player = Players.LocalPlayer
-local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
-local Remotes = require(MiningGame:WaitForChild("Remotes"))
-
--- Modules
-local ProfileCache = {}
-local ConnectionManager = {}
-local Debounce = {}
-
--- Profile Cache Implementation
-ProfileCache.data = nil
-ProfileCache.lastUpdate = 0
-
-function ProfileCache:get()
-    if not self.data or tick() - self.lastUpdate > 60 then
-        local success, result = pcall(function()
-            return Remotes.RF.GetProfile:InvokeServer()
-        end)
-        
-        if success and result then
-            self.data = result
-            self.lastUpdate = tick()
-        end
-    end
-    return self.data
-end
-
--- Connection Manager Implementation
-ConnectionManager.connections = {}
-
-function ConnectionManager:init()
-    -- Currency updates
-    self:connect("currency", Remotes.RE.OnCurrencyChanged.OnClientEvent, function(data)
-        if data.coins then
-            updateCoinDisplay(data.coins)
-        end
-        if data.gems then
-            updateGemDisplay(data.gems)
-        end
-    end)
-    
-    -- Inventory updates
-    self:connect("inventory", Remotes.RE.OnInventoryChanged.OnClientEvent, function(payload)
-        updateInventoryUI(payload)
-    end)
-    
-    -- Dig feedback
-    self:connect("dig", Remotes.RE.OnDigFeedback.OnClientEvent, function(feedback)
-        if feedback.shake then
-            applyCameraShake(feedback.shake)
-        end
-        if feedback.particles then
-            spawnParticles(feedback.cells)
-        end
-    end)
-    
-    -- Notifications
-    self:connect("notification", Remotes.RE.OnNotification.OnClientEvent, function(notif)
-        showNotification(notif)
-    end)
-end
-
-function ConnectionManager:connect(name, event, handler)
-    if self.connections[name] then
-        self.connections[name]:Disconnect()
-    end
-    self.connections[name] = event:Connect(handler)
-end
-
-function ConnectionManager:cleanup()
-    for _, connection in pairs(self.connections) do
-        connection:Disconnect()
-    end
-    self.connections = {}
-end
-
--- Debounce Implementation
-function createDebounce(cooldown)
-    local active = false
-    return function(callback)
-        if active then return end
-        active = true
-        callback()
-        task.wait(cooldown)
-        active = false
-    end
-end
-
--- Game Functions
-local requestDig = createDebounce(0.1)
-
-local function handleClick(hit, worldPos)
-    requestDig(function()
-        local result = Remotes.RF.RequestDig:InvokeServer(worldPos)
-        if not result.ok then
-            warn("Dig failed:", result.reason)
-        end
-    end)
-end
-
-local function purchaseUpgrade(upgradeType)
-    local profile = ProfileCache:get()
-    if not profile then return end
-    
-    -- Client-side validation
-    local cost = getUpgradeCost(upgradeType, profile.upgrades[upgradeType])
-    if profile.coins < cost then
-        showNotification({
-            type = "error",
-            message = "Not enough coins!"
-        })
-        return
-    end
-    
-    local result = Remotes.RF.PurchaseUpgrade:InvokeServer(upgradeType)
-    if result.success then
-        showNotification({
-            type = "success",
-            message = "Upgrade purchased!"
-        })
-    else
-        showNotification({
-            type = "error",
-            message = result.reason
-        })
-    end
-end
-
--- Initialize
-ConnectionManager:init()
-
--- Initial profile load
-task.spawn(function()
-    local profile = ProfileCache:get()
-    if profile then
-        initializeUI(profile)
-    end
-end)
-
--- Cleanup on leave
-game.AncestryChanged:Connect(function()
-    if not game.Parent then
-        ConnectionManager:cleanup()
-    end
-end)
-```
-
----
-
-## Migration Notes
-
-### Deprecated Functions
-None currently - all listed functions are active.
-
-### Future Additions
-The following features are planned but not yet implemented:
-- **Pet Management**: `EquipPet`, `UnequipPet`, `UpgradePet`
-- **Multiplayer**: `VisitNeighbor`, `ReturnHome`, `GetNeighborhood`
-- **Social**: Achievement system, Trading, Clans/Guilds
-
-### Version Compatibility
-- Current API Version: 1.0
-- Minimum Client Version: 1.0
-- Breaking changes will increment major version
-
-### Upgrading Guidelines
-When new API versions are released:
-1. Check migration notes for breaking changes
-2. Update client code to handle new response formats
-3. Test thoroughly in Studio before production
-4. Consider backward compatibility for older clients
-
-[← RemoteEvents](API_REMOTE_EVENTS.md) | [Back to API Documentation](API_DOCUMENTATION.md)
+- [Remote Architecture](REMOTE_ARCHITECTURE.md) - Complete remote system
+- [EventBus System](EVENTBUS_SYSTEM.md) - Event patterns
+- [Service Architecture](SERVICE_ARCHITECTURE.md) - Service patterns
+- [API RemoteFunctions](API_REMOTE_FUNCTIONS.md) - RF reference
+- [API RemoteEvents](API_REMOTE_EVENTS.md) - Event reference
