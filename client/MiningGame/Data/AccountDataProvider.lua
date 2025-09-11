@@ -5,6 +5,16 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
+-- Use EventBus for events
+local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
+local Ready = require(MiningGame:WaitForChild("Ready"))
+local Time = require(MiningGame:WaitForChild("Time"))
+local EventBus = require(MiningGame:WaitForChild("EventBus"))
+local EventNames = require(MiningGame:WaitForChild("EventNames"))
+local ClientRF = require(MiningGame:WaitForChild("ClientRF"))
+local PlayerProfileGuard = require(MiningGame:WaitForChild("PlayerProfileGuard"))
+local Bus = EventBus.global()
+
 local AccountDataProvider = {}
 AccountDataProvider.__index = AccountDataProvider
 
@@ -23,6 +33,8 @@ export type Profile = {
     inventory: {[string]: any}?,
     settings: {[string]: any}?,
     statistics: {[string]: number}?,
+    upgrades: {[string]: number}?,
+    equipped: {[string]: any}?,
 }
 
 export type AccountSnapshot = {
@@ -44,6 +56,7 @@ function AccountDataProvider.new(remotes: any, uiUtils: any?)
     self._lastUpdated = 0
     self._isLoading = false
     self._connections = {} :: {RBXScriptConnection}
+    self._busUnsubs = {} :: {() -> ()}
     
     -- Event for changes
     self._changed = Instance.new("BindableEvent")
@@ -65,7 +78,7 @@ function AccountDataProvider:getSnapshot(): AccountSnapshot
     return {
         profile = self._profile or self:_getDefaultProfile(),
         cubeStats = self._cubeStats,
-        sessionStartTime = self._sessionStartTime or os.time(), -- Safe fallback
+        sessionStartTime = self._sessionStartTime or Time.unix(), -- Safe fallback
         lastUpdated = self._lastUpdated,
         isLoading = self._isLoading,
     }
@@ -80,10 +93,23 @@ function AccountDataProvider:refresh()
 end
 
 function AccountDataProvider:destroy()
-    for _, conn in ipairs(self._connections) do
-        if conn then conn:Disconnect() end
+    -- Clean up EventBus subscriptions
+    if self._busUnsubs then
+        for _, unsub in ipairs(self._busUnsubs) do
+            pcall(unsub)
+        end
+        self._busUnsubs = nil
     end
-    self._connections = {}
+    
+    -- Clean up RBXScriptConnections
+    if self._connections then
+        for _, conn in ipairs(self._connections) do
+            if typeof(conn) == "RBXScriptConnection" then
+                pcall(function() conn:Disconnect() end)
+            end
+        end
+        self._connections = nil
+    end
     
     if self._changed then
         self._changed:Destroy()
@@ -100,49 +126,57 @@ function AccountDataProvider:_getDefaultProfile(): Profile
         totalBlocksDug = 0,
         currentDepth = 0,
         maxDepth = 0,
-        joinTime = os.time(),
+        joinTime = Time.unix(),
         playTime = 0,
         username = "Loading...",
         displayName = "Loading...",
         userId = 0,
+        upgrades = { speed = 0, size = 0 },
+        inventory = {},  -- add these two
+        equipped = {},   -- add these two
     }
 end
 
 function AccountDataProvider:_fetchInitialData()
     if self._isLoading then return end
     
+    -- Defensive check: if server isn't ready yet, defer until it is
+    if not Ready.wait(0) then
+        -- Server not ready, set up deferred fetch
+        local conn
+        conn = MiningGame:GetAttributeChangedSignal("ServerReady"):Connect(function()
+            if MiningGame:GetAttribute("ServerReady") then
+                conn:Disconnect()
+                self:_fetchInitialData() -- Retry when ready
+            end
+        end)
+        return
+    end
+    
     self._isLoading = true
     self:_notifyChange()
     
     task.spawn(function()
-        local profileData = nil
-        
-        -- Use UIUtils if available, otherwise direct remote call
-        if self._uiUtils and self._uiUtils.getProfileWithRetry then
-            profileData = self._uiUtils.getProfileWithRetry(self._remotes, 3, 1)
-        else
-            local success, result = pcall(function()
-                return self._remotes.RF.GetProfile:InvokeServer()
-            end)
-            if success then
-                profileData = result
-            end
-        end
+        -- Use PlayerProfileGuard for centralized profile access
+        local profile, err = PlayerProfileGuard.get()
         
         self._isLoading = false
         
-        if profileData then
-            if profileData.profile then
-                self:_updateProfile(profileData.profile)
-                -- Prefer server-authored session start time
-                self._sessionStartTime = profileData.profile.sessionStartTime 
-                    or profileData.profile.joinTime 
-                    or self._sessionStartTime 
-                    or os.time()
+        if profile then
+            self:_updateProfile(profile)
+            -- Prefer server-authored session start time
+            self._sessionStartTime = profile.sessionStartTime 
+                or profile.joinTime 
+                or self._sessionStartTime 
+                or Time.unix()
+            
+            -- Cube stats are now included in the GetProfile response
+            if profile.cubeStats then
+                self._cubeStats = profile.cubeStats
             end
-            if profileData.cubeStats then
-                self._cubeStats = profileData.cubeStats
-            end
+        elseif err then
+            -- Log error but don't crash
+            warn("[AccountDataProvider] Failed to fetch profile:", err)
         end
     end)
 end
@@ -157,7 +191,7 @@ function AccountDataProvider:_updateProfile(newData: {[string]: any})
         (self._profile :: any)[key] = value
     end
     
-    self._lastUpdated = os.time()
+    self._lastUpdated = Time.unix()
     self:_notifyChange()
 end
 
@@ -167,7 +201,7 @@ function AccountDataProvider:_updateField(key: string, value: any)
     end
     
     (self._profile :: any)[key] = value
-    self._lastUpdated = os.time()
+    self._lastUpdated = Time.unix()
     self:_notifyChange(key, value)
 end
 
@@ -176,28 +210,68 @@ function AccountDataProvider:_notifyChange(key: string?, value: any?)
 end
 
 function AccountDataProvider:_setupEventListeners()
-    local RE = self._remotes and self._remotes.RE
-    if not RE then return end
+    -- Store unsubscribe functions for cleanup
+    self._busUnsubs = {}
+    
+    -- Profile updates (full snapshot from server)
+    table.insert(self._busUnsubs, Bus:on(EventNames.PROFILE_UPDATED, function(profile)
+        self._profile = profile
+        self._changed:Fire(nil, nil, self:getSnapshot())
+    end))
     
     -- Currency changes
-    if RE.OnCurrencyChanged then
-        local conn = RE.OnCurrencyChanged.OnClientEvent:Connect(function(currencyType: string, newValue: number)
-            if currencyType == "coins" then
-                self:_updateField("coins", newValue)
-            elseif currencyType == "gems" then
-                self:_updateField("gems", newValue)
+    table.insert(self._busUnsubs, Bus:on(EventNames.CURRENCY_CHANGED, function(currencyData)
+        local p = self._profile or self:_getDefaultProfile()
+        local c = currencyData
+        if c then
+            if c.currency == "coins" then 
+                p.coins = c.balance 
             end
-        end)
-        table.insert(self._connections, conn)
-    end
+            if c.currency == "gems" then 
+                p.gems = c.balance 
+            end
+        end
+        self._profile = p
+        self._changed:Fire(nil, nil, self:getSnapshot())
+    end))
     
-    -- Profile updates
-    if RE.OnProfileUpdate then
-        local conn = RE.OnProfileUpdate.OnClientEvent:Connect(function(profileData: {[string]: any})
-            self:_updateProfile(profileData)
-        end)
-        table.insert(self._connections, conn)
-    end
+    -- Inventory changes (full snapshot)
+    table.insert(self._busUnsubs, Bus:on(EventNames.INVENTORY_CHANGED, function(inventory)
+        local p = self._profile or self:_getDefaultProfile()
+        p.inventory = inventory
+        self._profile = p
+        self._changed:Fire(nil, nil, self:getSnapshot())
+    end))
+
+    -- Inventory deltas (incremental updates)
+    table.insert(self._busUnsubs, Bus:on(EventNames.INVENTORY_DELTA, function(delta)
+        local p = self._profile or self:_getDefaultProfile()
+        p.inventory = p.inventory or {}
+        for itemId, inc in pairs(delta) do
+            local current = p.inventory[itemId] or 0
+            p.inventory[itemId] = current + inc
+        end
+        self._profile = p
+        self._changed:Fire("inventoryDelta", delta, self:getSnapshot())
+    end))
+    
+    -- Debug reset via EventBus - refresh entire profile
+    table.insert(self._busUnsubs, Bus:on(EventNames.DEBUG_RESET, function()
+        -- Refetch entire profile from server
+        self:_fetchInitialData()
+    end))
+    
+    -- Boosts changes via EventBus (keeping for compatibility)
+    table.insert(self._busUnsubs, Bus:on(EventNames.BOOSTS_CHANGED, function(boosts)
+        local prof = self._profile or self:_getDefaultProfile()
+        prof.boosts = boosts
+        self:_notifyChange("boosts", boosts)
+    end))
+    
+    -- Upgrades changes via EventBus
+    table.insert(self._busUnsubs, Bus:on(EventNames.UPGRADES_CHANGED, function(upgrades)
+        self:_updateField("upgrades", upgrades)
+    end))
 end
 
 return AccountDataProvider
