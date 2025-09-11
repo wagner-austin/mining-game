@@ -4,20 +4,40 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ServerScriptService = game:GetService("ServerScriptService")
 local Terrain = workspace.Terrain
 
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
 local Logger = require(MiningGame:WaitForChild("Logger"))
+local ErrorService = require(script.Parent.ErrorService)  -- Foundation service
 local log = Logger.new("CubeMaterialService")
-local ServerMiningGame = ServerScriptService:WaitForChild("MiningGame")
+local ServiceValidator = require(MiningGame:WaitForChild("ServiceValidator"))
+local TerrainSurfaceDetector = require(MiningGame:WaitForChild("TerrainSurfaceDetector"))
 local GameConfig = require(MiningGame:WaitForChild("GameConfig"))
 local MaterialKeys = require(MiningGame:WaitForChild("MaterialKeys"))
 local MaterialDefinitions = require(MiningGame:WaitForChild("MaterialDefinitions"))
-local Remotes = require(ServerMiningGame:WaitForChild("Remotes"))
-local DataService = require(ServerMiningGame:WaitForChild("DataService"))
+local Remotes = require(MiningGame:WaitForChild("Remotes"))
+local EventBus = require(MiningGame:WaitForChild("EventBus"))
+local EventNames = require(MiningGame:WaitForChild("EventNames"))
+local EventContracts = require(MiningGame:WaitForChild("EventContracts"))
+local Bus = EventBus.global()
+
+-- Services (injected via Init)
+local DataService
+local GridService
 
 local Service = {}
+Service.__index = Service
+
+-- Initialize with DI container
+function Service:Init(container)
+    GridService = ServiceValidator.get(container, "GridService")
+    DataService = ServiceValidator.get(container, "DataService", {"GetPlayerData", "GetMaterialPrefs", "QueueSave"})
+    log:info("Initialized with dependencies")
+end
+
+-- Constants from GameConfig
+local VOX = GameConfig.Terrain.VOXEL_RESOLUTION
+local MIN_WATER = GameConfig.Terrain.MIN_WATER_OCCUPANCY
 
 -- Precomputed list of all terrain materials
 local ALL_TERRAIN_ENUMS = MaterialDefinitions.AllTerrainEnums
@@ -82,8 +102,8 @@ local function paintCubeVolume(player: Player, mat: Enum.Material)
                     if occupancies[x][y][z] > 0 and materials[x][y][z] ~= Enum.Material.Air then
                         materials[x][y][z] = Enum.Material.Water
                         -- Ensure water is visible even on thin surfaces
-                        if occupancies[x][y][z] < 0.3 then
-                            occupancies[x][y][z] = 0.3
+                        if occupancies[x][y][z] < MIN_WATER then
+                            occupancies[x][y][z] = MIN_WATER
                         end
                     end
                 end
@@ -93,12 +113,20 @@ local function paintCubeVolume(player: Player, mat: Enum.Material)
         -- Write back the modified voxels
         Terrain:WriteVoxels(region, RESOLUTION, materials, occupancies)
         log:debug("Cube volume painted with Water (preserving shape)")
+        -- Clear surface detection cache after terrain change
+        ErrorService.safecall("TerrainSurfaceDetector.ClearCache", function()
+            TerrainSurfaceDetector.ClearCache()
+        end)
     else
         -- Standard replacement for non-water materials - replace ALL terrain in the cube
         for _, srcMaterial in ipairs(materialsToReplace) do
             Terrain:ReplaceMaterial(region, RESOLUTION, srcMaterial, mat)
         end
         log:debug("Cube volume painted successfully with {}", tostring(mat))
+        -- Clear surface detection cache after terrain change
+        ErrorService.safecall("TerrainSurfaceDetector.ClearCache", function()
+            TerrainSurfaceDetector.ClearCache()
+        end)
     end
 end
 
@@ -148,14 +176,17 @@ local function replaceFloorMaterial(player: Player, mat: Enum.Material)
                     -- fill only where something already exists (don't build new floor here)
                     if occupancies[x][y][z] > 0 and materials[x][y][z] ~= Enum.Material.Air then
                         materials[x][y][z] = Enum.Material.Water
-                        if occupancies[x][y][z] < 0.3 then
-                            occupancies[x][y][z] = 0.3
+                        if occupancies[x][y][z] < MIN_WATER then
+                            occupancies[x][y][z] = MIN_WATER
                         end
                     end
                 end
             end
         end
         Terrain:WriteVoxels(cubeFloorRegion, RESOLUTION, materials, occupancies)
+        ErrorService.safecall("TerrainSurfaceDetector.ClearCache", function()
+            TerrainSurfaceDetector.ClearCache()
+        end)
     else
         for _, srcMaterial in ipairs(allTerrainMaterials) do
             Terrain:ReplaceMaterial(cubeFloorRegion, RESOLUTION, srcMaterial, mat)
@@ -185,7 +216,7 @@ local function replaceFloorMaterial(player: Player, mat: Enum.Material)
                         for z = 1, sz do
                             if occs[x][y][z] > 0 and mats[x][y][z] ~= Enum.Material.Air then
                                 mats[x][y][z] = Enum.Material.Water
-                                if occs[x][y][z] < 0.3 then occs[x][y][z] = 0.3 end
+                                if occs[x][y][z] < MIN_WATER then occs[x][y][z] = MIN_WATER end
                             end
                         end
                     end
@@ -202,27 +233,39 @@ local function replaceFloorMaterial(player: Player, mat: Enum.Material)
     end
     
     log:debug("Replaced floor material under {} neon bars", replacedCount)
+    -- Clear cache after all floor changes
+    ErrorService.safecall("TerrainSurfaceDetector.ClearCache", function()
+        TerrainSurfaceDetector.ClearCache()
+    end)
 end
 
 -- Remote function handlers
 function Service.ApplyCubeSurfaceMaterial(player: Player, key: string)
-    if type(key) ~= "string" then
-        log:warn("Invalid material key type")
-        return false
-    end
+    -- DEPRECATED: Single material mode removed - redirect to composition
+    log:info("Single material mode deprecated - applying default theme instead")
     
-    local mat = getTerrainMaterial(key)
-    log:info("Player {} requesting cube material: {} -> {}", 
-        player.Name, key, tostring(mat))
+    local prefs = DataService:GetMaterialPrefs(player) or {}
     
-    paintCubeVolume(player, mat)  -- Paint entire volume, not just shell
+    -- Force composition mode with underwater cave theme
+    DataService:UpdateMaterialPrefs(player, {
+        mode = "composition",
+        activeThemeId = prefs.activeThemeId or "underwater_cave",
+        compositionSeed = prefs.compositionSeed or Random.new():NextInteger(1, 1000000),
+        variationMode = "PER_REGEN",
+    })
     
-    -- Save the preference
-    pcall(function() 
-        DataService:UpdateMaterialPrefs(player, { cubeMaterial = string.lower(key) }) 
-    end)
+    -- Emit event to apply the composition (decoupled from CompositionService)
+    Bus:emit(EventNames.COMPOSITION_APPLY_REQUEST, {
+        to = { kind = "server" },
+        payload = EventContracts.COMPOSITION_APPLY_REQUEST({
+            userId = player.UserId,
+            variationMode = prefs.variationMode or "PER_REGEN",
+            preserveAir = true,
+        })
+    })
     
-    return true
+    -- Return success (application happens asynchronously via event)
+    return true, nil
 end
 
 function Service.ApplyFloorMaterial(player: Player, key: string)
@@ -256,11 +299,8 @@ function Service.SetPalettePreference(player: Player, paletteKey: string)
     return DataService:UpdateMaterialPrefs(player, { palette = string.lower(paletteKey) })
 end
 
--- Bind remote functions
-Remotes.RF.ApplyCubeSurfaceMaterial.OnServerInvoke = Service.ApplyCubeSurfaceMaterial
-Remotes.RF.ApplyFloorMaterial.OnServerInvoke = Service.ApplyFloorMaterial
-Remotes.RF.GetMaterialPreferences.OnServerInvoke = Service.GetMaterialPreferences
-Remotes.RF.SetPalettePreference.OnServerInvoke = Service.SetPalettePreference
+-- [MIGRATED TO CubeMaterialServiceRemotes.lua]
+-- All remote handlers now use centralized RemoteManager pattern
 
 log:info("Initialized")
 
