@@ -7,13 +7,18 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
 
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
+local Time = require(MiningGame:WaitForChild("Time"))
 local Logger = require(MiningGame:WaitForChild("Logger"))
 local log = Logger.new(Logger.CAT.UserMetrics or "UserMetricsService")
+local MathUtils = require(MiningGame:WaitForChild("MathUtils"))
+local ServiceValidator = require(MiningGame:WaitForChild("ServiceValidator"))
 
+-- Services (injected via Init)
 local DataService
 local SessionService
 local UpgradeService
 local GridService
+local MonetizationService  -- Optional
 
 export type UserMetrics = {
     userId: number,
@@ -83,38 +88,47 @@ local function safeDiv(a: number, b: number): number
     return a / b
 end
 
-function UserMetricsService.new()
-    local self = setmetatable({}, UserMetricsService)
+-- Initialize with DI container
+function UserMetricsService:Init(container)
+    DataService = ServiceValidator.get(container, "DataService", {
+        "GetPlayerData", "GetCubeData", "EnsureLoaded", "QueueSave"
+    })
+    SessionService = ServiceValidator.tryGet(container, "SessionService", {"getSessionStartTime"})
+    UpgradeService = ServiceValidator.get(container, "UpgradeService", {
+        "GetPlayerGamepasses", "GetActivePets", "ComputeEffectiveStats"
+    })
+    GridService = ServiceValidator.get(container, "GridService", {"GetChunkStats"})
+    MonetizationService = ServiceValidator.tryGet(container, "MonetizationService", {"GetMetrics"})
+    
+    log:info("Initialized with dependencies")
+end
 
-    task.defer(function()
-        DataService = require(script.Parent:WaitForChild("DataService"))
-        SessionService = require(script.Parent:WaitForChild("SessionService"))
-        UpgradeService = require(script.Parent:WaitForChild("UpgradeService"))
-        GridService = require(script.Parent:WaitForChild("GridService"))
-    end)
-
+-- Start method to connect events after all services are initialized
+function UserMetricsService:Start(container)
+    -- Set up player cleanup
     Players.PlayerRemoving:Connect(function(p)
         cache[p] = nil
     end)
+    
+    log:info("Started with player connections")
+end
 
+function UserMetricsService.new()
+    local self = setmetatable({}, UserMetricsService)
     return self
 end
 
 function UserMetricsService:GetMetrics(player: Player): UserMetrics?
-    local t0 = os.clock()
+    local t0 = Time.mono()
     local uid = player.UserId
     
     -- Cache current time for consistency
-    local now = os.time()
+    local now = Time.unix()
     
-    -- Ensure services are loaded
+    -- Services should be loaded via Init
     if not DataService then
-        pcall(function()
-            DataService = require(script.Parent.DataService)
-            SessionService = require(script.Parent.SessionService)
-            UpgradeService = require(script.Parent.UpgradeService)
-            GridService = require(script.Parent.GridService)
-        end)
+        log:error("Services not initialized - Init() not called?")
+        return nil
     end
     
     local c = cache[player]
@@ -143,11 +157,11 @@ function UserMetricsService:GetMetrics(player: Player): UserMetrics?
     local cube = DataService:GetCubeData(player)
 
     local sessionStart = (SessionService and SessionService.getSessionStartTime(player.UserId)) or profile.sessionStartTime or now
-    local sessionDur = math.max(0, now - sessionStart)
+    local sessionDur = MathUtils.nonNegative(now - sessionStart)
     local sessionMin = sessionDur / 60
 
     -- Calculate blocks dug this session
-    local currentBlocks = math.max(0, profile.totalBlocksDug or 0)
+    local currentBlocks = MathUtils.nonNegative(profile.totalBlocksDug or 0)
     local sessionStartBlocks = profile.sessionStartBlocks
     
     -- If sessionStartBlocks is nil, this means the session tracking hasn't been set up yet
@@ -155,7 +169,7 @@ function UserMetricsService:GetMetrics(player: Player): UserMetrics?
     local dugThisSession = 0
     if sessionStartBlocks ~= nil then
         -- Clamp to handle resets
-        sessionStartBlocks = math.max(0, sessionStartBlocks)
+        sessionStartBlocks = MathUtils.nonNegative(sessionStartBlocks)
         if currentBlocks < sessionStartBlocks then
             sessionStartBlocks = currentBlocks
             profile.sessionStartBlocks = currentBlocks
@@ -241,11 +255,8 @@ function UserMetricsService:GetMetrics(player: Player): UserMetrics?
         lastUpdated = now,
     }
     
-    -- Add monetization metrics (lazy require to avoid cycles)
-    local okMon, MonetizationService = pcall(function()
-        return require(script.Parent.MonetizationService)
-    end)
-    if okMon and MonetizationService and typeof(MonetizationService.GetMetrics) == "function" then
+    -- Add monetization metrics (optional service)
+    if MonetizationService then
         m.monetization = MonetizationService:GetMetrics(player)
     end
 
@@ -263,7 +274,7 @@ function UserMetricsService:GetMetrics(player: Player): UserMetrics?
 end
 
 function UserMetricsService:GetServerMetrics()
-    local t0 = os.clock()
+    local t0 = Time.mono()
     local totalPlayers, totalBlocks, totalCoins, totalPlaytime = 0,0,0,0
     for _, p in ipairs(Players:GetPlayers()) do
         local m = self:GetMetrics(p)
