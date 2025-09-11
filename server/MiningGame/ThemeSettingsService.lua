@@ -8,8 +8,11 @@ local Players = game:GetService("Players")
 local MG = ReplicatedStorage:WaitForChild("MiningGame")
 local Logger = require(MG:WaitForChild("Logger"))
 local log = Logger.new("ThemeSettingsService")
-local Remotes = require(script.Parent.Remotes)
-local DataService = require(script.Parent.DataService)
+local ServiceValidator = require(MG:WaitForChild("ServiceValidator"))
+local Remotes = require(MG:WaitForChild("Remotes"))
+
+-- Services (injected via Init)
+local DataService
 
 -- Whitelist UI themes from shared packs
 local ThemePacks = require(MG:WaitForChild("UI"):WaitForChild("ThemePacks"))
@@ -27,54 +30,23 @@ local function soundPackExists(name: string): boolean
     return m ~= nil and m:IsA("ModuleScript")
 end
 
--- GET theme settings
-Remotes.RF.GetThemeSettings.OnServerInvoke = function(player: Player)
-    DataService:EnsureLoaded(player)
-    return DataService:GetThemeSettings(player)
+-- Service definition
+local ThemeSettingsService = {}
+ThemeSettingsService.__index = ThemeSettingsService
+
+type ThemeSettingsServiceT = {
+    Init: (self: ThemeSettingsServiceT, container: any) -> (),
+}
+
+-- Initialize with DI container
+function ThemeSettingsService:Init(container)
+    DataService = ServiceValidator.get(container, "DataService", {"GetPlayerData", "QueueSave"})
+    log:info("Initialized with dependencies")
 end
 
--- UPDATE theme settings { uiTheme?: string, soundPack?: string }
-Remotes.RF.UpdateThemeSettings.OnServerInvoke = function(player: Player, patch)
-    if typeof(patch) ~= "table" then 
-        log:warn("Invalid patch type from %s", player.Name)
-        return false 
-    end
-
-    local clean: {[string]: string} = {}
-
-    -- Validate UI theme
-    if patch.uiTheme ~= nil then
-        if typeof(patch.uiTheme) == "string" and AllowedUI[patch.uiTheme] then
-            clean.uiTheme = patch.uiTheme
-            log:info("%s changing UI theme to: %s", player.Name, patch.uiTheme)
-        else
-            log:warn("Invalid UI theme from %s: %s", player.Name, tostring(patch.uiTheme))
-        end
-    end
-
-    -- Validate sound pack
-    if patch.soundPack ~= nil then
-        if typeof(patch.soundPack) == "string" and soundPackExists(patch.soundPack) then
-            clean.soundPack = patch.soundPack
-            log:info("%s changing sound pack to: %s", player.Name, patch.soundPack)
-        else
-            log:warn("Invalid sound pack from %s: %s", player.Name, tostring(patch.soundPack))
-        end
-    end
-
-    if next(clean) == nil then 
-        log:warn("No valid changes in patch from %s", player.Name)
-        return false 
-    end
-
-    DataService:EnsureLoaded(player)
-    local success = DataService:SetThemeSettings(player, clean)
-    if success then
-        log:info("Saved theme settings for uid=%d", player.UserId)
-    end
-    return success
-end
+-- [MIGRATED TO ThemeSettingsServiceRemotes.lua]
+-- All remote handlers now use centralized RemoteManager pattern
 
 log:info("Initialized")
 
-return {}
+return ThemeSettingsService
