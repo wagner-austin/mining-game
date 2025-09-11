@@ -5,6 +5,10 @@ local RS         = game:GetService("ReplicatedStorage")
 local UIS        = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 
+local MiningGame = RS:WaitForChild("MiningGame")
+local MathUtils = require(MiningGame:WaitForChild("MathUtils"))
+local Time = require(MiningGame:WaitForChild("Time"))
+
 local movementFolder = script.Parent          -- "Movement"
 local character      = movementFolder.Parent
 local humanoid       = character:WaitForChild("Humanoid")
@@ -19,8 +23,8 @@ if DJ.enabled == false then
     return -- feature disabled
 end
 
-local firedBE = movementFolder:FindFirstChild("DoubleJumpFired") or Instance.new("BindableEvent")
-firedBE.Name = "DoubleJumpFired"; firedBE.Parent = movementFolder
+-- Removed unused DoubleJumpFired BindableEvent
+-- If server authority is needed, use EventBus/RemoteEventBridge instead
 
 local MAX_JUMPS     = DJ.maxJumps or 2
 local DOUBLE_SCALE  = DJ.scale or 1.0
@@ -28,7 +32,7 @@ local IMPULSE_SCALE = DJ.impulseScale or 0.7
 local COYOTE_TIME   = DJ.coyoteTime or 0.12
 local JUMP_COOLDOWN = DJ.jumpCooldown or 0.10
 
-local charges        = math.max(0, MAX_JUMPS - 1)
+local charges        = MathUtils.saturatingSub(MAX_JUMPS, 1)
 local isGrounded     = true
 local lastGroundedT  = 0
 local lastJumpPressT = 0
@@ -59,9 +63,9 @@ end
 
 RunService.Heartbeat:Connect(function()
     local g = groundedNow()
-    if g then lastGroundedT = os.clock() end
+    if g then lastGroundedT = Time.mono() end
     if not isGrounded and g then
-        charges = math.max(0, MAX_JUMPS - 1)
+        charges = MathUtils.saturatingSub(MAX_JUMPS, 1)
         setCharges(charges)
     end
     isGrounded = g
@@ -71,13 +75,13 @@ UIS.JumpRequest:Connect(function()
     -- Skip if character is dead
     if humanoid.Health <= 0 or humanoid:GetState() == Enum.HumanoidStateType.Dead then return end
     
-    local now = os.clock()
+    local now = Time.mono()
     if now - lastJumpPressT < JUMP_COOLDOWN then return end
     lastJumpPressT = now
 
     local groundedish = isGrounded or (now - lastGroundedT) <= COYOTE_TIME
     if groundedish then
-        charges = math.max(0, MAX_JUMPS - 1)
+        charges = MathUtils.saturatingSub(MAX_JUMPS, 1)
         setCharges(charges)
         return
     end
@@ -98,6 +102,7 @@ UIS.JumpRequest:Connect(function()
         local impulseStrength = jumpVelocity * IMPULSE_SCALE
         root:ApplyImpulse(Vector3.new(0, root.AssemblyMass * impulseStrength, 0))
 
-        firedBE:Fire(root.Position)
+        -- Double jump executed successfully
+        -- Add EventBus emit here if needed for telemetry/effects
     end
 end)
