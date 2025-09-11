@@ -8,7 +8,9 @@ local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
-local Theme = require(MiningGame:WaitForChild("UI"):WaitForChild("Theme"))
+local UIFolder = MiningGame:WaitForChild("UI")
+local Theme = require(UIFolder:WaitForChild("Theme"))
+local UIx = require(UIFolder:WaitForChild("UIConstants"))
 local Logger = require(MiningGame:WaitForChild("Logger"))
 
 local log = Logger.new(Logger.CAT.Panel)
@@ -43,6 +45,9 @@ function BasePanel.new(props: Props)
         table.insert(self._cons, c)
         return c
     end
+    
+    -- Timer management
+    self._timers = {} :: {thread}
     
     -- Responsive sizing based on viewport
     local camera = workspace.CurrentCamera
@@ -82,7 +87,7 @@ function BasePanel.new(props: Props)
                     if clickPos.X < absPos.X or clickPos.X > absPos.X + absSize.X or
                        clickPos.Y < absPos.Y or clickPos.Y > absPos.Y + absSize.Y then
                         -- Small delay to prevent accidental closes
-                        task.wait(0.05)
+                        task.wait(UIx.Anim.TINY)
                         if self.isOpen then
                             self:close()
                         end
@@ -169,7 +174,7 @@ function BasePanel.new(props: Props)
     noise.ImageColor3 = tinted
     noise.ImageTransparency = frost.noiseTransparency
     noise.ScaleType = Enum.ScaleType.Tile
-    noise.TileSize = UDim2.fromOffset(64, 64)
+    noise.TileSize = UDim2.fromOffset(UIx.Visual.TILE_SIZE, UIx.Visual.TILE_SIZE)
     noise.Size = UDim2.fromScale(1, 1)
     noise.ZIndex = 0
     noise.Parent = backgroundLayer
@@ -187,7 +192,7 @@ function BasePanel.new(props: Props)
     -- Title (scale-based padding)
     local title = Instance.new("TextLabel")
     title.Name = "Title"
-    title.Size = UDim2.new(1, -80, 1, 0)
+    title.Size = UDim2.new(1, -(UIx.Size.BUTTON_WIDTH // 3), 1, 0)  -- Leave room for close button
     title.Position = UDim2.new(0, panelConfig.contentPadding, 0, 0)
     title.BackgroundTransparency = 1
     title.Text = props.title:upper()
@@ -241,14 +246,14 @@ function BasePanel.new(props: Props)
     -- Content area (scrollable, in content layer)
     local contentContainer = Instance.new("ScrollingFrame")
     contentContainer.Name = "Content"
-    contentContainer.Size = UDim2.new(1, -panelConfig.contentPadding*2, 1, -(panelConfig.headerHeight + 20))
-    contentContainer.Position = UDim2.new(0, panelConfig.contentPadding, 0, panelConfig.headerHeight + 10)
+    contentContainer.Size = UDim2.new(1, -panelConfig.contentPadding*2, 1, -(panelConfig.headerHeight + UIx.Spacing.LG))
+    contentContainer.Position = UDim2.new(0, panelConfig.contentPadding, 0, panelConfig.headerHeight + UIx.Spacing.SM)
     contentContainer.BackgroundTransparency = 1
     contentContainer.BorderSizePixel = 0
-    contentContainer.ScrollBarThickness = isPhone and 16 or 10  -- Wider for easier touch
+    contentContainer.ScrollBarThickness = isPhone and UIx.Spacing.MD or UIx.Spacing.SM  -- Wider for easier touch
     contentContainer.ScrollBarImageColor3 = colors.Text
     contentContainer.ScrollBarImageTransparency = 0.5
-    contentContainer.CanvasSize = UDim2.new(0, 0, 0, 0)  -- Let AutomaticCanvasSize handle it
+    contentContainer.CanvasSize = UIx.Common.ORIGIN  -- Let AutomaticCanvasSize handle it
     contentContainer.AutomaticCanvasSize = Enum.AutomaticSize.Y
     contentContainer.ScrollingDirection = Enum.ScrollingDirection.Y
     contentContainer.ElasticBehavior = Enum.ElasticBehavior.Always  -- Bouncy scrolling
@@ -261,9 +266,9 @@ function BasePanel.new(props: Props)
         contentPadding.Parent = contentContainer
     end
     contentPadding.PaddingRight = UDim.new(0, (contentContainer.ScrollBarThickness or 12) + 8)
-    contentPadding.PaddingLeft = UDim.new(0, 4)
-    contentPadding.PaddingTop = UDim.new(0, 4)
-    contentPadding.PaddingBottom = UDim.new(0, 4)
+    contentPadding.PaddingLeft = UDim.new(0, UIx.Spacing.TINY)
+    contentPadding.PaddingTop = UDim.new(0, UIx.Spacing.TINY)
+    contentPadding.PaddingBottom = UDim.new(0, UIx.Spacing.TINY)
     
     -- Interactive scale for animations (only on background layer)
     local scale = Instance.new("UIScale")
@@ -546,7 +551,7 @@ function BasePanel:_startTextReveal(duration, delay, bandPx)
     self._textReveal = tr
     tr.conn = progress.Changed:Connect(update)
     
-    task.delay(delay or 0.08, function()
+    self:_setTimeout(delay or 0.08, function()
         log:debug("[_startTextReveal] Delay finished, checking state - isOpen: %s, textReveal match: %s", tostring(self.isOpen), tostring(self._textReveal == tr))
         -- Canceled while we waited or panel closed?
         if not self.isOpen or self._textReveal ~= tr then
@@ -752,7 +757,54 @@ function BasePanel:getContent(): ScrollingFrame
     return self.content
 end
 
+-- Timer helper functions
+function BasePanel:_setTimeout(delay: number, fn: () -> ())
+    local th
+    th = task.delay(delay, function()
+        if self and not self._destroyed then
+            local ok, err = pcall(fn)
+            if not ok then 
+                warn(("[BasePanel] timer error: %s"):format(tostring(err))) 
+            end
+        end
+        -- Self-prune from timers array
+        if self._timers then
+            for i, h in ipairs(self._timers) do
+                if h == th then 
+                    table.remove(self._timers, i) 
+                    break 
+                end
+            end
+        end
+    end)
+    table.insert(self._timers, th)
+    return th
+end
+
+function BasePanel:_clearTimeout(h: thread?)
+    if not h then return end
+    pcall(task.cancel, h)
+    if self._timers then
+        for i, hh in ipairs(self._timers) do
+            if hh == h then 
+                table.remove(self._timers, i) 
+                break 
+            end
+        end
+    end
+end
+
 function BasePanel:destroy()
+    self._destroyed = true  -- Mark as destroyed to prevent timer callbacks
+    
+    -- Cancel all timers
+    if self._timers then
+        for _, th in ipairs(self._timers) do
+            pcall(task.cancel, th)
+        end
+        self._timers = {}
+    end
+    
     -- Disconnect all connections
     for _, c in ipairs(self._cons) do
         if c and c.Disconnect then
