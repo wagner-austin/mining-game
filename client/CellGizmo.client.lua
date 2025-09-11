@@ -3,7 +3,13 @@
 -- Visual indicator for dig cells
 
 local RS = game:GetService("ReplicatedStorage")
-local Remotes = require(RS.MiningGame.Remotes)
+local MiningGame = RS:WaitForChild("MiningGame")
+local EventBus = require(MiningGame:WaitForChild("EventBus"))
+local EventNames = require(MiningGame:WaitForChild("EventNames"))
+local Bus = EventBus.global()
+
+-- Store connections for cleanup
+local connections = {} :: {{ Disconnect: () -> () }}
 
 local function flash(pos: Vector3)
     local p = Instance.new("Part")
@@ -26,9 +32,18 @@ local function flash(pos: Vector3)
     end)
 end
 
-Remotes.RE.OnTerrainPoke.OnClientEvent:Connect(function(payload)
+-- Listen for terrain poke events via EventBus
+local off = Bus:on(EventNames.TERRAIN_POKE, function(payload)
     if payload and payload.pos then
         flash(payload.pos)
+    end
+end)
+table.insert(connections, { Disconnect = off })
+
+-- Cleanup on script destroy (for hot-reloads)
+script.Destroying:Connect(function()
+    for _, c in ipairs(connections) do
+        if c and c.Disconnect then c.Disconnect() end
     end
 end)
 
