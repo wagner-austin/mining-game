@@ -220,7 +220,7 @@ print("Found", #bones, "bones")
 -- Simple wave test (this ONLY works if mesh is client-owned or via RemoteEvents)
 game:GetService("RunService").RenderStepped:Connect(function()
     for i, bone in ipairs(bones) do
-        bone.Transform = CFrame.new(0, math.sin(tick() + i) * 2, 0)
+        bone.Transform = CFrame.new(0, math.sin(Time.mono() + i) * 2, 0)
     end
 end)
 
