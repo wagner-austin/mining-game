@@ -6,12 +6,27 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local MarketplaceService = game:GetService("MarketplaceService")
 
 local Shared = ReplicatedStorage:WaitForChild("MiningGame")
+local Time = require(Shared:WaitForChild("Time"))
 local Logger = require(Shared:WaitForChild("Logger"))
 local log = Logger.new("UpgradeService")
 local GameConfig = require(Shared:WaitForChild("GameConfig"))
 local Types = require(Shared:WaitForChild("Types"))
+local ServiceValidator = require(Shared:WaitForChild("ServiceValidator"))
+local ErrorService = require(script.Parent.ErrorService)  -- OK: ErrorService is a foundation service
+
+-- Services (injected via Init)
+local CurrencyService
+local DataService
 
 local UpgradeService = {}
+UpgradeService.__index = UpgradeService
+
+-- Initialize with DI container
+function UpgradeService:Init(container)
+    DataService = ServiceValidator.get(container, "DataService", {"GetPlayerData", "QueueSave"})
+    CurrencyService = ServiceValidator.get(container, "CurrencyService", {"canAfford", "add"})
+    log:info("Initialized with dependencies")
+end
 
 -- Cache upgrade definitions
 local SPEED_LEVELS = GameConfig.Upgrades.SPEED_LEVELS
@@ -52,13 +67,11 @@ function UpgradeService:ComputeEffectiveStats(
     local luck = baseLuck
     
     -- Debug: Log the size calculation
-    if sizeLevel == 0 then
-        log:debug("Size calc: sizeLevel=0, sizeUpgrade.size=" .. tostring(sizeUpgrade and sizeUpgrade.size or "nil") .. 
-            ", baseSize=" .. tostring(baseSize) .. ", final size=" .. tostring(size))
-    end
+    log:debug("Size calc: sizeLevel=%d, sizeUpgrade.size=%s, baseSize=%d, final size=%d", 
+        sizeLevel, tostring(sizeUpgrade and sizeUpgrade.size or "nil"), baseSize, size)
     
     -- Apply boosts (time-limited)
-    local now = os.time()
+    local now = Time.unix()
     for boostType, expiry in pairs(profile.boosts) do
         if expiry > now then
             if boostType == "speed" then
@@ -186,9 +199,16 @@ function UpgradeService:PurchaseUpgrade(
     end
     
     -- Deduct cost and apply upgrade
-    local DataService = require(script.Parent.DataService)
-    DataService:AddCurrency(player, "coins", -nextLevel.cost)
+    CurrencyService.add(player, "coins", -nextLevel.cost)
     profile.upgrades[upgradeType] = nextLevel.level
+    
+    -- Emit profile update after upgrade is applied
+    local EventBus = require(Shared:WaitForChild("EventBus"))
+    local EventNames = require(Shared:WaitForChild("EventNames"))
+    EventBus.global():emit(EventNames.PROFILE_UPDATED, {
+        to = { kind = "player", player = player },
+        payload = profile
+    })
     
     -- Find cost of next level after this one
     local nextNextLevel = nil
@@ -212,7 +232,7 @@ function UpgradeService:ApplyBoost(
     boostType: string,
     duration: number
 )
-    local expiry = os.time() + duration
+    local expiry = Time.unix() + duration
     profile.boosts[boostType] = expiry
 end
 
@@ -222,15 +242,11 @@ function UpgradeService:GetPlayerGamepasses(player: Player): {[string]: boolean}
     
     for _, gamepass in ipairs(GameConfig.Monetization.GAMEPASSES) do
         if gamepass.gamepassId > 0 then
-            local success, owns = pcall(function()
+            local ok, owns = ErrorService.safecall("UserOwnsGamePassAsync", function()
                 return MarketplaceService:UserOwnsGamePassAsync(player.UserId, gamepass.gamepassId)
-            end)
+            end, { uid = player.UserId, gpid = gamepass.gamepassId })
             
-            if success then
-                gamepasses[gamepass.id] = owns
-            else
-                gamepasses[gamepass.id] = false
-            end
+            gamepasses[gamepass.id] = ok and owns or false
         end
     end
     
