@@ -50,11 +50,7 @@ do
     end
 end
 
--- Valid material keys from MaterialDefinitions
-local VALID_MATERIALS = {}
-for key, _ in pairs(MaterialDefinitions.Materials) do
-    VALID_MATERIALS[key] = true
-end
+-- (Material purchase flow removed; single-material mode is deprecated.)
 
 -- Gamepass ownership cache to reduce API calls
 local gamepassCache: {[number]: { time: number, owned: {[number]: boolean} }} = {}
