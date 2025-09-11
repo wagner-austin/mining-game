@@ -17,7 +17,23 @@ type Props = {
     onClick: (() -> ())?
 }
 
-function SettingsButton.new(props: Props)
+type SettingsButtonT = typeof(setmetatable({} :: any, SettingsButton)) & {
+    container: Frame,
+    rotator: Frame,
+    button: TextButton,
+    onClick: (() -> ())?,
+    spinConnection: RBXScriptConnection?,
+    targetSpeed: number,
+    currentSpeed: number,
+    _clickCooldown: boolean,
+    _cooldownTimers: {thread},
+    new: (props: Props) -> SettingsButtonT,
+    setupInteractions: (self: SettingsButtonT) -> (),
+    pulse: (self: SettingsButtonT) -> (),
+    destroy: (self: SettingsButtonT) -> (),
+}
+
+function SettingsButton.new(props: Props): SettingsButtonT
     local self = setmetatable({}, SettingsButton)
     
     local colors = Theme.colors
@@ -77,11 +93,12 @@ function SettingsButton.new(props: Props)
     self.targetSpeed = 0
     self.currentSpeed = 0
     self._clickCooldown = false
+    self._cooldownTimers = {} :: {thread}
     
     -- Setup interactions
     self:setupInteractions()
     
-    return self
+    return self :: any
 end
 
 function SettingsButton:setupInteractions()
@@ -129,9 +146,16 @@ function SettingsButton:setupInteractions()
         -- Simple click cooldown to prevent spamming
         if self._clickCooldown then return end
         self._clickCooldown = true
-        task.delay(0.25, function() 
-            self._clickCooldown = false 
+        self._cooldownTimers = self._cooldownTimers or {}
+        local th
+        th = task.delay(0.25, function() 
+            self._clickCooldown = false
+            -- Remove from timer tracking
+            for i, h in ipairs(self._cooldownTimers) do
+                if h == th then table.remove(self._cooldownTimers, i) break end
+            end
         end)
+        table.insert(self._cooldownTimers, th)
         
         local SoundManager = require(ReplicatedStorage.MiningGame:WaitForChild("SoundManager"))
         SoundManager.PlayUI("buttonclick")
@@ -159,6 +183,14 @@ function SettingsButton:pulse()
 end
 
 function SettingsButton:destroy()
+    -- Cancel all timers
+    if self._cooldownTimers then
+        for _, th in ipairs(self._cooldownTimers) do
+            pcall(task.cancel, th)
+        end
+        self._cooldownTimers = {}
+    end
+    
     if self.spinConnection then
         self.spinConnection:Disconnect()
         self.spinConnection = nil
