@@ -1,0 +1,202 @@
+--!strict
+--[[
+    RemoteEventBridge.server.lua
+    Bridges EventBus events to RemoteEvents for network communication.
+    
+    Features:
+    - Whitelisted event routing
+    - Fast-path for high-frequency events
+    - Type-safe target dispatching
+    - Client event validation
+]]
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Shared = ReplicatedStorage:WaitForChild("MiningGame")
+local Time = require(Shared:WaitForChild("Time"))
+
+-- Ensure Remotes folder exists (defensive)
+local Remotes = Shared:FindFirstChild("Remotes")
+if not Remotes then
+    Remotes = Instance.new("Folder")
+    Remotes.Name = "Remotes"
+    Remotes.Parent = Shared
+end
+local EventBus = require(Shared.EventBus)
+local EventNames = require(Shared.EventNames)
+local RequestNames = require(Shared.RequestNames)
+local Bus = EventBus.global()
+
+-- Create or get the EventBus RemoteEvent
+local RE = Remotes:FindFirstChild("EventBus")
+if not RE then
+    RE = Instance.new("RemoteEvent")
+    RE.Name = "EventBus"
+    RE.Parent = Remotes
+end
+
+-- Mark high-frequency events as fast-path (skip middleware)
+local FAST_PATH_EVENTS = {
+    [EventNames.DIG_FEEDBACK] = true,
+    [EventNames.TERRAIN_POKE] = true,
+    [EventNames.RUNTIME_EFFECTS_CHANGED] = true,
+    [EventNames.SOUND_PLAY] = true,
+    [EventNames.CLOTH_UPDATE] = true
+}
+
+for eventName in pairs(FAST_PATH_EVENTS) do
+    Bus:markFastPath(eventName)
+end
+table.freeze(FAST_PATH_EVENTS)
+
+-- Whitelist of server -> client events
+local TO_CLIENT = {
+    [EventNames.LOOT_DROPPED] = true,
+    [EventNames.CURRENCY_CHANGED] = true,
+    [EventNames.CUBE_ORIGIN_CHANGED] = true,
+    [EventNames.DIG_FEEDBACK] = true,
+    [EventNames.TERRAIN_POKE] = true,
+    [EventNames.RUNTIME_EFFECTS_CHANGED] = true,
+    [EventNames.INVENTORY_CHANGED] = true,
+    [EventNames.ACHIEVEMENT_UNLOCKED] = true,
+    [EventNames.ANNOUNCEMENT_BROADCAST] = true,
+    [EventNames.SOUND_PLAY] = true,
+    [EventNames.NOTIFICATION_PUSH] = true,
+    [EventNames.EQUIPMENT_CHANGED] = true,
+    [EventNames.BOOSTS_CHANGED] = true,
+    [EventNames.ITEM_COLLECTED] = true,
+    [EventNames.PICKUP_PROMPT] = true,
+    [EventNames.REWARD_GRANTED] = true,
+    [EventNames.DEBUG_RESET] = true,
+    [EventNames.PROFILE_UPDATED] = true,
+    [EventNames.UPGRADES_CHANGED] = true,
+    [EventNames.CLOTH_UPDATE] = true,
+    -- Neighborhood events
+    [EventNames.NEIGHBOR_JOINED] = true,
+    [EventNames.NEIGHBOR_LEFT] = true,
+    [EventNames.CUBE_UPDATE] = true,
+}
+
+-- Sanity check the whitelist at startup
+for name in pairs(TO_CLIENT) do
+    assert(EventNames.isValid(name), "TO_CLIENT whitelist contains unknown event: "..tostring(name))
+end
+table.freeze(TO_CLIENT)
+
+-- Whitelist of client -> server events
+local FROM_CLIENT = {
+    [RequestNames.INVENTORY_REQUEST_SELL] = true,
+    [RequestNames.INVENTORY_REQUEST_EQUIP] = true,
+    [RequestNames.DIG_REQUEST] = true,
+    [RequestNames.UPGRADE_REQUEST_PURCHASE] = true,
+    [RequestNames.COSMETIC_REQUEST_EQUIP] = true,
+    [RequestNames.SETTINGS_UPDATE] = true,
+    [RequestNames.METRICS_REQUEST] = true,
+}
+
+-- Sanity check the request whitelist at startup
+for name in pairs(FROM_CLIENT) do
+    assert(RequestNames.isValid(name), "FROM_CLIENT whitelist contains unknown request: "..tostring(name))
+end
+table.freeze(FROM_CLIENT)
+
+-- Rate limiting for client events (per player per event)
+local rateLimits: {[Player]: {[string]: number}} = {}
+local RATE_LIMIT_WINDOW = 1.0 -- seconds
+local RATE_LIMIT_MAX = {
+    [RequestNames.DIG_REQUEST] = 10, -- max 10 dig requests per second
+    [RequestNames.INVENTORY_REQUEST_SELL] = 5,
+    [RequestNames.INVENTORY_REQUEST_EQUIP] = 5,
+    default = 3 -- default max 3 per second for other events
+}
+
+local function checkRateLimit(player: Player, eventName: string): boolean
+    local now = Time.mono()
+    local playerLimits = rateLimits[player]
+    
+    if not playerLimits then
+        playerLimits = {}
+        rateLimits[player] = playerLimits
+    end
+    
+    local lastTime = playerLimits[eventName] or 0
+    if now - lastTime < RATE_LIMIT_WINDOW / (RATE_LIMIT_MAX[eventName] or RATE_LIMIT_MAX.default) then
+        return false -- Rate limited
+    end
+    
+    playerLimits[eventName] = now
+    return true
+end
+
+-- Clean up rate limits when player leaves
+Players.PlayerRemoving:Connect(function(player)
+    rateLimits[player] = nil
+end)
+
+-- Helper to dispatch events based on strict target type
+local function dispatch(remoteEvent: RemoteEvent, name: string, target: any, payload: any)
+    if type(target) ~= "table" or target.kind == nil then
+        error(("[RemoteEventBridge] Invalid target for '%s' (expected EventTarget)"):format(name))
+    end
+    if target.kind == "all" then
+        remoteEvent:FireAllClients(name, payload)
+    elseif target.kind == "player" then
+        remoteEvent:FireClient(target.player, name, payload)
+    else -- "players"
+        for _, p in ipairs(target.players) do
+            remoteEvent:FireClient(p, name, payload)
+        end
+    end
+end
+
+-- Subscribe to all whitelisted server -> client events
+for eventName in pairs(TO_CLIENT) do
+    Bus:on(eventName, function(msg)
+        if not msg.to then
+            warn(("[RemoteEventBridge] Event '%s' missing 'to' field"):format(eventName))
+            return
+        end
+        dispatch(RE, eventName, msg.to, msg.payload)
+    end, 5) -- High priority so bridge runs early
+end
+
+-- Handle client -> server events
+RE.OnServerEvent:Connect(function(player: Player, eventName: string, payload: any)
+    -- Validate event is whitelisted
+    if not FROM_CLIENT[eventName] then
+        warn(("[RemoteEventBridge] Blocked unauthorized client event '%s' from %s"):format(
+            tostring(eventName), 
+            player.Name
+        ))
+        return
+    end
+    
+    -- Check rate limit
+    if not checkRateLimit(player, eventName) then
+        warn(("[RemoteEventBridge] Rate limited event '%s' from %s"):format(
+            eventName,
+            player.Name
+        ))
+        return
+    end
+    
+    -- Emit on bus with player as 'from' field (never trust client-provided 'from')
+    Bus:emitDeferred(eventName, {
+        from = player,
+        payload = payload
+    })
+end)
+
+-- Optional: Add middleware for logging/metrics
+Bus:use(function(ctx, next)
+    local t0 = Time.mono()
+    next()
+    local dt = Time.mono() - t0
+    
+    -- Log slow events (excluding fast-path)
+    if dt > 0.01 and not FAST_PATH_EVENTS[ctx.event] then
+        warn(("[EventBus] Slow event '%s' took %.2fms"):format(ctx.event, dt * 1000))
+    end
+end)
+
+return {}
