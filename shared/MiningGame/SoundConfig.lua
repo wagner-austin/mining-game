@@ -12,16 +12,50 @@ local SoundConfig = {}
 -- SOUND ASSET DICTIONARY
 -- ===========================================================================
 -- Central location for all sound asset IDs
--- TODO: Replace test sounds with actual game assets
+-- Using verified Creator Store audio (public, free-to-use)
 local SOUND_ASSETS = {
-    -- Test sound for development
-    TEST_CLICK = "rbxassetid://9120386436",  -- Temporary click sound for testing
+    -- UI (verified Creator Store assets)
+    UI_BUTTON_CLICK  = "rbxassetid://9120410355", -- Video Game Buttons 10
+    UI_NOTIFICATION  = "rbxassetid://7128958209", -- Bell Ding (nice for success/pickups)
+
+    -- Mining (baseline set for all rocky materials; you can specialize later)
+    MINING_ROCK_HIT   = "rbxassetid://9118628948", -- Rock Impacts 13
+    MINING_ROCK_CRACK = "rbxassetid://9125931990", -- Shale Burst Smashing Rock 1
+    MINING_ROCK_BREAK = "rbxassetid://9119046189", -- Shale Break 9
     
-    -- Future sound assets go here:
-    -- MINING_ROCK_HIT = "rbxassetid://YOUR_ID",
-    -- MINING_ROCK_BREAK = "rbxassetid://YOUR_ID",
-    -- UI_BUTTON_CLICK = "rbxassetid://YOUR_ID",
-    -- FOOTSTEP_ROCK = "rbxassetid://YOUR_ID",
+    -- Mining (metal variant for ores/ingots)
+    MINING_METAL_HIT   = "rbxassetid://9116680684", -- Metal Impact Railroad Hammer 28
+    MINING_METAL_CRACK = "rbxassetid://9116460378", -- Manacles Metal Clangs 1
+    MINING_METAL_BREAK = "rbxassetid://9125664705", -- Metal Clatter Clanking Falls
+
+    -- Ambient beds (loop these; your category defaults already set Looped/rolloff)
+    AMBIENT_WIND          = "rbxassetid://9114228918", -- Eerie Wind Constant 4
+    AMBIENT_WATERFLOW     = "rbxassetid://9120549564", -- Waterfall Background Water Roar 1
+    AMBIENT_BIRDS_MORNING = "rbxassetid://9116968963", -- Morning Birds 9
+    
+    -- Night / Cave ambience
+    AMBIENT_CRICKETS   = "rbxassetid://9126205087", -- Weber Bbq Lid On Off Distant Birds Crickets 5
+    AMBIENT_CAVE_WIND  = "rbxassetid://9114228918", -- Eerie Wind Constant 4 (36s loop)
+    AMBIENT_CAVE_WATER = "rbxassetid://9120549564", -- Waterfall Background Water Roar 1 (56s loop)
+    AMBIENT_CAVE_DRIPS = "rbxassetid://9120533442", -- Water Drip Single Drops Into Tin Bucket 17
+    
+    -- Reward stingers (rarity-based)
+    REWARD_RARE      = "rbxassetid://9120414823", -- Video Game Effects 2
+    REWARD_EPIC      = "rbxassetid://9120142683", -- Tone Clusters Mostly High Pitch Tones 16
+    REWARD_LEGENDARY = "rbxassetid://9119872487", -- Synth Whomps 4
+    
+    -- Music tracks (verified Creator Store music)
+    MUSIC_MAIN    = "rbxassetid://1835878163", -- Calm
+    MUSIC_MINING  = "rbxassetid://9048375035", -- All Dropping 8 Bit Beats (energetic, retro)
+    MUSIC_CAVE    = "rbxassetid://1837075763", -- Ambient Layers (floaty ambient bed)
+    MUSIC_SHOP    = "rbxassetid://1844872472", -- Think (light lounge vibe)
+    MUSIC_BOSS    = "rbxassetid://1839961091", -- Fearless Destruction (epic hybrid/orchestral)
+    MUSIC_VICTORY = "rbxassetid://9048816189", -- Lounge Lizard Sting C (short victory sting)
+    MUSIC_ICE     = "rbxassetid://1836542585", -- Frozen Horizon (cold ambient)
+    MUSIC_DESERT  = "rbxassetid://1843277044", -- Desert Race (world/ethnic pulse)
+    
+    -- Keep test sound as fallback
+    TEST_CLICK = "rbxassetid://9120386436",  -- Fallback/test sound
 }
 
 -- ===========================================================================
@@ -30,14 +64,30 @@ local SOUND_ASSETS = {
 -- Generate mining sounds from MaterialDefinitions + SoundCategories
 local miningSounds = {}
 for materialKey, def in pairs(MaterialDefinitions.Materials) do
-    local category = def.properties.soundCategory
-    local events = SoundCategories.GetMiningEvents(category)
+    local category = string.lower(def.properties.soundCategory or "rock")
+    local events = SoundCategories.GetMiningEvents(def.properties.soundCategory)
+    
+    -- Pick variant set per material/category
+    local variantSets = {
+        metal = {
+            hit   = SOUND_ASSETS.MINING_METAL_HIT,
+            crack = SOUND_ASSETS.MINING_METAL_CRACK,
+            ["break"] = SOUND_ASSETS.MINING_METAL_BREAK,
+        },
+        -- Add more variants later: sand = {...}, ice = {...}
+    }
+    
+    local defaultSet = {
+        hit   = SOUND_ASSETS.MINING_ROCK_HIT,
+        crack = SOUND_ASSETS.MINING_ROCK_CRACK,
+        ["break"] = SOUND_ASSETS.MINING_ROCK_BREAK,
+    }
+    
+    local useSet = variantSets[category] or defaultSet
     
     local soundSet = {}
     for _, event in ipairs(events) do
-        -- All using test sound for now - replace with real assets later
-        -- Future: SOUND_ASSETS.MINING[category][event] or similar
-        soundSet[event] = SOUND_ASSETS.TEST_CLICK
+        soundSet[event] = useSet[event] or defaultSet.hit
     end
     
     miningSounds[materialKey] = soundSet
@@ -76,44 +126,46 @@ SoundConfig.SoundIDs = {
     
     -- UI sounds (actively used by UI components)
     ui = {
-        buttonclick  = SOUND_ASSETS.TEST_CLICK,
-        buttonhover  = SOUND_ASSETS.TEST_CLICK,
-        openmenu     = SOUND_ASSETS.TEST_CLICK,
-        closemenu    = SOUND_ASSETS.TEST_CLICK,
-        tabswitch    = SOUND_ASSETS.TEST_CLICK,
-        notification = SOUND_ASSETS.TEST_CLICK,
-        error        = SOUND_ASSETS.TEST_CLICK,
-        success      = SOUND_ASSETS.TEST_CLICK,
-        purchase     = SOUND_ASSETS.TEST_CLICK,
-        upgrade      = SOUND_ASSETS.TEST_CLICK,
+        buttonclick  = SOUND_ASSETS.UI_BUTTON_CLICK,
+        buttonhover  = SOUND_ASSETS.UI_BUTTON_CLICK,  -- reuse for now
+        openmenu     = SOUND_ASSETS.UI_BUTTON_CLICK,
+        closemenu    = SOUND_ASSETS.UI_BUTTON_CLICK,
+        tabswitch    = SOUND_ASSETS.UI_BUTTON_CLICK,
+        notification = SOUND_ASSETS.UI_NOTIFICATION,
+        error        = SOUND_ASSETS.UI_BUTTON_CLICK,
+        success      = SOUND_ASSETS.UI_NOTIFICATION,
+        purchase     = SOUND_ASSETS.UI_NOTIFICATION,
+        upgrade      = SOUND_ASSETS.UI_NOTIFICATION,
     },
     
     -- Ambient sounds (time-based, see TimeRules below)
     ambient = {
-        wind           = SOUND_ASSETS.TEST_CLICK,
-        birds_morning  = SOUND_ASSETS.TEST_CLICK,  -- Plays 6am-6pm
-        birds_evening  = SOUND_ASSETS.TEST_CLICK,  -- Plays 5pm-8pm
-        trees_rustling = SOUND_ASSETS.TEST_CLICK,
-        cave           = SOUND_ASSETS.TEST_CLICK,
-        waterflow      = SOUND_ASSETS.TEST_CLICK,
-        crickets       = SOUND_ASSETS.TEST_CLICK,  -- Plays 8pm-6am
-        desertwind     = SOUND_ASSETS.TEST_CLICK,
-        oceanwaves     = SOUND_ASSETS.TEST_CLICK,
-        lavaflow       = SOUND_ASSETS.TEST_CLICK,
-        icecracking    = SOUND_ASSETS.TEST_CLICK,
+        wind           = SOUND_ASSETS.AMBIENT_WIND,
+        birds_morning  = SOUND_ASSETS.AMBIENT_BIRDS_MORNING,  -- Plays 6am-6pm
+        birds_evening  = SOUND_ASSETS.AMBIENT_BIRDS_MORNING,  -- Plays 5pm-8pm (temp reuse)
+        trees_rustling = SOUND_ASSETS.AMBIENT_WIND,           -- temp reuse
+        cave           = SOUND_ASSETS.AMBIENT_CAVE_WIND,      -- Cave wind ambience (36s loop)
+        cave_water     = SOUND_ASSETS.AMBIENT_CAVE_WATER,     -- Cave water flow (56s loop)
+        cave_drips     = SOUND_ASSETS.AMBIENT_CAVE_DRIPS,     -- Cave water drips (detail layer)
+        waterflow      = SOUND_ASSETS.AMBIENT_WATERFLOW,
+        crickets       = SOUND_ASSETS.AMBIENT_CRICKETS,       -- Night crickets loop
+        desertwind     = SOUND_ASSETS.AMBIENT_WIND,           -- temp reuse
+        oceanwaves     = SOUND_ASSETS.AMBIENT_WATERFLOW,      -- temp reuse water sound
+        lavaflow       = SOUND_ASSETS.TEST_CLICK,             -- TODO: needs lava/fire loop
+        icecracking    = SOUND_ASSETS.TEST_CLICK,             -- TODO: needs ice ambient
     },
     
     -- Music tracks
     music = {
-        main    = SOUND_ASSETS.TEST_CLICK,
-        mining  = SOUND_ASSETS.TEST_CLICK,
-        cave    = SOUND_ASSETS.TEST_CLICK,
-        desert  = SOUND_ASSETS.TEST_CLICK,
-        ice     = SOUND_ASSETS.TEST_CLICK,
-        lava    = SOUND_ASSETS.TEST_CLICK,
-        shop    = SOUND_ASSETS.TEST_CLICK,
-        boss    = SOUND_ASSETS.TEST_CLICK,
-        victory = SOUND_ASSETS.TEST_CLICK,
+        main    = SOUND_ASSETS.MUSIC_MAIN,
+        mining  = SOUND_ASSETS.MUSIC_MINING,
+        cave    = SOUND_ASSETS.MUSIC_CAVE,
+        desert  = SOUND_ASSETS.MUSIC_DESERT,
+        ice     = SOUND_ASSETS.MUSIC_ICE,
+        lava    = SOUND_ASSETS.MUSIC_BOSS,    -- Using boss music for intense lava areas
+        shop    = SOUND_ASSETS.MUSIC_SHOP,
+        boss    = SOUND_ASSETS.MUSIC_BOSS,
+        victory = SOUND_ASSETS.MUSIC_VICTORY,
     },
     
     -- Pet sounds
@@ -129,17 +181,17 @@ SoundConfig.SoundIDs = {
     
     -- Reward sounds (played when collecting items)
     rewards = {
-        coin        = SOUND_ASSETS.TEST_CLICK,
-        gem         = SOUND_ASSETS.TEST_CLICK,
-        item        = SOUND_ASSETS.TEST_CLICK,
-        levelup     = SOUND_ASSETS.TEST_CLICK,
-        achievement = SOUND_ASSETS.TEST_CLICK,
-        chest       = SOUND_ASSETS.TEST_CLICK,
-        rare        = SOUND_ASSETS.TEST_CLICK,
-        epic        = SOUND_ASSETS.TEST_CLICK,
-        legendary   = SOUND_ASSETS.TEST_CLICK,
-        daily       = SOUND_ASSETS.TEST_CLICK,
-        milestone   = SOUND_ASSETS.TEST_CLICK,
+        coin        = SOUND_ASSETS.UI_NOTIFICATION,     -- Bell ding for basic pickups
+        gem         = SOUND_ASSETS.UI_NOTIFICATION,
+        item        = SOUND_ASSETS.UI_NOTIFICATION,
+        levelup     = SOUND_ASSETS.REWARD_EPIC,         -- Epic sound for level ups
+        achievement = SOUND_ASSETS.REWARD_RARE,         -- Rare sound for achievements
+        chest       = SOUND_ASSETS.UI_NOTIFICATION,
+        rare        = SOUND_ASSETS.REWARD_RARE,         -- Bright gamey burst
+        epic        = SOUND_ASSETS.REWARD_EPIC,         -- Sparkly tonal cluster
+        legendary   = SOUND_ASSETS.REWARD_LEGENDARY,    -- Deep synth whomp
+        daily       = SOUND_ASSETS.UI_NOTIFICATION,
+        milestone   = SOUND_ASSETS.REWARD_EPIC,         -- Epic for milestones
     },
     
     -- Environmental sounds
