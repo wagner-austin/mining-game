@@ -77,10 +77,15 @@ local data, err = ClientRF.callWithRetry("GetInventory", 3)
 - `PurchaseUpgrade` - Buy player upgrade
 
 ### Monetization (`Monetization.rf.lua`)
-- `PurchaseProduct` - Buy game product (stubbed: NOT_IMPLEMENTED)
-- `PurchaseMaterial` - Buy material (stubbed: NOT_IMPLEMENTED)
-- `GetPrices` - Available products/prices
-- `GetGamepasses` - Player's gamepass ownership (cached)
+- `PurchaseProduct` - Prompt developer product purchase
+- `PurchaseGamepass` - Prompt gamepass purchase
+- `GetPrices` - Available products/prices (from `GameConfig.Monetization.PRODUCTS`)
+- `GetGamepasses` - Gamepass ownership via Roblox API (cached 120s)
+  - Returns:
+    - `ownedById`: `{ ["VIP"] = true, ... }`
+    - `ownedByGamepassId`: `{ [123456] = true, ... }`
+    - `list`: `[ { id, gamepassId, owned, robux }, ... ]`
+    - `owned`: alias to `ownedByGamepassId` (back-compat)
 - `ClaimDailyReward` - Daily reward claim
 
 ### Material Customization (`CubeMaterial.rf.lua`)
