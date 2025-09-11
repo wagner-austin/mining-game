@@ -8,7 +8,6 @@ local MarketplaceService = game:GetService("MarketplaceService")
 
 local Shared = ReplicatedStorage:WaitForChild("MiningGame")
 local GameConfig = require(Shared:WaitForChild("GameConfig"))
-local MaterialDefinitions = require(Shared:WaitForChild("MaterialDefinitions"))
 local Time = require(Shared:WaitForChild("Time"))
 
 -- Return a factory function that accepts the DI container
@@ -81,26 +80,6 @@ local GAMEPASS_CACHE_TTL = 120 -- 2 minutes
     },
     
     {
-        name = "PurchaseMaterial",
-        handler = function(ctx, materialKey: string)
-            local player = ctx.player
-            
-            -- TODO: Implement material purchases when system is ready
-            -- For now, return not implemented
-            return {
-                ok = false,
-                success = false,
-                err = "NOT_IMPLEMENTED",
-                reason = "Material purchases coming soon"
-            }
-        end,
-        validate = function(materialKey)
-            return type(materialKey) == "string" and VALID_MATERIALS[materialKey] == true
-        end,
-        opts = { requireProfile = true, rateLimitSec = 1.0 },
-    },
-    
-    {
         name = "GetPrices",
         handler = function(ctx)
             -- Return current prices/products
@@ -142,16 +121,22 @@ local GAMEPASS_CACHE_TTL = 120 -- 2 minutes
                 return {
                     ok = true,
                     success = true,
-                    owned = cached.owned,
+                    owned = cached.ownedByGamepassId, -- backward-compat alias
+                    ownedById = cached.ownedById,
+                    ownedByGamepassId = cached.ownedByGamepassId,
+                    list = cached.list,
                     cached = true
                 }
             end
             
             -- Check owned gamepasses
-            local owned = {}
+            local ownedById = {}
+            local ownedByGamepassId = {}
+            local list = {}
             local passes = (GameConfig.Monetization and GameConfig.Monetization.GAMEPASSES) or {}
             for _, pass in ipairs(passes) do
                 local passId = pass.gamepassId
+                local id = pass.id
                 if type(passId) == "number" and passId > 0 then
                     local hasPass = false
                     -- Check if player owns it
@@ -161,20 +146,33 @@ local GAMEPASS_CACHE_TTL = 120 -- 2 minutes
                     if success then
                         hasPass = ownsPass
                     end
-                    owned[passId] = hasPass
+                    ownedById[id] = hasPass
+                    ownedByGamepassId[passId] = hasPass
+                    table.insert(list, { id = id, gamepassId = passId, owned = hasPass, robux = pass.robux })
+                else
+                    -- Still return an entry (owned=false) for visibility if id exists
+                    if type(pass.id) == "string" then
+                        ownedById[pass.id] = false
+                        table.insert(list, { id = pass.id, gamepassId = pass.gamepassId, owned = false, robux = pass.robux })
+                    end
                 end
             end
             
             -- Update cache
             gamepassCache[player.UserId] = {
                 time = now,
-                owned = owned
+                ownedById = ownedById,
+                ownedByGamepassId = ownedByGamepassId,
+                list = list,
             }
             
             return {
                 ok = true,
                 success = true,
-                owned = owned,
+                owned = ownedByGamepassId, -- backward-compat alias
+                ownedById = ownedById,
+                ownedByGamepassId = ownedByGamepassId,
+                list = list,
                 cached = false
             }
         end,
