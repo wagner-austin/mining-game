@@ -9,6 +9,7 @@ local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
 local UIFolder = MiningGame:WaitForChild("UI")
 local Theme = require(UIFolder:WaitForChild("Theme"))
 local ThemeRefresher = require(UIFolder:WaitForChild("ThemeRefresher"))
+local UIx = require(UIFolder:WaitForChild("UIConstants"))
 
 local TabContainer = {}
 TabContainer.__index = TabContainer
@@ -33,7 +34,25 @@ export type Props = {
     contentParent: Instance?,
 }
 
-function TabContainer.new(props: Props)
+export type TabContainerT = {
+    tabs: {TabDefinition},
+    onTabChange: ((newTab: string, oldTab: string?) -> ())?,
+    currentTab: string?,
+    _connections: {RBXScriptConnection},
+    container: Frame,
+    tabBar: Frame,
+    contentContainer: Frame,
+    tabButtons: {[string]: TextButton},
+    tabContents: {[string]: Frame},
+    new: (props: Props) -> TabContainerT,
+    switchTab: (self: TabContainerT, tabName: string) -> (),
+    getCurrentTab: (self: TabContainerT) -> string?,
+    getTabContent: (self: TabContainerT, tabName: string) -> Frame?,
+    setTabEnabled: (self: TabContainerT, tabName: string, enabled: boolean) -> (),
+    destroy: (self: TabContainerT) -> (),
+}
+
+function TabContainer.new(props: Props): TabContainerT
     local self = setmetatable({}, TabContainer)
     
     local colors = Theme.colors
@@ -48,7 +67,7 @@ function TabContainer.new(props: Props)
     local container = Instance.new("Frame")
     container.Name = "TabContainer"
     container.Size = props.size or UDim2.new(1, 0, 1, 0)
-    container.Position = props.position or UDim2.new(0, 0, 0, 0)
+    container.Position = props.position or UIx.Common.ORIGIN
     container.BackgroundTransparency = 1
     container.Parent = props.parent
     self.container = container
@@ -87,7 +106,7 @@ function TabContainer.new(props: Props)
         local tabButton = Instance.new("TextButton")
         tabButton.Name = tab.name .. "Tab"
         tabButton.LayoutOrder = i  -- Set order based on array position
-        tabButton.Size = UDim2.new(0, 100, 1, 0)
+        tabButton.Size = UDim2.new(0, UIx.Size.GRID_CELL_PX, 1, 0)
         tabButton.BackgroundColor3 = colors.Surface
         tabButton.BackgroundTransparency = Theme.tabs.button.inactiveTransparency
         tabButton.Text = tab.displayName or tab.name
@@ -137,7 +156,7 @@ function TabContainer.new(props: Props)
         -- Hover effects
         local hoverIn = tabButton.MouseEnter:Connect(function()
             if tab.name ~= self.currentTab then
-                TweenService:Create(tabButton, TweenInfo.new(0.15), {
+                TweenService:Create(tabButton, TweenInfo.new(UIx.Anim.QUICK), {
                     BackgroundTransparency = Theme.tabs.button.hoverTransparency
                 }):Play()
             end
@@ -146,7 +165,7 @@ function TabContainer.new(props: Props)
         
         local hoverOut = tabButton.MouseLeave:Connect(function()
             if tab.name ~= self.currentTab then
-                TweenService:Create(tabButton, TweenInfo.new(0.15), {
+                TweenService:Create(tabButton, TweenInfo.new(UIx.Anim.QUICK), {
                     BackgroundTransparency = Theme.tabs.button.inactiveTransparency
                 }):Play()
             end
@@ -190,7 +209,7 @@ function TabContainer:switchTab(tabName: string)
     
     -- Update tab buttons
     for name, button in pairs(self.tabButtons) do
-        TweenService:Create(button, TweenInfo.new(0.2), {
+        TweenService:Create(button, TweenInfo.new(UIx.Anim.MEDIUM), {
             BackgroundTransparency = name == tabName and Theme.tabs.button.activeTransparency or Theme.tabs.button.inactiveTransparency
         }):Play()
     end
