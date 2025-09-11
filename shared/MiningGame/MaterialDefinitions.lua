@@ -268,7 +268,8 @@ MaterialDefinitions.Materials = {
         properties = {
             speedMultiplier = 0.70,  -- Wading through underground water
             soundCategory = "water",
-            digDifficulty = 0.0,  -- Can't really "dig" water
+            digDifficulty = 0.5,  -- Easy to displace water
+            isLiquid = true,  -- Special handling for liquid materials
             color = Color3.fromRGB(138, 167, 168),
         }
     },
