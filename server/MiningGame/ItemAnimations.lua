@@ -4,6 +4,9 @@
 
 local TweenService = game:GetService("TweenService")
 local Debris = game:GetService("Debris")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
+local ErrorService = require(script.Parent:WaitForChild("ErrorService"))
 
 local ItemAnimations = {}
 
@@ -120,7 +123,7 @@ function ItemAnimations.flyDropToPlayer(dropModel: Model, player: Player, onComp
         if not cancelled then
             cancelled = true
             if onComplete then 
-                pcall(onComplete)
+                ErrorService.safecall("Animation:onComplete", onComplete)
             end
         end
     end)
@@ -150,7 +153,7 @@ end
 -- Stop any active animations on a model
 function ItemAnimations.stopAnimations(dropModel: Model, hoverTween: Tween?): ()
     if hoverTween then 
-        pcall(function() hoverTween:Cancel() end)
+        ErrorService.safecall("Tween:Cancel", function() hoverTween:Cancel() end)
     end
     -- (No need to scan children; tweens aren't parented under parts)
 end
