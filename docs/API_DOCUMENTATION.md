@@ -61,7 +61,7 @@ Bridge.send(RequestNames.INVENTORY_REQUEST_SELL, {
 - **Gameplay**: GetProfile, RequestDig, StartContinuousDig, StopContinuousDig
 - **Inventory**: SellItems, EquipItem, UnequipItem, UseConsumable
 - **Pets**: EquipPet, UnequipPet, UpgradePet
-- **Purchases**: PurchaseUpgrade, PurchaseProduct, PurchaseMaterial
+- **Purchases**: PurchaseUpgrade, PurchaseProduct, PurchaseGamepass
 - **Social**: VisitNeighbor, ReturnHome, GetNeighborhood
 - **Customization**: Material settings, theme settings, UpdateSettings
 - **Movement**: TeleportToHome, RespawnCubeModel
