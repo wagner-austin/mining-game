@@ -4,13 +4,14 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local MG = ReplicatedStorage:WaitForChild("MiningGame")
-local RF = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("MiningGame")
 
 local ThemeManager = require(MG:WaitForChild("UI"):WaitForChild("ThemeManager"))
 local SoundTheme = require(MG:WaitForChild("SoundThemeManager"))
+local ClientRF = require(MG:WaitForChild("ClientRF"))
+local Ready = require(MG:WaitForChild("Ready"))
 
 -- Helper to load sound pack by name
-local function packByName(name: string)
+local function packByName(name: string): any?
     if name == "default" then return nil end
     
     local SoundPacks = MG:FindFirstChild("SoundPacks")
@@ -27,15 +28,14 @@ local function packByName(name: string)
 end
 
 -- Load saved themes from server
-local function loadSavedThemes()
-    local ok, t = pcall(function() 
-        return RF:WaitForChild("GetThemeSettings"):InvokeServer() 
-    end)
+local function loadSavedThemes(): ()
+    -- Use retry for initial bootstrap to handle network issues
+    local t, err = ClientRF.callWithRetry("GetThemeSettings", 2)
     
     local ui = "default"
     local snd = "default"
     
-    if ok and typeof(t) == "table" then
+    if not err and typeof(t) == "table" then
         ui = t.uiTheme or "default"
         snd = t.soundPack or "default"
         print("[ThemeBootstrap] Loaded saved themes - UI:", ui, "Sound:", snd)
@@ -56,6 +56,11 @@ local function loadSavedThemes()
 end
 
 -- Apply themes immediately on startup
-loadSavedThemes()
+if Ready.wait(10) then
+    loadSavedThemes()
+else
+    warn("[ThemeBootstrap] Server not ready after timeout; using defaults")
+    -- Defaults already applied by ThemeManager and SoundTheme on init
+end
 
 print("[ThemeBootstrap] Theme settings applied")
