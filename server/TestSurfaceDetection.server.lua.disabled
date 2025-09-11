@@ -1,0 +1,677 @@
+--!strict
+--[[
+    TestSurfaceDetection.server.lua
+    Comprehensive test suite for the TerrainSurfaceDetector feature
+    
+    This script tests various scenarios:
+    - Surface detection on different terrain types
+    - Edge detection and boundary conditions
+    - Performance under various conditions
+    - Cache behavior and LRU eviction
+    - Integration with digging system
+]]
+
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Debris = game:GetService("Debris")
+
+-- SAFETY: Only run in Studio to prevent accidental terrain destruction
+if not RunService:IsStudio() then 
+    warn("Surface detection tests can only run in Studio")
+    return 
+end
+
+local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
+local TerrainSurfaceDetector = require(MiningGame:WaitForChild("TerrainSurfaceDetector"))
+local Logger = require(MiningGame:WaitForChild("Logger"))
+local GameConfig = require(MiningGame:WaitForChild("GameConfig"))
+
+local log = Logger.new("SurfaceDetectionTest")
+local Terrain = workspace.Terrain
+
+-- Configuration
+local CELL_SIZE = GameConfig.Grid.CELL_SIZE_STUDS or 4
+local TEST_REGION_SIZE = CELL_SIZE * 12 -- Size of test area in studs (multiple of cell size)
+local VISUALIZATION_DURATION = 30 -- How long to keep visualizations
+
+-- Visualization colors
+local COLORS = {
+    SURFACE = Color3.new(0, 1, 0),        -- Green for detected surfaces
+    BURIED = Color3.new(1, 0, 0),         -- Red for buried/non-surface
+    AIR = Color3.new(0.5, 0.5, 1),        -- Light blue for air
+    NORMAL = Color3.new(1, 1, 0),          -- Yellow for normals
+    EXPOSED = Color3.new(0, 1, 1),        -- Cyan for exposed check pass
+    NOT_EXPOSED = Color3.new(1, 0.5, 0),  -- Orange for exposed check fail
+    WATER_ADJACENT = Color3.new(0, 0.5, 1), -- Dark blue for water-adjacent
+}
+
+-- Create folder for visualization parts
+local vizFolder = workspace:FindFirstChild("_SurfaceTestViz")
+if vizFolder then
+    vizFolder:ClearAllChildren()
+else
+    vizFolder = Instance.new("Folder")
+    vizFolder.Name = "_SurfaceTestViz"
+    vizFolder.Parent = workspace
+end
+
+-- Helper Functions
+local function createPart(position: Vector3, size: Vector3, color: Color3, transparency: number): Part
+    local part = Instance.new("Part")
+    part.Anchored = true
+    part.CanCollide = false
+    part.CanQuery = false
+    part.CanTouch = false
+    part.Size = size
+    part.Position = position
+    part.Color = color
+    part.Transparency = transparency
+    part.TopSurface = Enum.SurfaceType.Smooth
+    part.BottomSurface = Enum.SurfaceType.Smooth
+    part.Parent = vizFolder
+    
+    Debris:AddItem(part, VISUALIZATION_DURATION)
+    
+    return part
+end
+
+local function createArrow(origin: Vector3, direction: Vector3, color: Color3)
+    local length = CELL_SIZE * 0.5 -- Scale with cell size
+    local beam = createPart(
+        origin + direction * length/2,
+        Vector3.new(CELL_SIZE * 0.05, CELL_SIZE * 0.05, length),
+        color,
+        0.3
+    )
+    beam.CFrame = CFrame.lookAt(origin, origin + direction) * CFrame.new(0, 0, -length/2)
+    
+    local tip = createPart(
+        origin + direction * length,
+        Vector3.new(CELL_SIZE * 0.1, CELL_SIZE * 0.1, CELL_SIZE * 0.1),
+        color,
+        0.3
+    )
+end
+
+local function clearTestArea(center: Vector3, size: number)
+    log:info("Clearing test area at {}", center)
+    
+    local region = Region3.new(
+        center - Vector3.new(size, size, size),
+        center + Vector3.new(size, size, size)
+    ):ExpandToGrid(CELL_SIZE) -- Use consistent cell size
+    
+    Terrain:FillBlock(
+        CFrame.new(region.CFrame.Position),
+        region.Size,
+        Enum.Material.Air
+    )
+    
+    task.wait(0.1)
+end
+
+local function createTestTerrain(center: Vector3, pattern: string)
+    log:info("Creating test terrain pattern: {}", pattern)
+    
+    -- Ensure all dimensions are multiples of CELL_SIZE for cleaner tests
+    local blockSize = function(cells: number) return Vector3.one * (CELL_SIZE * cells) end
+    
+    if pattern == "flat_surface" then
+        -- Create a flat surface
+        Terrain:FillBlock(
+            CFrame.new(center - Vector3.new(0, CELL_SIZE * 2.5, 0)),
+            blockSize(10) * Vector3.new(1, 0.5, 1),
+            Enum.Material.Rock
+        )
+        
+    elseif pattern == "cave" then
+        -- Create terrain with a cave/hollow
+        Terrain:FillBall(center, CELL_SIZE * 5, Enum.Material.Rock)
+        task.wait(0.1)
+        Terrain:FillBall(center, CELL_SIZE * 2.5, Enum.Material.Air)
+        
+    elseif pattern == "stairs" then
+        -- Create stepped terrain
+        for i = 0, 5 do
+            Terrain:FillBlock(
+                CFrame.new(center + Vector3.new(i * CELL_SIZE * 2 - CELL_SIZE * 5, i * CELL_SIZE - CELL_SIZE * 2.5, 0)),
+                Vector3.new(CELL_SIZE * 2, CELL_SIZE * (1 + i), CELL_SIZE * 7.5),
+                Enum.Material.Rock
+            )
+        end
+        
+    elseif pattern == "mixed_materials" then
+        -- Create terrain with different materials
+        Terrain:FillBlock(
+            CFrame.new(center - Vector3.new(CELL_SIZE * 2.5, CELL_SIZE * 2.5, 0)),
+            blockSize(5),
+            Enum.Material.Rock
+        )
+        Terrain:FillBlock(
+            CFrame.new(center + Vector3.new(CELL_SIZE * 2.5, -CELL_SIZE * 2.5, 0)),
+            blockSize(5),
+            Enum.Material.Sandstone
+        )
+        -- Add water (non-diggable)
+        Terrain:FillBlock(
+            CFrame.new(center + Vector3.new(0, CELL_SIZE * 1.25, 0)),
+            blockSize(2.5),
+            Enum.Material.Water
+        )
+        
+    elseif pattern == "thin_wall" then
+        -- Create a thin wall to test edge detection (single cell thick)
+        Terrain:FillBlock(
+            CFrame.new(center),
+            Vector3.new(CELL_SIZE, CELL_SIZE * 5, CELL_SIZE * 5),
+            Enum.Material.Rock
+        )
+        
+    elseif pattern == "partial_occupancy" then
+        -- Create terrain then carve small spheres to create partial occupancy
+        Terrain:FillBlock(
+            CFrame.new(center),
+            blockSize(8),
+            Enum.Material.Rock
+        )
+        -- Carve small air pockets
+        for i = 1, 5 do
+            local offset = Vector3.new(
+                math.random() * CELL_SIZE * 4 - CELL_SIZE * 2,
+                math.random() * CELL_SIZE * 4 - CELL_SIZE * 2,
+                math.random() * CELL_SIZE * 4 - CELL_SIZE * 2
+            )
+            Terrain:FillBall(center + offset, CELL_SIZE * 0.3, Enum.Material.Air)
+        end
+        
+    elseif pattern == "negative_coords" then
+        -- Test at negative coordinates
+        local negCenter = Vector3.new(-100, -50, -100)
+        Terrain:FillBlock(
+            CFrame.new(negCenter),
+            blockSize(6),
+            Enum.Material.Rock
+        )
+        Terrain:FillBall(negCenter + Vector3.new(0, CELL_SIZE * 3, 0), CELL_SIZE * 2, Enum.Material.Air)
+        return negCenter -- Return the actual center used
+    end
+    
+    task.wait(0.5)
+    return center
+end
+
+-- Test Functions
+local function testIsExposedAt(center: Vector3)
+    log:info("Testing IsExposedAt method...")
+    
+    local testPoints = {}
+    local rayDistance = CELL_SIZE * 7.5
+    
+    -- Set up raycast params properly
+    local rayParams = RaycastParams.new()
+    rayParams.IgnoreWater = true
+    rayParams.FilterDescendantsInstances = {vizFolder}
+    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+    
+    -- Cast rays from multiple angles
+    local angles = {
+        Vector3.new(1, 0, 0),    -- Right
+        Vector3.new(-1, 0, 0),   -- Left
+        Vector3.new(0, 1, 0),    -- Up
+        Vector3.new(0, -1, 0),   -- Down
+        Vector3.new(0, 0, 1),    -- Forward
+        Vector3.new(0, 0, -1),   -- Back
+        Vector3.new(1, 1, 0).Unit,  -- Diagonal
+        Vector3.new(-1, 1, 1).Unit, -- Another diagonal
+    }
+    
+    for _, direction in ipairs(angles) do
+        local origin = center - direction * rayDistance
+        local rayResult = workspace:Raycast(
+            origin,
+            direction * rayDistance * 2,
+            rayParams
+        )
+        
+        if rayResult then
+            local isExposed = TerrainSurfaceDetector.IsExposedAt(
+                rayResult.Position,
+                rayResult.Normal,
+                CELL_SIZE
+            )
+            
+            table.insert(testPoints, {
+                position = rayResult.Position,
+                normal = rayResult.Normal,
+                material = rayResult.Material,
+                isExposed = isExposed
+            })
+            
+            -- Visualize result
+            local color = isExposed and COLORS.EXPOSED or COLORS.NOT_EXPOSED
+            createPart(rayResult.Position, Vector3.one * (CELL_SIZE * 0.25), color, 0.5)
+            
+            -- Show normal
+            if isExposed then
+                createArrow(rayResult.Position, rayResult.Normal, COLORS.NORMAL)
+            end
+        end
+    end
+    
+    local exposedCount = 0
+    for _, point in ipairs(testPoints) do
+        if point.isExposed then
+            exposedCount = exposedCount + 1
+        end
+    end
+    
+    log:info("Tested {} points, {} exposed", #testPoints, exposedCount)
+    
+    return testPoints
+end
+
+local function testCheckCellSurface(center: Vector3, stride: number?)
+    log:info("Testing CheckCellSurface method...")
+    
+    stride = stride or 1 -- Allow sampling every N cells to reduce part spam
+    local results = {}
+    local testRadius = 3 -- Test in a smaller grid to reduce visual clutter
+    local testedCells = 0
+    
+    for x = -testRadius, testRadius, stride do
+        for y = -testRadius, testRadius, stride do
+            for z = -testRadius, testRadius, stride do
+                testedCells = testedCells + 1
+                local testPos = center + Vector3.new(x, y, z) * CELL_SIZE
+                local hasSurface, surfacePos, normal, material = 
+                    TerrainSurfaceDetector.CheckCellSurface(testPos, CELL_SIZE)
+                
+                if hasSurface then
+                    table.insert(results, {
+                        cellPos = testPos,
+                        surfacePos = surfacePos,
+                        normal = normal,
+                        material = material
+                    })
+                    
+                    -- Visualize detected surface
+                    createPart(surfacePos or testPos, 
+                        Vector3.one * (CELL_SIZE * 0.9),
+                        COLORS.SURFACE, 0.7)
+                    
+                    if normal then
+                        createArrow(surfacePos or testPos, normal, COLORS.NORMAL)
+                    end
+                end
+            end
+        end
+    end
+    
+    log:info("Found {} surface cells out of {} tested", #results, testedCells)
+    return results
+end
+
+local function testDetectSurfaces(center: Vector3)
+    log:info("Testing DetectSurfaces method...")
+    
+    local halfSize = CELL_SIZE * 5
+    local region = Region3.new(
+        center - Vector3.new(halfSize, halfSize, halfSize),
+        center + Vector3.new(halfSize, halfSize, halfSize)
+    ):ExpandToGrid(CELL_SIZE)
+    
+    local surfaces = TerrainSurfaceDetector.DetectSurfaces(region, CELL_SIZE)
+    
+    -- Sample visualization to avoid part spam
+    local sampleRate = math.max(1, math.floor(#surfaces / 50)) -- Show max 50 parts
+    
+    for i = 1, #surfaces, sampleRate do
+        local surface = surfaces[i]
+        createPart(surface.position,
+            Vector3.one * (CELL_SIZE * 0.8),
+            COLORS.SURFACE, 0.6)
+        
+        createArrow(surface.position, surface.normal, COLORS.NORMAL)
+    end
+    
+    log:info("Detected {} surfaces in region (showing every {} for clarity)", #surfaces, sampleRate)
+    return surfaces
+end
+
+local function testGetSurfacesInRadius(center: Vector3)
+    log:info("Testing GetSurfacesInRadius method...")
+    
+    local radiusInCells = 4
+    local surfaces = TerrainSurfaceDetector.GetSurfacesInRadius(
+        center,
+        radiusInCells,
+        CELL_SIZE,
+        nil,
+        nil
+    )
+    
+    for _, surface in ipairs(surfaces) do
+        local distance = (surface.position - center).Magnitude
+        local normalizedDistance = distance / (radiusInCells * CELL_SIZE)
+        
+        -- Color gradient based on distance
+        local color = Color3.new(
+            normalizedDistance,
+            1 - normalizedDistance,
+            0.5
+        )
+        
+        createPart(surface.position,
+            Vector3.one * (CELL_SIZE * 0.7),
+            color, 0.5)
+    end
+    
+    -- Show radius boundary
+    local radiusPart = Instance.new("Part")
+    radiusPart.Shape = Enum.PartType.Ball
+    radiusPart.Size = Vector3.one * 2 * radiusInCells * CELL_SIZE
+    radiusPart.Position = center
+    radiusPart.Transparency = 0.9
+    radiusPart.Color = Color3.new(1, 1, 1)
+    radiusPart.Anchored = true
+    radiusPart.CanCollide = false
+    radiusPart.Parent = vizFolder
+    Debris:AddItem(radiusPart, VISUALIZATION_DURATION)
+    
+    log:info("Found {} surfaces within radius {}", #surfaces, radiusInCells)
+    return surfaces
+end
+
+local function testCacheBehavior()
+    log:info("Testing cache behavior...")
+    
+    local testPos = Vector3.new(0, 10, 0)
+    local normal = Vector3.new(0, 1, 0)
+    
+    -- Clear cache first
+    TerrainSurfaceDetector.ClearCache()
+    
+    -- Time multiple calls to same position (should be cached)
+    local startTime = os.clock()
+    for i = 1, 100 do
+        TerrainSurfaceDetector.IsExposedAt(testPos, normal, CELL_SIZE)
+    end
+    local cachedTime = os.clock() - startTime
+    
+    -- Clear cache and time without cache benefit
+    -- Each call should be to a different cell to avoid cache hits
+    TerrainSurfaceDetector.ClearCache()
+    startTime = os.clock()
+    for i = 1, 100 do
+        -- Move more than one cell size to ensure different cache keys
+        local offset = Vector3.new(i * CELL_SIZE * 1.1, 0, 0)
+        TerrainSurfaceDetector.IsExposedAt(testPos + offset, normal, CELL_SIZE)
+    end
+    local uncachedTime = os.clock() - startTime
+    
+    log:info("Cache test - Cached: {:.3f}ms, Uncached: {:.3f}ms, Speedup: {:.1f}x",
+        cachedTime * 1000,
+        uncachedTime * 1000,
+        uncachedTime / cachedTime
+    )
+end
+
+local function testLRUEviction()
+    log:info("Testing LRU cache eviction...")
+    
+    -- This requires access to cache size, which we'd need to expose
+    -- For now, we'll test by filling beyond MAX_CACHE_SIZE
+    local MAX_CACHE = 256 -- From the module
+    local testCount = MAX_CACHE + 50
+    
+    TerrainSurfaceDetector.ClearCache()
+    
+    -- Fill cache beyond capacity
+    for i = 1, testCount do
+        local pos = Vector3.new(i * CELL_SIZE, 0, 0)
+        TerrainSurfaceDetector.IsExposedAt(pos, Vector3.new(0, 1, 0), CELL_SIZE)
+    end
+    
+    -- Re-access an early key - if LRU works, it should be evicted
+    local earlyPos = Vector3.new(CELL_SIZE, 0, 0)
+    local startTime = os.clock()
+    TerrainSurfaceDetector.IsExposedAt(earlyPos, Vector3.new(0, 1, 0), CELL_SIZE)
+    local accessTime = os.clock() - startTime
+    
+    log:info("LRU test - Accessed potentially evicted key in {:.3f}ms", accessTime * 1000)
+    log:info("(Slow access suggests key was evicted and recalculated)")
+end
+
+local function testEnabledToggle()
+    log:info("Testing enabled/disabled toggle...")
+    
+    local testPos = Vector3.new(0, 10, 0)
+    
+    -- Test with feature enabled
+    TerrainSurfaceDetector.SetEnabled(true)
+    local enabledResult = TerrainSurfaceDetector.CheckCellSurface(testPos, CELL_SIZE)
+    
+    -- Test with feature disabled
+    TerrainSurfaceDetector.SetEnabled(false)
+    local disabledResult = TerrainSurfaceDetector.CheckCellSurface(testPos, CELL_SIZE)
+    
+    -- Re-enable for other tests
+    TerrainSurfaceDetector.SetEnabled(true)
+    
+    log:info("Enabled result: {}, Disabled result: {}", enabledResult, disabledResult)
+end
+
+local function testWaterBoundary(center: Vector3)
+    log:info("Testing water boundary detection...")
+    
+    -- Create terrain with water adjacent
+    Terrain:FillBlock(
+        CFrame.new(center - Vector3.new(CELL_SIZE * 2, 0, 0)),
+        Vector3.new(CELL_SIZE * 2, CELL_SIZE * 4, CELL_SIZE * 4),
+        Enum.Material.Rock
+    )
+    Terrain:FillBlock(
+        CFrame.new(center + Vector3.new(CELL_SIZE * 2, 0, 0)),
+        Vector3.new(CELL_SIZE * 2, CELL_SIZE * 4, CELL_SIZE * 4),
+        Enum.Material.Water
+    )
+    
+    task.wait(0.5)
+    
+    -- Test across the boundary
+    local boundaryPos = center
+    local towardWater = Vector3.new(1, 0, 0)
+    local towardRock = Vector3.new(-1, 0, 0)
+    
+    -- Check from rock toward water (should not be exposed - water isn't air)
+    local rockToWater = TerrainSurfaceDetector.IsExposedAt(boundaryPos, towardWater, CELL_SIZE)
+    
+    -- Check from water toward rock (should not be diggable - water isn't diggable)
+    local waterToRock = TerrainSurfaceDetector.IsExposedAt(boundaryPos, towardRock, CELL_SIZE)
+    
+    log:info("Water boundary - Rock→Water exposed: {}, Water→Rock exposed: {}", 
+        rockToWater, waterToRock)
+    
+    -- Visualize
+    createPart(boundaryPos, Vector3.one * (CELL_SIZE * 0.3), 
+        rockToWater and COLORS.EXPOSED or COLORS.WATER_ADJACENT, 0.5)
+    
+    return not rockToWater and not waterToRock -- Both should be false for correct behavior
+end
+
+local function testZeroNormalCase(center: Vector3)
+    log:info("Testing zero-normal edge case (thin wall with air on both sides)...")
+    
+    -- Create a single-cell thick wall
+    clearTestArea(center, CELL_SIZE * 10)
+    Terrain:FillBlock(
+        CFrame.new(center),
+        Vector3.new(CELL_SIZE, CELL_SIZE * 4, CELL_SIZE * 4),
+        Enum.Material.Rock
+    )
+    
+    task.wait(0.5)
+    
+    -- Test the center of the wall - should have air on both X sides
+    local hasSurface, surfacePos, normal, material = 
+        TerrainSurfaceDetector.CheckCellSurface(center, CELL_SIZE)
+    
+    log:info("Thin wall test - Has surface: {}, Normal: {}", hasSurface, normal)
+    
+    if normal then
+        createArrow(center, normal, COLORS.NORMAL)
+    end
+    
+    -- The wall should still be detected as a surface
+    return hasSurface == true
+end
+
+local function testIntegrationWithDigService()
+    log:info("Testing integration consistency with DigService...")
+    
+    -- We'll simulate what DigService does and verify consistency
+    local testPositions = {
+        Vector3.new(0, 10, 0),  -- Should have terrain
+        Vector3.new(0, 50, 0),  -- Probably air
+        Vector3.new(0, -10, 0), -- Below terrain
+    }
+    
+    local results = {}
+    for _, pos in ipairs(testPositions) do
+        local hasSurface = select(1, TerrainSurfaceDetector.CheckCellSurface(pos, CELL_SIZE))
+        table.insert(results, {
+            position = pos,
+            hasSurface = hasSurface
+        })
+        
+        log:info("Integration test at {} - Has surface: {}", pos, hasSurface)
+    end
+    
+    return results
+end
+
+-- Main test runner
+local function runAllTests()
+    log:info("=== Starting Surface Detection Tests ===")
+    log:info("Surface detection enabled: {}", TerrainSurfaceDetector.IsEnabled())
+    log:info("Cell size: {} studs", CELL_SIZE)
+    
+    local testCenter = Vector3.new(0, 20, 0)
+    
+    -- Test 1: Flat surface
+    log:info("\n--- Test 1: Flat Surface ---")
+    clearTestArea(testCenter, TEST_REGION_SIZE)
+    createTestTerrain(testCenter, "flat_surface")
+    task.wait(0.5)
+    testIsExposedAt(testCenter)
+    task.wait(2)
+    
+    -- Test 2: Cave/hollow structure
+    log:info("\n--- Test 2: Cave Structure ---")
+    clearTestArea(testCenter, TEST_REGION_SIZE)
+    createTestTerrain(testCenter, "cave")
+    task.wait(0.5)
+    testCheckCellSurface(testCenter, 2) -- Use stride of 2 to reduce parts
+    task.wait(2)
+    
+    -- Test 3: Stairs/stepped terrain
+    log:info("\n--- Test 3: Stepped Terrain ---")
+    clearTestArea(testCenter, TEST_REGION_SIZE)
+    createTestTerrain(testCenter, "stairs")
+    task.wait(0.5)
+    testDetectSurfaces(testCenter)
+    task.wait(2)
+    
+    -- Test 4: Mixed materials including non-diggable
+    log:info("\n--- Test 4: Mixed Materials ---")
+    clearTestArea(testCenter, TEST_REGION_SIZE)
+    createTestTerrain(testCenter, "mixed_materials")
+    task.wait(0.5)
+    testGetSurfacesInRadius(testCenter)
+    task.wait(2)
+    
+    -- Test 5: Thin wall edge detection
+    log:info("\n--- Test 5: Thin Wall ---")
+    clearTestArea(testCenter, TEST_REGION_SIZE)
+    createTestTerrain(testCenter, "thin_wall")
+    task.wait(0.5)
+    local surfaces = testDetectSurfaces(testCenter)
+    log:info("Thin wall detected {} surface voxels", #surfaces)
+    task.wait(2)
+    
+    -- Test 6: Zero normal case
+    log:info("\n--- Test 6: Zero Normal Edge Case ---")
+    local zeroNormalSuccess = testZeroNormalCase(testCenter)
+    log:info("Zero normal test {}", zeroNormalSuccess and "PASSED" or "FAILED")
+    task.wait(2)
+    
+    -- Test 7: Partial occupancy
+    log:info("\n--- Test 7: Partial Occupancy ---")
+    clearTestArea(testCenter, TEST_REGION_SIZE)
+    createTestTerrain(testCenter, "partial_occupancy")
+    task.wait(0.5)
+    testCheckCellSurface(testCenter, 2)
+    task.wait(2)
+    
+    -- Test 8: Water boundary
+    log:info("\n--- Test 8: Water Boundary ---")
+    clearTestArea(testCenter, TEST_REGION_SIZE)
+    local waterTestPassed = testWaterBoundary(testCenter)
+    log:info("Water boundary test {}", waterTestPassed and "PASSED" or "FAILED")
+    task.wait(2)
+    
+    -- Test 9: Negative coordinates
+    log:info("\n--- Test 9: Negative Coordinates ---")
+    clearTestArea(Vector3.new(-100, -50, -100), TEST_REGION_SIZE)
+    local negCenter = createTestTerrain(testCenter, "negative_coords")
+    task.wait(0.5)
+    testCheckCellSurface(negCenter)
+    task.wait(2)
+    
+    -- Test 10: Cache behavior
+    log:info("\n--- Test 10: Cache Performance ---")
+    testCacheBehavior()
+    
+    -- Test 11: LRU eviction
+    log:info("\n--- Test 11: LRU Cache Eviction ---")
+    testLRUEviction()
+    
+    -- Test 12: Enable/disable toggle
+    log:info("\n--- Test 12: Enable/Disable Toggle ---")
+    testEnabledToggle()
+    
+    -- Test 13: Integration check
+    log:info("\n--- Test 13: Integration with DigService ---")
+    testIntegrationWithDigService()
+    
+    log:info("\n=== All Tests Complete ===")
+    log:info("Visualizations will remain for {} seconds", VISUALIZATION_DURATION)
+    
+    -- Clean up visualization folder after duration
+    task.delay(VISUALIZATION_DURATION, function()
+        if vizFolder then
+            vizFolder:Destroy()
+        end
+    end)
+    
+    -- Print summary
+    print("\n========================================")
+    print("SURFACE DETECTION TEST RESULTS")
+    print("========================================")
+    print("✓ All test scenarios executed")
+    print("✓ Check console output for detailed results")
+    print("✓ Green parts = detected surfaces")
+    print("✓ Cyan parts = exposed terrain")
+    print("✓ Orange parts = non-exposed terrain")
+    print("✓ Dark blue = water-adjacent (non-diggable)")
+    print("✓ Yellow arrows = surface normals")
+    print("----------------------------------------")
+    print("Key Results:")
+    print("  • Zero normal case: " .. (zeroNormalSuccess and "PASSED" or "FAILED"))
+    print("  • Water boundary: " .. (waterTestPassed and "PASSED" or "FAILED"))
+    print("========================================\n")
+end
+
+-- Run tests after a short delay
+task.wait(2)
+runAllTests()
