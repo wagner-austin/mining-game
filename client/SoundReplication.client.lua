@@ -7,7 +7,19 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
 local SoundManager = require(MiningGame:WaitForChild("SoundManager"))
-local Remotes = require(MiningGame:WaitForChild("Remotes"))
+local EventBus = require(MiningGame:WaitForChild("EventBus"))
+local EventNames = require(MiningGame:WaitForChild("EventNames"))
+local Time = require(MiningGame:WaitForChild("Time"))
+local Bus = EventBus.global()
+
+-- Mark SOUND_PLAY as fast-path for high-frequency audio events
+Bus:markFastPath(EventNames.SOUND_PLAY)
+
+-- Store connections for cleanup
+local connections: {{ Disconnect: () -> () }} = {}
+
+-- Use Time.mono() for interval timing
+local function now(): number return Time.mono() end
 
 local LocalPlayer = Players.LocalPlayer
 local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
@@ -43,26 +55,28 @@ local CATEGORY_MAX_DISTANCE = {
 -- Spam prevention
 local lastPlayTime = {} :: {[string]: number}
 local function shouldPlay(category: string, window: number): boolean
-    local now = tick()
+    local t = now()
     local lastTime = lastPlayTime[category]
-    if not lastTime or (now - lastTime) > window then
-        lastPlayTime[category] = now
+    if not lastTime or (t - lastTime) > window then
+        lastPlayTime[category] = t
         return true
     end
     return false
 end
 
--- Handle sound effects from server
-Remotes.RE.OnSoundEffect.OnClientEvent:Connect(function(data: {
-    category: string,
-    soundType: string?,
-    position: Vector3?,
-    volume: number?,
-    pitch: number?,
-    materialKey: string?,
-    subtype: string?,
-    originUserId: number?,
-})
+-- Handle sound play events via EventBus (replaces both OnSoundEffect and PlaySound)
+local offSound = Bus:on(EventNames.SOUND_PLAY, function(data)
+    -- Handle simplified sound.play payload
+    if data.soundId then
+        -- Direct sound ID play (replaces PlaySound)
+        SoundManager.PlayId(data.soundId, {
+            volume = data.volume or 0.6,
+            position = data.position,
+        })
+        return
+    end
+    
+    -- Handle category-based sounds (replaces OnSoundEffect)
     -- Skip if this was our own action to prevent double playback
     if data.originUserId and data.originUserId == LocalPlayer.UserId then
         return
@@ -82,7 +96,6 @@ Remotes.RE.OnSoundEffect.OnClientEvent:Connect(function(data: {
     end
     
     -- Route to appropriate sound manager function with spam prevention
-    
     if category == "mining" and data.materialKey then
         if shouldPlay("mining", 0.05) then -- Max 20 per second
             SoundManager.PlayMining(
@@ -117,39 +130,84 @@ Remotes.RE.OnSoundEffect.OnClientEvent:Connect(function(data: {
     elseif category == "music" and data.soundType then
         -- Music changes are rare, no spam prevention needed
         SoundManager.PlayMusic(data.soundType)
+    end
+end)
+table.insert(connections, { Disconnect = offSound })
+
+-- Batch collection events to prevent duplicate toasts
+local collectionBatch = {} :: {[string]: {count: number, rarity: string, timestamp: number}}
+local BATCH_WINDOW = 0.08  -- 80ms - faster batching
+local recentShown = {} :: {[string]: number}
+local DEDUPE_WINDOW = 0.8  -- suppress repeats for ~0.8s
+local RARE_PLUS = { EPIC = true, LEGENDARY = true, MYTHIC = true }
+
+local function flushCollectionBatch()
+    local UIManager = _G.UIManager
+    if not UIManager or not UIManager.showNotificationWithRarity then return end
+
+    local t = now()
+    local nextDelay: number? = nil
+
+    for itemId, data in pairs(collectionBatch) do
+        local age = t - data.timestamp
+        if age >= BATCH_WINDOW then
+            local key = string.format("%s|%s", itemId, data.rarity or "?")
+            if not recentShown[key] or (t - recentShown[key] >= DEDUPE_WINDOW) then
+                -- Format item name (capitalize, replace underscores)
+                local itemName = itemId:gsub("_", " "):gsub("(%a)([%w_']*)", function(f, r) 
+                    return f:upper()..r:lower() 
+                end)
+                UIManager:showNotificationWithRarity(
+                    string.format("Found %s x%d", itemName, data.count),
+                    data.rarity
+                )
+                recentShown[key] = t
+            end
+            collectionBatch[itemId] = nil
+        else
+            local remaining = BATCH_WINDOW - age
+            nextDelay = nextDelay and math.min(nextDelay, remaining) or remaining
+        end
+    end
+
+    if nextDelay then
+        task.delay(nextDelay + 0.01, flushCollectionBatch)
+    end
+end
+
+-- Handle item collected feedback via EventBus
+local offItemCollected = Bus:on(EventNames.ITEM_COLLECTED, function(data)
+    -- Visual/UI feedback for item collection
+    print(string.format("Collected %s x%d [%s]", data.itemId, data.count, data.rarity or ""))
+    
+    -- Skip EPIC+ items - they'll get announcement banners instead
+    local rarityUpper = (data.rarity or ""):upper()
+    if RARE_PLUS[rarityUpper] then
+        -- Announcement/banners will cover EPIC+, so don't generate a second toast here.
+        return
+    end
+    
+    local t = now()
+    local id = data.itemId
+
+    local batch = collectionBatch[id]
+    if batch and (t - batch.timestamp) < BATCH_WINDOW then
+        batch.count = batch.count + data.count
+        batch.timestamp = t
     else
-        warn(("[SoundReplication] Unhandled category: %s, soundType=%s"):format(
-            tostring(data.category), 
-            tostring(data.soundType)
-        ))
+        collectionBatch[id] = { count = data.count, rarity = data.rarity, timestamp = t }
     end
-end)
 
--- Handle collection sounds (backward compatible with ItemService)
-Remotes.RE.PlaySound.OnClientEvent:Connect(function(data: {
-    soundId: string,
-    volume: number?,
-    position: Vector3?,
-    category: string?,
-    rarity: string?
-})
-    -- Play collection sound directly
-    if data.soundId then
-        SoundManager.PlayId(data.soundId, {
-            Volume = data.volume or 0.6,
-            Position = data.position,
-        })
+    -- Always (re)schedule a flush; the flusher will delay if needed
+    task.delay(BATCH_WINDOW, flushCollectionBatch)
+end)
+table.insert(connections, { Disconnect = offItemCollected })
+
+-- Cleanup on script destroy
+script.Destroying:Connect(function()
+    for _, c in ipairs(connections) do
+        if c and c.Disconnect then c.Disconnect() end
     end
-end)
-
--- Handle item collected feedback
-Remotes.RE.OnItemCollected.OnClientEvent:Connect(function(data: {
-    itemId: string,
-    count: number,
-    rarity: string
-})
-    -- Visual/UI feedback for item collection could go here
-    print(string.format("Collected %s x%d [%s]", data.itemId, data.count, data.rarity))
 end)
 
 print("[SoundReplication] Client sound replication initialized")
