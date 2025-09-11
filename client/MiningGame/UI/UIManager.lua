@@ -4,13 +4,16 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local MathUtils = require(ReplicatedStorage:WaitForChild("MiningGame"):WaitForChild("MathUtils"))
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 
 -- Import Theme and UIUtils
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
 local UIFolder = MiningGame:WaitForChild("UI")
+local Time = require(MiningGame:WaitForChild("Time"))
 local Theme = require(UIFolder:WaitForChild("Theme"))
+local UIx = require(UIFolder:WaitForChild("UIConstants"))
 local UIUtils = require(UIFolder:WaitForChild("UIUtils"))
 local ThemeManager = require(UIFolder:WaitForChild("ThemeManager"))
 local ThemeRefresher = require(UIFolder:WaitForChild("ThemeRefresher"))
@@ -34,10 +37,44 @@ type Scene = {
     cleanup: ((self: Scene) -> ())?,
 }
 
+-- Helper function for converting Color3 to hex string
+local function color3ToHex(c: Color3): string
+    local r = math.floor(c.R * 255 + 0.5)
+    local g = math.floor(c.G * 255 + 0.5)
+    local b = math.floor(c.B * 255 + 0.5)
+    return string.format("%02X%02X%02X", r, g, b)
+end
+
 local UIManager = {}
 UIManager.__index = UIManager
 
-function UIManager.new()
+type UIManagerT = typeof(setmetatable({} :: any, UIManager)) & {
+    screenGui: ScreenGui?,
+    overlayGui: ScreenGui?,
+    fullBleedGui: ScreenGui?,
+    fullBleedContainer: Frame?,
+    container: Frame?,
+    toastStack: Frame?,
+    toastLayout: UIListLayout?,
+    scenes: {[string]: Scene},
+    activeScene: Scene?,
+    sceneStack: {Scene},
+    mainHUD: Frame?,
+    isInitialized: boolean,
+    _cons: {RBXScriptConnection},
+    _transitionUnlockAt: number,
+    _watchdogNextCheckAt: number,
+    _watchdogLastVisibleAt: number,
+    _isRecovering: boolean,
+    _toastQueue: {{message: string, kind: string, duration: number}},
+    _toastActive: number,
+    _toastMaxVisible: number,
+    _timers: {thread},
+    tweenInfo: TweenInfo,
+    new: () -> UIManagerT,
+}
+
+function UIManager.new(): UIManagerT
     local self = setmetatable({}, UIManager)
     
     self.screenGui = nil :: ScreenGui?
@@ -51,6 +88,14 @@ function UIManager.new()
     self._watchdogNextCheckAt = 0 :: number  -- Next watchdog check time
     self._watchdogLastVisibleAt = 0 :: number  -- Last time UI was visible
     self._isRecovering = false :: boolean  -- Prevent re-entry during recovery
+    
+    -- Toast queue management
+    self._toastQueue = {} :: {{message: string, kind: string, duration: number}}
+    self._toastActive = 0 :: number
+    self._toastMaxVisible = Theme.toast.maxVisible or 3
+    
+    -- Timer tracking for auto-cleanup
+    self._timers = {} :: {thread}
     
     -- Animation defaults from Theme
     self.tweenInfo = Theme.animations.Standard
@@ -92,9 +137,27 @@ function UIManager:init()
     self.overlayGui.IgnoreGuiInset = true
     self.overlayGui.Parent = playerGui
     
+    -- Full-bleed overlay for truly centered elements (like action chip)
+    self.fullBleedGui = Instance.new("ScreenGui")
+    self.fullBleedGui.Name = "MiningGameUI_FullBleed"
+    self.fullBleedGui.ResetOnSpawn = false
+    self.fullBleedGui.DisplayOrder = 2  -- Above main UI but below modals
+    self.fullBleedGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    self.fullBleedGui.IgnoreGuiInset = true
+    self.fullBleedGui.ScreenInsets = Enum.ScreenInsets.None  -- No safe area clipping
+    self.fullBleedGui.ClipToDeviceSafeArea = false          -- Full screen access
+    self.fullBleedGui.Parent = playerGui
+    
+    self.fullBleedContainer = Instance.new("Frame")
+    self.fullBleedContainer.Name = "FullBleedContainer"
+    self.fullBleedContainer.Size = UDim2.fromScale(1, 1)
+    self.fullBleedContainer.BackgroundTransparency = 1
+    self.fullBleedContainer.Parent = self.fullBleedGui
+    
     -- Bind the whole UI to ThemeRefresher so theme flips repaint everything
     ThemeRefresher.BindTree(self.screenGui)
     ThemeRefresher.BindTree(self.overlayGui)
+    ThemeRefresher.BindTree(self.fullBleedGui)
     
     -- Removed UIScale - we want full screen UI without scaling
     
@@ -113,23 +176,6 @@ function UIManager:init()
     stackLayout.Parent = self.toastStack
     self.toastLayout = stackLayout
     
-    -- Function to update toast position dynamically
-    self.updateToastPosition = function()
-        local chipConfig = Theme.currencyChip
-        local topPosition = 20 + chipConfig.height + 8  -- Below chips with 8px gap
-        self.toastStack.Size = UDim2.new(0, Theme.toast.maxWidth, 0.5, 0)
-        
-        if Theme.toast.anchor == "topCenter" then
-            stackLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-            self.toastStack.AnchorPoint = Vector2.new(0.5, 0)
-            self.toastStack.Position = UDim2.new(0.5, 0, 0, topPosition)
-        else -- default to topRight
-            stackLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
-            self.toastStack.AnchorPoint = Vector2.new(1, 0)
-            self.toastStack.Position = UDim2.new(1, -20, 0, topPosition)
-        end
-    end
-    
     -- React to runtime theme changes
     table.insert(self._cons, ThemeManager.Changed():Connect(function()
         -- Repaint all bound instances, then update frosted surfaces and do any layout tweaks
@@ -143,10 +189,10 @@ function UIManager:init()
     self:_bindAncestryGuard(self.overlayGui)
     
     -- Watchdog: scan ~2x/sec; recover if nothing visible for >1.5s
-    self._watchdogLastVisibleAt = time()
+    self._watchdogLastVisibleAt = Time.mono()
     self._lastWatchdogLog = 0
     table.insert(self._cons, RunService.Heartbeat:Connect(function()
-        local now = time()
+        local now = Time.mono()
         if now < self._watchdogNextCheckAt then return end
         self._watchdogNextCheckAt = now + 0.5
         
@@ -160,7 +206,7 @@ function UIManager:init()
         if math.floor(now) ~= self._lastWatchdogLog then
             self._lastWatchdogLog = math.floor(now)
             log:debug("Watchdog: No UI visible, will recover in %.1fs", 
-                 math.max(0, 1.5 - (now - self._watchdogLastVisibleAt)))
+                 MathUtils.saturatingSub(1.5, now - self._watchdogLastVisibleAt))
         end
         
         if (now - self._watchdogLastVisibleAt) > 1.5 then
@@ -186,7 +232,7 @@ function UIManager:init()
     if self.refreshTheme then 
         self:refreshTheme() 
     else 
-        self.updateToastPosition() 
+        self:updateToastPosition() 
     end
     
     self.container = container
@@ -199,8 +245,24 @@ end
 
 function UIManager:refreshLayout()
     -- Update toast stack position based on current theme values
-    if self.updateToastPosition then
-        self.updateToastPosition()
+    self:updateToastPosition()
+end
+
+function UIManager:updateToastPosition()
+    if not self.toastStack or not self.toastLayout then return end
+    
+    local chipConfig = Theme.currencyChip
+    local topPosition = UIx.Spacing.LG + chipConfig.height + UIx.Spacing.SM  -- Below chips with gap
+    self.toastStack.Size = UDim2.new(0, Theme.toast.maxWidth, 0.5, 0)
+    
+    if Theme.toast.anchor == "topCenter" then
+        self.toastLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+        self.toastStack.AnchorPoint = Vector2.new(0.5, 0)
+        self.toastStack.Position = UDim2.new(0.5, 0, 0, topPosition)
+    else -- default to topRight
+        self.toastLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
+        self.toastStack.AnchorPoint = Vector2.new(1, 0)
+        self.toastStack.Position = UDim2.new(1, -UIx.Spacing.LG, 0, topPosition)
     end
 end
 
@@ -213,12 +275,12 @@ function UIManager:refreshTheme()
     if self.toastLayout then
         self.toastLayout.Padding = UDim.new(0, Theme.toast.gap)
     end
-    self.toastStack.Size = UDim2.new(0, Theme.toast.maxWidth, 0.5, 0)
+    
+    -- Keep queue cap synced to theme
+    self._toastMaxVisible = Theme.toast.maxVisible
     
     -- 2) Recompute exact position with chip height offset etc.
-    if self.updateToastPosition then
-        self.updateToastPosition()
-    end
+    self:updateToastPosition()
     
     -- 3) Refresh all active scenes to pick up new colors
     for _, scene in pairs(self.scenes) do
@@ -244,6 +306,31 @@ local function getCooldownSeconds()
     return math.max(t1, t2, t3) * 0.9  -- Slight under-shoot to keep UI snappy
 end
 
+-- Timer helpers
+function UIManager:_setTimeout(delay: number, fn: () -> ())
+    local th
+    th = task.delay(delay, function()
+        local ok, err = pcall(fn)
+        if not ok then
+            log:warn("UIManager timer error: %s", tostring(err))
+        end
+        -- prune the handle
+        for i, h in ipairs(self._timers) do
+            if h == th then table.remove(self._timers, i) break end
+        end
+    end)
+    table.insert(self._timers, th)
+    return th
+end
+
+function UIManager:_clearTimeout(h: thread?)
+    if not h then return end
+    pcall(task.cancel, h)
+    for i, hh in ipairs(self._timers) do
+        if hh == h then table.remove(self._timers, i) break end
+    end
+end
+
 function UIManager:showScene(sceneName: string, ...: any)
     local scene = self.scenes[sceneName]
     if not scene then
@@ -258,10 +345,10 @@ function UIManager:showScene(sceneName: string, ...: any)
     end
     
     -- Only guard opening during animation cooldown
-    if time() < (self._transitionUnlockAt or 0) then
+    if Time.mono() < (self._transitionUnlockAt or 0) then
         return
     end
-    self._transitionUnlockAt = time() + getCooldownSeconds()
+    self._transitionUnlockAt = Time.mono() + getCooldownSeconds()
     
     -- Initialize scene if needed - pass manager reference
     if not scene.frame then
@@ -344,8 +431,8 @@ end
 
 function UIManager:createButton(parent: GuiObject, text: string, position: UDim2?, size: UDim2?): TextButton
     local button = Instance.new("TextButton")
-    button.Size = size or UDim2.new(0, 120, 0, 40)
-    button.Position = position or UDim2.new(0, 0, 0, 0)
+    button.Size = size or UDim2.new(0, UIx.Size.BUTTON_WIDTH, 0, UIx.Size.BUTTON_HEIGHT)
+    button.Position = position or UIx.Common.ORIGIN
     button.BackgroundColor3 = UI_COLORS.Primary
     button.TextColor3 = UI_COLORS.Text
     button.Text = text
@@ -356,13 +443,13 @@ function UIManager:createButton(parent: GuiObject, text: string, position: UDim2
     
     -- Corner rounding
     local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 8)
+    corner.CornerRadius = UDim.new(0, UIx.CORNER_SMALL)
     corner.Parent = button
     
     -- Text size constraint for better readability
     local textConstraint = Instance.new("UITextSizeConstraint")
-    textConstraint.MinTextSize = 12
-    textConstraint.MaxTextSize = 18
+    textConstraint.MinTextSize = UIx.Visual.TEXT_TINY
+    textConstraint.MaxTextSize = UIx.Visual.TEXT_LARGE
     textConstraint.Parent = button
     
     -- Store original size and position for press effect
@@ -505,60 +592,259 @@ end
 
 -- createCurrencyDisplay removed - now using modular CurrencyChip component
 
+-- Compute toast duration once, reuse everywhere
+function UIManager:_durationFor(message: string): number
+    local t = Theme.toast
+    local base     = t.duration or 3.0
+    local perChar  = t.perChar or 0.02
+    local minD     = t.minDuration or 2.0
+    local maxD     = t.maxDuration or 6.0
+    return math.clamp(base + #message * perChar, minD, maxD)
+end
+
+-- Single queue-or-spawn path for all toasts
+-- args matches _spawnToastBase signature
+function UIManager:_queueOrSpawn(args: {
+    labelText: string,
+    iconText: string,
+    accentColor: Color3,
+    richText: boolean,
+    duration: number,
+    textColor: Color3?,
+})
+    if self._toastActive >= self._toastMaxVisible then
+        table.insert(self._toastQueue, { custom = args })
+        task.defer(function() self:_pumpToastQueue() end)
+        return
+    end
+    self:_spawnToastBase(args)
+end
+
+-- Queue management for toasts - fills up to max capacity
+function UIManager:_pumpToastQueue()
+    while self._toastActive < self._toastMaxVisible and #self._toastQueue > 0 do
+        local nextItem = table.remove(self._toastQueue, 1)
+        -- All queued items are now in the 'custom' format from _queueOrSpawn
+        if nextItem.custom then
+            self:_spawnToastBase(nextItem.custom)
+        elseif nextItem.rarityData then
+            -- Legacy support - can be removed later
+            local color = self:getRarityColor(nextItem.rarityData:upper())
+            local hex = color3ToHex(color)
+            local rich = nextItem.message:gsub("^(Found )(.+)( x%d+)$", function(prefix, itemName, suffix)
+                return string.format('%s%s <font color="#%s">(%s)</font>%s',
+                    prefix, itemName, hex, nextItem.rarityData:upper(), suffix)
+            end)
+            self:_spawnToastBase({
+                labelText = rich,
+                iconText = "✨",
+                accentColor = color,
+                textColor = Theme.colors.Text,
+                richText = true,
+                duration = nextItem.duration,
+            })
+        else
+            -- Legacy support - can be removed later
+            local t = Theme.toast
+            local kind = nextItem.kind or "info"
+            self:_spawnToastBase({
+                labelText = nextItem.message,
+                iconText = t.icon[kind] or t.icon.info,
+                accentColor = t.tint[kind] or t.tint.info,
+                textColor = t.tint[kind] or t.tint.info,
+                richText = false,
+                duration = nextItem.duration,
+            })
+        end
+    end
+end
+
+-- Public interface for server announcements (player found item messages)
+function UIManager:showServerAnnouncement(message: string, rarityColor: Color3)
+    local msg = (message or ""):gsub("^%s*💎%s*", "")  -- strip any leading diamond from server, just in case
+
+    -- Expected: "Player just found Item RARITY" or "Player just found Item (RARITY)"
+    local base, rarity = msg:match("^(.+ just found .+)%s*%(([^%)]+)%)%s*$")  -- with parens
+    if not base or not rarity then
+        base, rarity = msg:match("^(.+ just found .+)%s+(%u+)%s*$")  -- without parens (all caps word at end)
+    end
+    if not base or not rarity then
+        -- Fallback: just show the message with colored accent/icon, white text
+        return self:showNotificationCustom(msg, rarityColor, "💎")
+    end
+
+    local hex = color3ToHex(rarityColor)
+    -- No parentheses in the final text; color only the rarity token
+    local rich = string.format('%s <font color="#%s">%s</font>', base, hex, rarity:upper())
+
+    self:_queueOrSpawn({
+        labelText   = rich,
+        iconText    = "💎",
+        accentColor = rarityColor,
+        richText    = true,
+        textColor   = Theme.colors.Text,
+        duration    = self:_durationFor(rich),
+    })
+end
+
+-- Public interface for showing notifications with rarity coloring
+function UIManager:showNotificationWithRarity(message: string, rarity: string)
+    -- We still need to format the rich text for rarity here
+    local color = self:getRarityColor(rarity:upper())
+    local hex = color3ToHex(color)
+
+    -- Expect "Found ItemName xN" → colorize only "(RARITY)" 
+    local rich = message:gsub("^(Found )(.+)( x%d+)$", function(prefix, itemName, suffix)
+        return string.format('%s%s <font color="#%s">(%s)</font>%s',
+            prefix, itemName, hex, rarity:upper(), suffix)
+    end)
+    
+    self:_queueOrSpawn({
+        labelText   = rich,
+        iconText    = "✨",
+        accentColor = color,
+        richText    = true,
+        textColor   = Theme.colors.Text,
+        duration    = self:_durationFor(message),
+    })
+end
+
+-- Public interface for showing notifications
 function UIManager:showNotification(message: string, notificationType: string?)
+    local t = Theme.toast
+    -- Validate notification type against available theme colors
+    local validTypes = {"info", "success", "error", "warning"}
+    local kind = "info" -- default
+    if notificationType then
+        for _, validType in ipairs(validTypes) do
+            if notificationType:lower() == validType then
+                kind = validType
+                break
+            end
+        end
+    end
+    
+    local tint = t.tint[kind] or t.tint.info
+    local icon = (t.icon and t.icon[kind]) or (t.icon and t.icon.info) or "🔔"
+    
+    self:_queueOrSpawn({
+        labelText   = message,
+        iconText    = icon,
+        accentColor = tint,
+        richText    = false,
+        textColor   = tint,  -- Color the text to match notification type
+        duration    = self:_durationFor(message),
+    })
+end
+
+-- Public interface for custom colored notifications (for banners)
+function UIManager:showNotificationCustom(message: string, tintColor: Color3, iconText: string?)
+    self:_queueOrSpawn({
+        labelText   = message,
+        iconText    = iconText or (Theme.toast.icon and Theme.toast.icon.info) or "🔔",
+        accentColor = tintColor,
+        richText    = false,
+        textColor   = tintColor,  -- Use the tint color for text too
+        duration    = self:_durationFor(message),
+    })
+end
+
+-- Core toast builder - used by both plain and rarity toasts
+function UIManager:_spawnToastBase(args: {
+    labelText: string,
+    iconText: string,
+    accentColor: Color3,
+    textColor: Color3?,
+    richText: boolean,
+    duration: number
+})
+    self._toastActive = self._toastActive + 1
+    
     local tcfg = Theme.toast
     local colors = Theme.colors
-    local kind = (notificationType == "success" or notificationType == "error") and notificationType or "info"
-    local tint = tcfg.tint[kind]
+    local tint = args.accentColor
 
-    -- Toast root (auto height)
+    -- Container controls height for collapse; child toast animates visuals/slide
+    local container = Instance.new("Frame")
+    container.Name = "ToastContainer"
+    container.BackgroundTransparency = 1
+    container.Size = UDim2.new(1, 0, 0, 0)
+    container.AutomaticSize = Enum.AutomaticSize.Y
+    container.ClipsDescendants = true
+    container.ZIndex = Theme.z.Notification
+    container.Active = true  -- Ensures it receives input on all platforms
+    container.LayoutOrder = -Time.monoMs()  -- Newest toasts appear first
+    container.Parent = self.toastStack
+
     local toast = Instance.new("Frame")
     toast.Name = "Toast"
     toast.BackgroundColor3 = colors.Surface
-    toast.BackgroundTransparency = 0.2  -- frosted
+    toast.BackgroundTransparency = Theme.effects.frosted.backgroundTransparency
     toast.Size = UDim2.new(1, 0, 0, 0)
     toast.AutomaticSize = Enum.AutomaticSize.Y
-    toast.Parent = self.toastStack
+    toast.ZIndex = container.ZIndex + 1
+    toast.Parent = container
 
     -- Glass edge border
-    UIUtils.applyGlassEdge(toast)
+    local stroke = UIUtils.applyGlassEdge(toast)
 
     -- Rounding
     local corner = Instance.new("UICorner")
     corner.CornerRadius = UDim.new(0, Theme.sizes.LargeCornerRadius)
     corner.Parent = toast
 
-    -- Soft highlight
+    -- Soft highlight using theme's frosted gradient values
     local grad = Instance.new("UIGradient")
     grad.Rotation = 90
-    grad.Color = ColorSequence.new(Color3.new(1,1,1), Color3.new(1,1,1))
+    grad.Color = ColorSequence.new(Color3.new(1,1,1), colors.Surface)
     grad.Transparency = NumberSequence.new({
-        NumberSequenceKeypoint.new(0, 0.9),
-        NumberSequenceKeypoint.new(1, 1.0),
+        NumberSequenceKeypoint.new(0, Theme.effects.frosted.gradientTopT),
+        NumberSequenceKeypoint.new(0.5, (Theme.effects.frosted.gradientTopT + Theme.effects.frosted.gradientBottomT) / 2),
+        NumberSequenceKeypoint.new(1, Theme.effects.frosted.gradientBottomT),
     })
     grad.Parent = toast
 
-    -- Left accent strip (tinted, subtle)
+    -- Keep children inside the rounded shape
+    toast.ClipsDescendants = true
+
+    -- Inset by the stroke thickness so content sits inside the bevel
+    local inset = math.max(1, Theme.glassEdge.thickness)
+
+    local clip = Instance.new("Frame")
+    clip.Name = "ToastClip"
+    clip.BackgroundTransparency = 1
+    clip.Size = UDim2.new(1, -inset*2, 0, 0)  -- No Y scale in an auto-sized parent
+    clip.AutomaticSize = Enum.AutomaticSize.Y  -- Let content determine height
+    clip.Position = UDim2.new(0, inset, 0, inset)
+    clip.ClipsDescendants = true
+    clip.ZIndex = toast.ZIndex + 1
+    clip.Parent = toast
+
+    local clipCorner = Instance.new("UICorner")
+    clipCorner.CornerRadius = UDim.new(0, MathUtils.saturatingSub(Theme.sizes.LargeCornerRadius, inset))
+    clipCorner.Parent = clip
+
+    -- Left accent strip (now properly clipped)
     local accent = Instance.new("Frame")
-    accent.BackgroundColor3 = tint
-    accent.BackgroundTransparency = 0.25
-    accent.Size = UDim2.new(0, 4, 1, 0)
-    accent.Parent = toast
-    local accCorner = Instance.new("UICorner")
-    accCorner.CornerRadius = corner.CornerRadius
-    accCorner.Parent = accent
+    accent.BackgroundColor3 = args.accentColor
+    accent.BackgroundTransparency = Theme.card.backgroundTransparency
+    accent.Size = UDim2.new(0, UIx.ACCENT_WIDTH, 1, 0)
+    accent.Position = UIx.Common.ORIGIN
+    accent.ZIndex = clip.ZIndex + 1
+    accent.Parent = clip
 
     -- Content row
     local content = Instance.new("Frame")
     content.BackgroundTransparency = 1
-    content.Size = UDim2.new(1, -8, 0, 0)
-    content.Position = UDim2.new(0, 8, 0, 0)
+    content.Size = UDim2.new(1, -UIx.Spacing.SM, 0, 0)
+    content.Position = UDim2.new(0, UIx.CORNER_SMALL, 0, 0)
     content.AutomaticSize = Enum.AutomaticSize.Y
-    content.Parent = toast
+    content.ZIndex = clip.ZIndex + 1
+    content.Parent = clip
 
     local layout = Instance.new("UIListLayout")
     layout.FillDirection = Enum.FillDirection.Horizontal
-    layout.Padding = UDim.new(0, 8)
+    layout.Padding = UDim.new(0, UIx.CORNER_SMALL)
     layout.HorizontalAlignment = Enum.HorizontalAlignment.Left
     layout.VerticalAlignment = Enum.VerticalAlignment.Center
     layout.Parent = content
@@ -570,69 +856,112 @@ function UIManager:showNotification(message: string, notificationType: string?)
     pad.PaddingRight = UDim.new(0, tcfg.padding)
     pad.Parent = content
 
-    -- Icon (subtle)
+    -- Icon
     local icon = Instance.new("TextLabel")
     icon.BackgroundTransparency = 1
-    icon.Size = UDim2.fromOffset(22, 22)
-    icon.Text = tcfg.icon[kind]
+    icon.Size = UDim2.fromOffset(UIx.Size.ICON_SMALL_PX, UIx.Size.ICON_SMALL_PX)
+    icon.Text = args.iconText
+    icon.TextColor3 = args.accentColor
     icon.TextScaled = true
+    icon.ZIndex = content.ZIndex + 1
     icon.Parent = content
 
     -- Message
     local label = Instance.new("TextLabel")
     label.BackgroundTransparency = 1
-    label.Size = UDim2.new(1, -22, 0, 0)
+    label.Size = UDim2.new(1, -(UIx.Size.ICON_SMALL_PX + UIx.Spacing.SM), 0, 0)
     label.AutomaticSize = Enum.AutomaticSize.Y
-    label.Text = message
-    label.TextColor3 = colors.Text
+    label.RichText = args.richText
+    label.Text = args.labelText
+    label.TextColor3 = args.textColor or colors.Text
     label.TextWrapped = true
     label.TextXAlignment = Enum.TextXAlignment.Left
     label.TextYAlignment = Enum.TextYAlignment.Center
-    label.Font = Theme.fonts.Primary  -- Back to primary for readability
-    label.TextSize = 20  -- Comfortable reading size
+    label.Font = Theme.fonts.Primary
+    label.TextSize = Theme.textSizes.Medium.Max
+    label.ZIndex = content.ZIndex + 1
     label.Parent = content
-
-    -- Add padding for slide animation (UIListLayout ignores Position)
-    local slidePad = Instance.new("UIPadding")
-    slidePad.PaddingTop = UDim.new(0, -8) -- start slightly above
-    slidePad.Parent = toast
     
-    -- Subtle entrance animation + timed dismiss
+    -- Add text size constraint
+    local textConstraint = Instance.new("UITextSizeConstraint")
+    textConstraint.MinTextSize = Theme.textSizes.Medium.Min
+    textConstraint.MaxTextSize = Theme.textSizes.Medium.Max
+    textConstraint.Parent = label
+
+    -- Entrance state (anchor-aware slide)
+    local fromX = (tcfg.anchor == "topRight") and UIx.Spacing.LG or -UIx.Spacing.LG
+    toast.Position = UDim2.new(0, fromX, 0, 0)
     toast.BackgroundTransparency = 1
-    toast.Visible = true
+    accent.BackgroundTransparency = 1
+    icon.TextTransparency = 1
+    label.TextTransparency = 1
+    stroke.Transparency = 1
+    container.Visible = true
 
+    -- Animate in
     TweenService:Create(toast, Theme.animations.Quick, {
-        BackgroundTransparency = 0.2
+        BackgroundTransparency = Theme.effects.frosted.backgroundTransparency,
+        Position = UIx.Common.ORIGIN,
     }):Play()
-    TweenService:Create(slidePad, Theme.animations.Quick, {
-        PaddingTop = UDim.new(0, 0)
+    TweenService:Create(accent, Theme.animations.Quick, {
+        BackgroundTransparency = Theme.card.backgroundTransparency
+    }):Play()
+    TweenService:Create(icon, Theme.animations.Quick, { TextTransparency = 0 }):Play()
+    TweenService:Create(label, Theme.animations.Quick, { TextTransparency = 0 }):Play()
+    TweenService:Create(stroke, Theme.animations.Quick, {
+        Transparency = Theme.glassEdge.transparency
     }):Play()
 
-    task.delay(tcfg.duration, function()
-        local out1 = TweenService:Create(toast, Theme.animations.Standard, {
-            BackgroundTransparency = 1
+    local isDismissing = false
+    local function dismissToast()
+        if isDismissing then return end
+        isDismissing = true
+
+        -- Ensure container has a concrete height to tween
+        RunService.Heartbeat:Wait()
+        local collapseFrom = container.AbsoluteSize.Y
+        container.AutomaticSize = Enum.AutomaticSize.None
+        container.Size = UDim2.new(1, 0, 0, collapseFrom)
+
+        -- Fade + slight slide
+        local fadeOut = TweenService:Create(toast, Theme.animations.Quick, {
+            BackgroundTransparency = 1,
+            Position = UDim2.new(0, fromX, 0, 0)
         })
-        local out2 = TweenService:Create(slidePad, Theme.animations.Standard, {
-            PaddingTop = UDim.new(0, -8)
+        TweenService:Create(accent, Theme.animations.Quick, { BackgroundTransparency = 1 }):Play()
+        TweenService:Create(icon, Theme.animations.Quick, { TextTransparency = 1 }):Play()
+        TweenService:Create(label, Theme.animations.Quick, { TextTransparency = 1 }):Play()
+        TweenService:Create(stroke, Theme.animations.Quick, { Transparency = 1 }):Play()
+        -- Gradients can't be tweened, just set it directly for instant fade
+        grad.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 1),
+            NumberSequenceKeypoint.new(1, 1),
         })
-        out1:Play()
-        out2:Play()
-        out1.Completed:Connect(function()
-            toast:Destroy()
+
+            local collapse = TweenService:Create(container, Theme.animations.Standard, {
+                Size = UDim2.new(1, 0, 0, 0)
+            })
+
+            fadeOut:Play()
+            collapse:Play()
+
+        collapse.Completed:Connect(function()
+            container:Destroy()
+            self._toastActive = self._toastActive - 1
+            self:_pumpToastQueue()
         end)
-    end)
+    end
 
-    -- Tap/click to dismiss early
-    toast.InputBegan:Connect(function(input)
+    -- Auto dismiss
+    self:_setTimeout(args.duration, dismissToast)
+
+    -- Tap to dismiss
+    container.InputBegan:Connect(function(input)
         local t = input.UserInputType
         if t == Enum.UserInputType.MouseButton1 or t == Enum.UserInputType.Touch then
-            toast:Destroy()
+            dismissToast()
         end
     end)
-end
-
-function UIManager:getColors()
-    return UI_COLORS
 end
 
 function UIManager:getRarityColor(rarity: string): Color3
@@ -813,9 +1142,7 @@ function UIManager:_ensureRootsExist()
         stackLayout.Parent = self.toastStack
         self.toastLayout = stackLayout
         
-        if self.updateToastPosition then
-            self.updateToastPosition()
-        end
+        self:updateToastPosition()
     end
 end
 
@@ -854,7 +1181,7 @@ function UIManager:_showMainHUDNow()
         -- Let future opens proceed immediately
         self._transitionUnlockAt = 0
         -- Keep toasts in the right spot again
-        if self.updateToastPosition then self.updateToastPosition() end
+        self:updateToastPosition()
         
         -- Clean up any recovery buttons
         for _, child in ipairs(self.screenGui:GetChildren()) do
@@ -864,20 +1191,20 @@ function UIManager:_showMainHUDNow()
         end
         
         -- Reset watchdog timer to give UI time to appear
-        self._watchdogLastVisibleAt = time() + 2 -- Give 2 seconds for animations
+        self._watchdogLastVisibleAt = Time.mono() + 2 -- Give 2 seconds for animations
         
         log:debug("Watchdog recovered UI by showing MainHUD")
     else
         -- As a last resort, show a tiny recovery prompt
         local btn = Instance.new("TextButton")
         btn.Text = "Tap to recover UI"
-        btn.Size = UDim2.fromOffset(220, 48)
+        btn.Size = UDim2.fromOffset(UIx.Size.BUTTON_WIDTH, UIx.Size.BUTTON_LARGE_HEIGHT)
         btn.AnchorPoint = Vector2.new(0.5, 0.5)
         btn.Position = UDim2.fromScale(0.5, 0.5)
         btn.BackgroundColor3 = Theme.colors.Surface
         btn.TextColor3 = Theme.colors.Text
         btn.Font = Theme.fonts.Primary
-        btn.TextSize = 20
+        btn.TextSize = UIx.Visual.TEXT_LARGE
         btn.Parent = self.screenGui
         btn.Activated:Connect(function()
             btn:Destroy()
@@ -892,6 +1219,12 @@ function UIManager:_showMainHUDNow()
 end
 
 function UIManager:cleanup()
+    -- Cancel delayed timers first
+    if self._timers then
+        for _, h in ipairs(self._timers) do pcall(task.cancel, h) end
+        self._timers = {}
+    end
+    
     -- Disconnect all connections (including theme listener)
     for _, c in ipairs(self._cons) do 
         if c.Connected then 
@@ -910,6 +1243,11 @@ function UIManager:cleanup()
         self.overlayGui = nil
     end
     
+    if self.fullBleedGui then
+        self.fullBleedGui:Destroy()
+        self.fullBleedGui = nil
+    end
+    
     for _, scene in pairs(self.scenes) do
         if scene.cleanup then
             scene:cleanup()
@@ -920,5 +1258,18 @@ function UIManager:cleanup()
     self.activeScene = nil
     self.isInitialized = false
 end
+
+--[[
+-- Debug helpers (uncomment when needed)
+function UIManager:enableDebugLogging()
+    -- Add these lines where needed:
+    -- print("[UIManager DEBUG] Initializing UIManager...")
+    -- print("[UIManager DEBUG] Toast stack created, parent:", self.toastStack.Parent and self.toastStack.Parent:GetFullName() or "nil")
+    -- print("[UIManager DEBUG] _queueOrSpawn called, active:", self._toastActive, "max:", self._toastMaxVisible)
+    -- print("[UIManager DEBUG] Toast message:", args.labelText)
+    -- print("[UIManager DEBUG] _spawnToastBase called")
+    -- print("[UIManager DEBUG] Toast container created, parent:", container.Parent and container.Parent:GetFullName() or "nil")
+end
+--]]
 
 return UIManager
