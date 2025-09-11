@@ -7,9 +7,12 @@ local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
-local Theme = require(MiningGame:WaitForChild("UI"):WaitForChild("Theme"))
-local ThemeRefresher = require(MiningGame:WaitForChild("UI"):WaitForChild("ThemeRefresher"))
-local UIUtils = require(MiningGame:WaitForChild("UI"):WaitForChild("UIUtils"))
+local MathUtils = require(MiningGame:WaitForChild("MathUtils"))
+local UIFolder = MiningGame:WaitForChild("UI")
+local Theme = require(UIFolder:WaitForChild("Theme"))
+local ThemeRefresher = require(UIFolder:WaitForChild("ThemeRefresher"))
+local UIUtils = require(UIFolder:WaitForChild("UIUtils"))
+local UIx = require(UIFolder:WaitForChild("UIConstants"))
 
 -- Track the currently open dropdown globally so only one can be open at a time
 local currentOpen = nil -- : Dropdown?
@@ -17,6 +20,26 @@ local currentOpen = nil -- : Dropdown?
 local Dropdown = {}
 Dropdown.__index = Dropdown
 
+export type DropdownT = {
+    options: {Option},
+    onSelect: ((option: Option) -> ())?,
+    connections: {RBXScriptConnection},
+    optionConns: {{RBXScriptConnection}},
+    currentIndex: number,
+    portalParent: Instance?,
+    zIndexBase: number,
+    maxHeight: number,
+    container: Frame,
+    button: TextButton,
+    list: ScrollingFrame?,
+    listContent: Frame?,
+    shield: TextButton?,
+    optionButtons: {TextButton},
+    new: (config: DropdownConfig) -> DropdownT,
+    setOptions: (self: DropdownT, options: {Option}) -> (),
+    getValue: (self: DropdownT) -> Option?,
+    destroy: (self: DropdownT) -> (),
+}
 export type Option = {
     id: string,
     label: string,
@@ -37,7 +60,7 @@ export type DropdownConfig = {
     maxHeight: number?, -- NEW: list max height (optional)
 }
 
-function Dropdown.new(config: DropdownConfig)
+function Dropdown.new(config: DropdownConfig): DropdownT
     local self = setmetatable({}, Dropdown)
     
     -- Don't capture colors here - always use Theme.colors directly
@@ -54,8 +77,8 @@ function Dropdown.new(config: DropdownConfig)
     
     -- Main button container
     local container = Instance.new("Frame")
-    container.Size = config.size or UDim2.new(1, 0, 0, 36)
-    container.Position = config.position or UDim2.new(0, 0, 0, 0)
+    container.Size = config.size or UDim2.new(1, 0, 0, UIx.Size.BUTTON_HEIGHT)
+    container.Position = config.position or UIx.Common.ORIGIN
     container.BackgroundTransparency = 1
     container.Parent = config.parent
     self.container = container
@@ -96,15 +119,15 @@ function Dropdown.new(config: DropdownConfig)
     -- Left align text with padding for mobile style
     button.TextXAlignment = Enum.TextXAlignment.Left
     local buttonPadding = Instance.new("UIPadding")
-    buttonPadding.PaddingLeft = UDim.new(0, 12)
-    buttonPadding.PaddingRight = UDim.new(0, 35) -- Room for arrow
+    buttonPadding.PaddingLeft = UDim.new(0, UIx.Spacing.MD)
+    buttonPadding.PaddingRight = UDim.new(0, UIx.Spacing.DROPDOWN_ARROW) -- Room for arrow
     buttonPadding.Parent = button
     
     
     -- Dropdown arrow indicator
     local arrow = Instance.new("TextLabel")
-    arrow.Size = UDim2.new(0, 30, 1, 0)
-    arrow.Position = UDim2.new(1, -30, 0, 0)
+    arrow.Size = UDim2.new(0, UIx.Size.ARROW_PX, 1, 0)
+    arrow.Position = UDim2.new(1, -UIx.Size.ARROW_PX, 0, 0)
     arrow.BackgroundTransparency = 1
     arrow.Text = "▼"
     arrow.TextColor3 = Theme.colors.TextDim
@@ -113,8 +136,8 @@ function Dropdown.new(config: DropdownConfig)
     arrow.Parent = button
     
     local arrowConstraint = Instance.new("UITextSizeConstraint")
-    arrowConstraint.MinTextSize = 8
-    arrowConstraint.MaxTextSize = 16
+    arrowConstraint.MinTextSize = UIx.Visual.TEXT_MINIMUM
+    arrowConstraint.MaxTextSize = UIx.Size.ARROW_PX
     arrowConstraint.Parent = arrow
     
     -- Bind button and arrow to theme refresher
@@ -153,11 +176,11 @@ function Dropdown.new(config: DropdownConfig)
     listContainer.BackgroundColor3 = Theme.colors.Surface  -- Surface color for visibility
     listContainer.BackgroundTransparency = Theme.dropdown.listBackgroundTransparency  -- Less transparent for dropdown
     listContainer.BorderSizePixel = 0
-    listContainer.ScrollBarThickness = 4
+    listContainer.ScrollBarThickness = UIx.Spacing.TINY
     listContainer.ScrollBarImageColor3 = Theme.colors.Primary
     listContainer.ScrollBarImageTransparency = 0.5
     listContainer.AutomaticCanvasSize = Enum.AutomaticSize.Y
-    listContainer.CanvasSize = UDim2.new(0, 0, 0, 0)
+    listContainer.CanvasSize = UIx.Common.ORIGIN
     listContainer.CanvasPosition = Vector2.new(0, 0) -- Start at top
     listContainer.Active = true -- absorbs input
     listContainer.ClipsDescendants = true
@@ -245,16 +268,27 @@ function Dropdown.new(config: DropdownConfig)
         local x = btnAbs.X - rootAbs.X - math.floor((listWidth - btnSize.X) / 2)  -- Center it
         local yBelow = btnAbs.Y - rootAbs.Y + btnSize.Y + Theme.dropdown.listOffset  -- Gap for shadow effect
         
-        listContainer.Size = UDim2.fromOffset(listWidth, self.maxHeight)
+        -- Use the actual content height from AutomaticCanvasSize, capped at maxHeight
+        -- AbsoluteCanvasSize.Y gives us the real content height including padding
+        local actualContentHeight = listContainer.AbsoluteCanvasSize.Y
+        local desiredHeight = math.min(actualContentHeight, self.maxHeight)
+        
+        -- If we have very few items, use the actual height; otherwise cap it
+        if actualContentHeight > 0 then
+            listContainer.Size = UDim2.fromOffset(listWidth, desiredHeight)
+        else
+            -- Fallback for first frame before canvas size is calculated
+            listContainer.Size = UDim2.fromOffset(listWidth, self.maxHeight)
+        end
         listContainer.Position = UDim2.fromOffset(x, yBelow)
         
         -- Flip upward if it would go off-screen
-        local listH = math.min(self.maxHeight, listContainer.AbsoluteSize.Y)
+        local listH = math.min(desiredHeight, listContainer.AbsoluteSize.Y)
         if yBelow + listH > rootSize.Y then
             local listWidth = math.floor(btnSize.X * Theme.dropdown.listWidthRatio)
             local x = btnAbs.X - rootAbs.X - math.floor((listWidth - btnSize.X) / 2)
             local yAbove = btnAbs.Y - rootAbs.Y - listH - Theme.dropdown.listOffset  -- Gap when flipped too
-            listContainer.Position = UDim2.fromOffset(x, math.max(0, yAbove))
+            listContainer.Position = UDim2.fromOffset(x, MathUtils.nonNegative(yAbove))
         end
         
         -- Force scroll to top after repositioning
@@ -264,6 +298,9 @@ function Dropdown.new(config: DropdownConfig)
     -- Reposition when the source button moves/resizes
     table.insert(self.connections, container:GetPropertyChangedSignal("AbsolutePosition"):Connect(repositionList))
     table.insert(self.connections, container:GetPropertyChangedSignal("AbsoluteSize"):Connect(repositionList))
+    
+    -- Also reposition when content size changes (important for dynamic sizing)
+    table.insert(self.connections, listContainer:GetPropertyChangedSignal("AbsoluteCanvasSize"):Connect(repositionList))
     
     -- Create option buttons
     self.optionButtons = {}
@@ -283,12 +320,15 @@ function Dropdown.new(config: DropdownConfig)
         -- Add a subtle divider line after each option (except last)
         if i < #self.options then
             local divider = Instance.new("Frame")
-            divider.Size = UDim2.new(1, -16, 0, 1)
-            divider.Position = UDim2.new(0, 8, 1, -1)
+            divider.Size = UDim2.new(1, -UIx.Spacing.MD, 0, 1)
+            divider.Position = UDim2.new(0, UIx.Spacing.SM, 1, -1)
             divider.BackgroundColor3 = Theme.colors.TextDim
             divider.BackgroundTransparency = Theme.ui.dividerTransparency + 0.1  -- Even more subtle
             divider.BorderSizePixel = 0
             divider.Parent = optBtn
+            
+            -- Bind divider to theme
+            ThemeRefresher.Bind(divider, { BackgroundColor3 = "TextDim" })
         end
 
         local optTextConstraint = Instance.new("UITextSizeConstraint")
@@ -299,8 +339,8 @@ function Dropdown.new(config: DropdownConfig)
         -- Add icon if provided
         if option.icon then
             local icon = Instance.new("TextLabel")
-            icon.Size = UDim2.new(0, 24, 1, 0)
-            icon.Position = UDim2.new(0, 4, 0, 0)
+            icon.Size = UDim2.new(0, UIx.Size.ROW_STANDARD, 1, 0)
+            icon.Position = UDim2.new(0, UIx.Spacing.TINY, 0, 0)
             icon.BackgroundTransparency = 1
             icon.Text = option.icon
             icon.TextColor3 = option.color or Theme.colors.Text
@@ -452,13 +492,13 @@ function Dropdown:setOptions(options: {Option})
     -- Create new option buttons
     for i, option in ipairs(self.options) do
         local optBtn = Instance.new("TextButton")
-        optBtn.Size = UDim2.new(1, -8, 0, 32)
+        optBtn.Size = UDim2.new(1, 0, 0, Theme.dropdown.optionHeight)
         optBtn.BackgroundColor3 = Theme.colors.Surface
         optBtn.BackgroundTransparency = Theme.dropdown.optionTransparency
         optBtn.Text = option.label
         optBtn.TextColor3 = option.color or Theme.colors.Text
         optBtn.TextScaled = true
-        optBtn.Font = Theme.fonts.Secondary
+        optBtn.Font = Theme.fonts.Primary
         optBtn.AutoButtonColor = false
         optBtn.ZIndex = self.zIndexBase + 2 -- Ensure it's above the list container
         optBtn.Parent = self.listContent or self.list
@@ -466,12 +506,15 @@ function Dropdown:setOptions(options: {Option})
         -- Add a subtle divider line after each option (except last)
         if i < #self.options then
             local divider = Instance.new("Frame")
-            divider.Size = UDim2.new(1, -16, 0, 1)
-            divider.Position = UDim2.new(0, 8, 1, -1)
+            divider.Size = UDim2.new(1, -UIx.Spacing.MD, 0, 1)
+            divider.Position = UDim2.new(0, UIx.Spacing.SM, 1, -1)
             divider.BackgroundColor3 = Theme.colors.TextDim
             divider.BackgroundTransparency = Theme.ui.dividerTransparency + 0.1  -- Even more subtle
             divider.BorderSizePixel = 0
             divider.Parent = optBtn
+            
+            -- Bind divider to theme
+            ThemeRefresher.Bind(divider, { BackgroundColor3 = "TextDim" })
         end
 
         local optTextConstraint = Instance.new("UITextSizeConstraint")
