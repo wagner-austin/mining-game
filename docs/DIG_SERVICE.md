@@ -13,21 +13,36 @@ The DigService manages all mining/digging mechanics in the game, including:
 
 ### Client-Side Usage
 ```lua
--- TestClient.client.lua example
-local function requestDigAt(worldPos: Vector3)
-    local result = requestDig:InvokeServer(worldPos)
-    if result.ok then
-        -- Dig successful
-    else
-        -- Handle failure: result.reason
-    end
+-- Using ClientRF and the Dig RFs
+local ClientRF = require(MiningGame.ClientRF)
+
+-- Single dig
+local res, err = ClientRF.call("RequestDig", worldPos)
+if res then
+    -- res.ok/res.success are top-level in service returns
+else
+    warn("Dig failed:", err)
 end
+
+-- Continuous dig
+ClientRF.call("StartContinuousDig", worldPos)
+-- ... later ...
+ClientRF.call("StopContinuousDig")
 ```
 
 ### Server-Side API
+The service is initialized via `ServiceManager` and exposes methods used by RF specs in `server/MiningGame/RemoteFns/Dig.rf.lua`:
+
 ```lua
--- The service is automatically initialized
--- Processes dig requests from clients via RemoteFunction
+-- Process a single dig request (called by RF handler)
+function DigService:ProcessDigRequest(player: Player, worldPos: Vector3): Types.DigResult
+
+-- Start/stop hold-to-dig loops (called by RF handlers)
+function DigService:StartHoldDig(player: Player, worldPos: Vector3)
+function DigService:StopHoldDig(player: Player)
+
+-- Respawn the client’s cube model (called by RF handler)
+function DigService:RespawnCubeModel(...)
 ```
 
 ## Architecture
