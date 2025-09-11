@@ -16,7 +16,15 @@ type Props = {
     onClick: (() -> ())?
 }
 
-function HomeButton.new(props: Props)
+type HomeButtonT = typeof(setmetatable({} :: any, HomeButton)) & {
+    chip: any,
+    onClick: (() -> ())?,
+    new: (props: Props) -> HomeButtonT,
+    pulse: (self: HomeButtonT) -> (),
+    destroy: (self: HomeButtonT) -> (),
+}
+
+function HomeButton.new(props: Props): HomeButtonT
     local self = setmetatable({}, HomeButton)
     
     local config = Theme.homeButton
@@ -40,7 +48,7 @@ function HomeButton.new(props: Props)
     self.chip = chip
     self.onClick = props.onClick
     
-    return self
+    return self :: any
 end
 
 function HomeButton:pulse()
