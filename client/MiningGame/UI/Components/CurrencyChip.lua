@@ -20,7 +20,16 @@ type Props = {
     onClick: (() -> ())?  -- For future functionality
 }
 
-function CurrencyChip.new(props: Props)
+type CurrencyChipT = typeof(setmetatable({} :: any, CurrencyChip)) & {
+    chip: any,
+    currencyType: "coins" | "gems",
+    new: (props: Props) -> CurrencyChipT,
+    setValue: (self: CurrencyChipT, value: number) -> (),
+    pulse: (self: CurrencyChipT, intensity: number?) -> (),
+    destroy: (self: CurrencyChipT) -> (),
+}
+
+function CurrencyChip.new(props: Props): CurrencyChipT
     local self = setmetatable({}, CurrencyChip)
     
     local chipConfig = Theme.currencyChip
@@ -46,7 +55,7 @@ function CurrencyChip.new(props: Props)
     self.chip = chip
     self.currencyType = props.currencyType
     
-    return self
+    return self :: any
 end
 
 function CurrencyChip:setValue(value: number)
