@@ -10,18 +10,23 @@ The Account & Profile system manages player data persistence, session tracking, 
 
 ```
 server/MiningGame/
-├── DataService.lua           # Main data persistence layer
+├── DataService.lua           # Main data persistence layer (emits EventBus events)
 ├── SessionService.lua        # Session tracking and playtime
-└── DigService.lua            # Injects session data in GetProfile
+├── ServiceContainer.lua      # Dependency injection container
+└── RemoteFns/
+    └── Core.rf.lua          # GetProfile RF spec
 
 client/MiningGame/
 ├── Data/
-│   └── AccountDataProvider.lua   # Reactive data management
+│   └── AccountDataProvider.lua   # Reactive data management (EventBus subscriber)
+├── RemoteEventBridge.client.lua  # EventBus bridge for events
 └── UI/
     ├── ClientUI.client.lua   # Initializes data providers
     └── Components/
         └── AccountTab.lua    # Real-time account display
 ```
+
+Note: The GetProfile RF spec currently lives in `server/MiningGame/RemoteFns/Dig.rf.lua`.
 
 ## Data Flow
 
@@ -30,13 +35,16 @@ graph TD
     A[Player Joins] --> B[DataService:LoadData]
     B --> C[Initialize Profile]
     C --> D[Set DataLoaded Attribute]
-    D --> E[Client Requests Data]
+    D --> E[Client Requests Data via ClientRF]
     E --> F[AccountDataProvider]
     F --> G[Display in UI]
     
     H[Player Action] --> I[Update Profile]
-    I --> J[Queue Save]
-    J --> K[Batch Save to DataStore]
+    I --> J[Emit EventBus Event]
+    J --> K[Client Receives via EventBus]
+    K --> L[UI Updates Reactively]
+    I --> M[Queue Save]
+    M --> N[Batch Save to DataStore]
 ```
 
 ## DataService
@@ -130,8 +138,13 @@ local success = DataService:EnsureLoaded(player)
 
 #### Updating Data
 ```lua
--- Update currency
+-- Update currency (emits CURRENCY_CHANGED event)
 DataService:AddCurrency(player, "coins", 100)
+-- Automatically emits:
+-- EventBus:emit(EventNames.CURRENCY_CHANGED, {
+--     to = {kind = "player", player = player},
+--     payload = {currency = "coins", balance = newBalance, delta = 100}
+-- })
 
 -- Update statistics
 profile.totalBlocksDug = profile.totalBlocksDug + 1
@@ -193,34 +206,44 @@ local sessionDuration = os.time() - sessionStartTime
 DataService:AddPlaytime(player, sessionDuration)
 ```
 
-### Profile Access in Other Services
+### Profile Access via RFRegistry
 
 ```lua
--- In DigService
-Remotes.RF.GetProfile.OnServerInvoke = function(player)
-    local profile = DataService:GetPlayerData(player)
-    local SessionService = require(script.Parent.SessionService)
-    
-    -- Inject session time
-    profile.sessionStartTime = SessionService.getSessionStartTime(player.UserId)
-    
-    return {
-        profile = profile,
-        effectiveStats = effectiveStats,
-        -- ...
-    }
-end
+-- In RemoteFns/Dig.rf.lua
+{
+    name = "GetProfile",
+    validate = SchemaValidators.None,
+    rateLimitSec = 1,
+    requireProfile = true, -- Ensures profile is loaded
+    handler = function(ctx)
+        local profile = ctx.profile -- Automatically provided
+        local SessionService = getService("SessionService")
+        
+        -- Inject session time
+        profile.sessionStartTime = SessionService.getSessionStartTime(ctx.player.UserId)
+        
+        return Result.ok({
+            profile = profile,
+            effectiveStats = effectiveStats,
+            -- ...
+        })
+    end
+}
 ```
 
 ## AccountDataProvider (Client)
 
-Reactive client-side data management with automatic synchronization.
+Reactive client-side data management with EventBus integration for automatic synchronization.
 
-### Modern Reactive API
+### Modern Reactive API with EventBus
 
 ```lua
 local AccountDataProvider = require(MiningGame.Data.AccountDataProvider)
-local provider = AccountDataProvider.new(Remotes, UIUtils)
+local EventBus = require(MiningGame.EventBus).global()
+local EventNames = require(MiningGame.EventNames)
+
+-- Provider automatically subscribes to EventBus events
+local provider = AccountDataProvider.new()
 
 -- Get current snapshot
 local snapshot = provider:getSnapshot()
@@ -231,7 +254,7 @@ local snapshot = provider:getSnapshot()
 --     isLoading = false
 -- }
 
--- Subscribe to changes
+-- Subscribe to changes (fired by EventBus events)
 local connection = provider:onChanged():Connect(function(key, value, snapshot)
     if key == "coins" then
         print("Coins updated:", value)
@@ -239,19 +262,24 @@ local connection = provider:onChanged():Connect(function(key, value, snapshot)
     -- React to any data change
 end)
 
--- Request data refresh
+-- Request data refresh via ClientRF
 provider:refresh()
 
--- Cleanup
-connection:Disconnect()
+-- Cleanup (also unsubscribes from EventBus)
+provider:destroy()
 ```
 
-### Data Flow
-1. Provider fetches initial profile via GetProfile remote
+### Data Flow with EventBus
+1. Provider fetches initial profile via ClientRF.call("GetProfile")
 2. Stores data in snapshot with timestamp
-3. Subscribes to server update events
-4. Fires onChanged event when data updates
-5. UI components react to changes
+3. Subscribes to EventBus events:
+   - `PROFILE_UPDATED` - Full profile refresh
+   - `CURRENCY_CHANGED` - Currency updates
+   - `INVENTORY_CHANGED` - Inventory modifications
+   - `UPGRADES_CHANGED` - Upgrade purchases
+   - `BOOSTS_CHANGED` - Active boosts
+4. EventBus events trigger onChanged callbacks
+5. UI components react to changes automatically
 
 ### AccountTab Integration
 
@@ -322,21 +350,25 @@ end
 
 1. **ClientUI Bootstrap** → Create AccountDataProvider
 2. **Wait for DataLoaded** → Monitor attribute
-3. **Request Profile** → `GetProfile:InvokeServer()`
+3. **Request Profile** → `ClientRF.call("GetProfile")`
 4. **Provider Stores Data** → Updates snapshot
-5. **Fire onChanged** → Notify subscribers
-6. **UI Components React** → Update displays
+5. **Subscribe to EventBus** → Listen for server events
+6. **Fire onChanged** → Notify subscribers
+7. **UI Components React** → Update displays
 
 ```lua
 -- In ClientUI.client.lua
-local accountDataProvider = AccountDataProvider.new(Remotes, UIUtils)
+local accountDataProvider = AccountDataProvider.new()
+
+-- Provider automatically subscribes to EventBus events:
+-- PROFILE_UPDATED, CURRENCY_CHANGED, INVENTORY_CHANGED, etc.
 
 -- Create settings with provider injection
 local settingsPanel = SettingsPanel.new({ 
     accountDataProvider = accountDataProvider 
 })
 
--- Subscribe to updates
+-- Subscribe to updates (triggered by EventBus)
 accountDataProvider:onChanged():Connect(function(key, value, snapshot)
     if snapshot and snapshot.profile then
         hud:SetCurrencies(snapshot.profile.coins or 0, snapshot.profile.gems or 0)
@@ -477,15 +509,22 @@ end
 ### Client-Server Communication
 
 ```lua
--- Client-side with timeout
-local success, data = pcall(function()
-    return Remotes.RF.GetProfile:InvokeServer()
-end)
+-- Modern approach with ClientRF
+local ClientRF = require(MiningGame.ClientRF)
 
-if not success or not data then
-    -- Retry or show error UI
-    warn("Failed to load profile")
+local profile, err = ClientRF.call("GetProfile")
+if not profile then
+    warn("Failed to load profile:", err)
+    -- Handle specific errors
+    if err == "NO_PROFILE" then
+        -- Profile not loaded yet
+    elseif err == "RATE_LIMIT" then
+        -- Too many requests
+    end
 end
+
+-- With retry logic
+local profile, err = ClientRF.callWithRetry("GetProfile", 3)
 ```
 
 ## Testing
@@ -594,10 +633,102 @@ end
 - **Automatic cache invalidation**: On dig actions and currency changes
 - **Profile loading fallback**: Ensures data availability
 
+## EventBus Integration
+
+The account system uses EventBus for real-time data synchronization between server and client.
+
+### Server Events
+
+DataService emits these events when data changes:
+
+```lua
+-- Currency changes
+EventBus:emit(EventNames.CURRENCY_CHANGED, {
+    to = {kind = "player", player = player},
+    payload = {
+        currency = "coins", -- or "gems"
+        balance = newBalance,
+        delta = changeAmount
+    }
+})
+
+-- Profile updates
+EventBus:emit(EventNames.PROFILE_UPDATED, {
+    to = {kind = "player", player = player},
+    payload = profile
+})
+
+-- Inventory changes
+EventBus:emit(EventNames.INVENTORY_CHANGED, {
+    to = {kind = "player", player = player},
+    payload = {
+        action = "add" | "remove" | "sold",
+        itemId = itemId,
+        quantity = quantity,
+        total = newTotal
+    }
+})
+```
+
+### Client Subscriptions
+
+AccountDataProvider automatically subscribes to relevant events:
+
+```lua
+function AccountDataProvider:_setupEventListeners()
+    local EventBus = require(MiningGame.EventBus).global()
+    local EventNames = require(MiningGame.EventNames)
+    
+    -- Profile updates
+    table.insert(self._connections,
+        EventBus:on(EventNames.PROFILE_UPDATED, function(data)
+            self._profile = data.payload
+            self:_fireChanged(nil, nil, self:getSnapshot())
+        end))
+    
+    -- Currency changes
+    table.insert(self._connections,
+        EventBus:on(EventNames.CURRENCY_CHANGED, function(data)
+            local p = data.payload
+            if self._profile then
+                self._profile[p.currency] = p.balance
+                self:_fireChanged(p.currency, p.balance, self:getSnapshot())
+            end
+        end))
+    
+    -- Inventory changes
+    table.insert(self._connections,
+        EventBus:on(EventNames.INVENTORY_CHANGED, function(data)
+            if self._profile and self._profile.inventory then
+                -- Update local inventory cache
+                local p = data.payload
+                if p.action == "add" or p.action == "remove" then
+                    self._profile.inventory[p.itemId] = p.total
+                end
+                self:_fireChanged("inventory", self._profile.inventory, self:getSnapshot())
+            end
+        end))
+end
+```
+
+### Benefits
+
+1. **Real-time Updates**: Changes reflect immediately without polling
+2. **Decoupled Architecture**: Services don't directly depend on each other
+3. **Performance**: EventBus fast-path for high-frequency updates
+4. **Reliability**: Automatic reconnection and event queuing
+5. **Type Safety**: Event names are constants, payloads are typed
+
 ## Security
 
 1. **Server Validation**: Always validate data changes server-side
-2. **Rate Limiting**: Limit save frequency per player
-3. **Data Sanitization**: Clean input before saving
-4. **Access Control**: Verify player owns data being accessed
-5. **Permission Gating**: Server metrics restricted to authorized users
+2. **Rate Limiting**: All RemoteFunctions have configurable rate limits
+3. **Schema Validation**: RF specs validate all input parameters
+4. **Data Sanitization**: Clean input before saving
+5. **Access Control**: Context system ensures player owns data
+6. **Permission Gating**: Server metrics restricted to authorized users
+
+## Notes
+
+- GetProfile RF spec currently lives in `server/MiningGame/RemoteFns/Dig.rf.lua` (aggregated profile view used by UI).
+- Theme settings are read/written through `DataService:GetThemeSettings` and `DataService:SetThemeSettings`.
