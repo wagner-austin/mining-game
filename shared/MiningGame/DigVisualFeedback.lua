@@ -26,10 +26,13 @@ local mouse = player:GetMouse()
 
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
 local GameConfig = require(MiningGame:WaitForChild("GameConfig"))
+local Time = require(MiningGame:WaitForChild("Time"))
 local Utils = MiningGame:WaitForChild("Utils")
 local GridMath = require(Utils:WaitForChild("GridMath"))
+local MathUtils = require(MiningGame:WaitForChild("MathUtils"))
 local Logger = require(MiningGame:WaitForChild("Logger"))
 local BlanketPreview = require(MiningGame:WaitForChild("BlanketPreview"))
+local TerrainSurfaceDetector = require(MiningGame:WaitForChild("TerrainSurfaceDetector"))
 local log = Logger.new("DigVisualFeedback")
 
 -- Types
@@ -210,7 +213,7 @@ end
 
 function DigVisualFeedback:SetCubeOrigin(origin: CFrame)
     self.playerCubeOrigin = origin
-    log:debug("Cube origin set to: {}", tostring(origin.Position))
+    log:debug("Cube origin set to: %s", tostring(origin.Position))
 end
 
 function DigVisualFeedback:SetCooldown(cooldown: number)
@@ -315,7 +318,7 @@ end
 function DigVisualFeedback:UpdateState(hit: RaycastResult?)
     if not self.enabled then return end
     
-    local now = tick()
+    local now = Time.mono()
     local onCooldown = now < self.cooldownEndsAt
     
     local newState: DigState = "ready"
@@ -325,8 +328,17 @@ function DigVisualFeedback:UpdateState(hit: RaycastResult?)
         -- Calculate dig position
         digPos = hit.Position - (hit.Normal * 1.0)
         
-        -- We'll check terrain later in _updateHoverIndicators via _cellHasVisibleTerrain
-        -- No need to check twice
+        -- Check if this is actually exposed terrain surface
+        local CELL = GameConfig.Grid.CELL_SIZE_STUDS
+        if not TerrainSurfaceDetector.IsExposedAt(hit.Position, hit.Normal, CELL) then
+            -- Not an exposed surface, treat as no terrain
+            newState = "no_terrain"
+            if self._blanket then self._blanket:setEnabled(false) end
+            if self.stateLabel then self.stateLabel.Visible = false end
+            if self.cursorParticles then self.cursorParticles.Enabled = false end
+            self.currentState = newState
+            return
+        end
         
         -- Store hit normal for preview orientation
         self._lastHitNormal = hit.Normal
@@ -336,7 +348,6 @@ function DigVisualFeedback:UpdateState(hit: RaycastResult?)
             newState = "cooldown"
         elseif not self:IsInsideCube(digPos) then
             newState = "outside_bounds"
-        -- Terrain check moved to _updateHoverIndicators
         else
             newState = "ready"
         end
@@ -415,7 +426,7 @@ function DigVisualFeedback:UpdateState(hit: RaycastResult?)
             self.stateLabel.TextColor3 = READY_COLOR
             self.stateLabel.Visible = true
         elseif newState == "cooldown" then
-            local timeLeft = math.max(0, self.cooldownEndsAt - now)
+            local timeLeft = MathUtils.saturatingSub(self.cooldownEndsAt, now)
             self.stateLabel.Text = string.format("%.1fs", timeLeft)
             -- Label color also transitions during cooldown
             self.stateLabel.TextColor3 = COOLDOWN_COLOR:Lerp(READY_COLOR, cooldownProgress)
@@ -443,7 +454,7 @@ function DigVisualFeedback:_cellHasVisibleTerrain(cx: number, cy: number, cz: nu
     
     -- Check cache first
     local cacheKey = string.format("%d,%d,%d", cx, cy, cz)
-    local now = tick()
+    local now = Time.mono()
     local cached = self._terrainSurfaceCache[cacheKey]
     if cached and (now - cached.timestamp) < self._terrainCacheLifetime then
         return cached.hasTerrain, cached.position, cached.normal, false -- No raycast needed
@@ -463,7 +474,7 @@ function DigVisualFeedback:_cellHasVisibleTerrain(cx: number, cy: number, cz: nu
         
         local hit = workspace:Raycast(rayStart, rayDir, rayParams)
         didRaycast = true
-        self._raysRemaining = math.max(0, (self._raysRemaining or 0) - 1)
+        self._raysRemaining = MathUtils.saturatingSub(self._raysRemaining or 0, 1)
         
         if hit then
             -- Check if hit is within reasonable distance of cell center
@@ -476,25 +487,8 @@ function DigVisualFeedback:_cellHasVisibleTerrain(cx: number, cy: number, cz: nu
         end
     end
     
-    -- Fallback to voxel check if no terrain found (extra forgiving)
-    if not hasTerrain then
-        local half = CELL * 0.5
-        local region = Region3.new(
-            center - Vector3.new(half, half, half),
-            center + Vector3.new(half, half, half)
-        )
-        region = region:ExpandToGrid(CELL)
-        
-        local materials = workspace.Terrain:ReadVoxels(region, CELL)
-        if materials.Size.X > 0 and materials.Size.Y > 0 and materials.Size.Z > 0 then
-            local mat = materials[1][1][1]
-            if mat ~= Enum.Material.Air then
-                hasTerrain = true
-                position = center
-                normal = surfaceNormal or Vector3.new(0, 1, 0)
-            end
-        end
-    end
+    -- No fallback - if raycast didn't find surface terrain, it's not diggable
+    -- This prevents highlighting buried voxels
     
     -- Cache the result with cleanup check
     self._terrainSurfaceCache[cacheKey] = {
@@ -525,7 +519,7 @@ function DigVisualFeedback:_updateHoverIndicators(worldPos: Vector3, state: DigS
 
     -- Calculate center cell
     local cx, cy, cz = GridMath.worldToCell(worldPos, self.playerCubeOrigin, GameConfig.Grid.CELL_SIZE_STUDS)
-    local radius = math.max(0, tonumber(self.previewSize) or 0)
+    local radius = MathUtils.nonNegative(tonumber(self.previewSize) or 0)
 
     -- Check terrain and get accurate surface position
     local hasCenter, centerPos, centerNormal = self:_cellHasVisibleTerrain(cx, cy, cz, self._lastHitNormal)
