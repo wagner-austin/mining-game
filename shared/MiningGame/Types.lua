@@ -1,4 +1,3 @@
---!strict
 -- Types.lua
 -- Type definitions for the mining game system
 
@@ -9,6 +8,16 @@ export type PurchaseEntry = {
     at: number,
     source: ("Prompt" | "Backfill")?,
 }
+
+-- NOTE: EffectiveStats is declared once below with full shape (delay,size,luck,hardness)
+
+export type CellCoord = { x: number, y: number, z: number }
+
+-- Equipment for a player is dynamically indexed by validated slot names
+-- Keep this as an indexable map so code can use profile.equipped[slot]
+export type EquippedItems = { [string]: string? }  -- slot -> itemId
+
+-- NOTE: DigResult is declared once below with the full shape
 
 export type MaterialPreferences = {
     palette: string,        -- Palette key (e.g., "default", "industrial")
@@ -47,6 +56,10 @@ export type PlayerStats = {
     firstPlayTime: number?,      -- unix timestamp of first-ever join
     firstDigTime: number?,       -- unix timestamp of first-ever dig
     
+    -- Achievement tracking
+    achievements: { [string]: boolean }?,  -- unlocked achievement IDs
+    statCounters: { [string]: number }?,   -- e.g., "rares_found", "epics_found", "mythics_found"
+    
     -- Monetization tracking
     robuxSpentLifetime: number?,
     robuxSpentDevProducts: number?,
@@ -69,12 +82,27 @@ export type PetData = {
     obtained: number, -- unix timestamp
 }
 
-export type EquippedItems = {
-    pickaxe: string?,
-    head: string?,
-    back: string?,
-    aura: string?,
-    trail: string?,
+-- EquippedItems was already declared as an indexable map above; the
+-- record-style version caused conflicts when indexing by dynamic slot.
+-- Keep only the indexable definition to support code paths like
+-- profile.equipped[slot] where slot is validated at runtime.
+
+export type AchievementDef = {
+    id: string,
+    name: string,
+    desc: string,
+    tier: "bronze" | "silver" | "gold" | "platinum" | "diamond",
+    icon: string?,  -- rbxassetid if you want
+    reward: {
+        coins: number?,
+        gems: number?,
+        itemId: string?,
+    }?,
+    requirement: {
+        type: string,       -- "blocks_dug", "item_found", "rarity_found", etc.
+        value: number?,     -- threshold value
+        rarity: string?,    -- for rarity-specific achievements
+    },
 }
 
 export type ChunkId = string -- "x_y_z" format
@@ -100,23 +128,26 @@ export type DigRequest = {
     timestamp: number,
 }
 
-export type DigResult = {
-    ok: boolean,
-    reason: string?,
-    cellsDug: number?,
-    lootGranted: {string}?,
-    lootCounts: {[string]: number}?,
-    nextAllowedAt: number?,
-    effectiveStats: EffectiveStats?,
-    soundMaterialKey: string?,   -- new: exact material used by server
-    soundWorldPos: Vector3?,     -- new: exact position for sound
+-- Unified effective stats used across server/client
+export type EffectiveStats = {
+    delay: number,  -- Seconds between digs
+    size: number,   -- Dig radius half-extent in cells (1 = 3x3x3, 2 = 5x5x5, ...)
+    luck: number,   -- Loot multiplier (1.0 = normal, 2.0 = double)
+    hardness: number,
 }
 
-export type EffectiveStats = {
-    delay: number,
-    size: number,
-    luck: number,
-    hardness: number,
+-- Unified dig result returned by DigService and related flows
+export type DigResult = {
+    ok: boolean,
+    reason: string?,                      -- Present if ok=false
+    cellsDug: number?,                    -- Count dug this action
+    lootGranted: {},                      -- Legacy/placeholder (empty)
+    lootCounts: { [string]: number }?,    -- Items dropped (not collected yet)
+    nextAllowedAt: number?,               -- Server-side cooldown resume time (Time.mono-based)
+    effectiveStats: EffectiveStats?,      -- Snapshot used for this dig
+    soundMaterialKey: string?,            -- "rock", etc.
+    soundWorldPos: Vector3?,              -- Position for sound effect
+    centerCell: CellCoord?,               -- Clamped cell the server used
 }
 
 export type LootDrop = {
