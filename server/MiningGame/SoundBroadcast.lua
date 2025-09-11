@@ -18,14 +18,17 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
 local MaterialKeys = require(MiningGame:WaitForChild("MaterialKeys"))
 local Logger = require(MiningGame:WaitForChild("Logger"))
+local GameConfig = require(MiningGame:WaitForChild("GameConfig"))
+local Time = require(MiningGame:WaitForChild("Time"))
 local log = Logger.new("SoundBroadcast")
-local ServerMiningGame = ServerScriptService:WaitForChild("MiningGame")
-local Remotes = require(ServerMiningGame:WaitForChild("Remotes"))
+local EventBus = require(MiningGame:WaitForChild("EventBus"))
+local EventNames = require(MiningGame:WaitForChild("EventNames"))
+local Bus = EventBus.global()
 
 local SoundBroadcast = {}
 
 -- Default broadcast radius
-local DEFAULT_RADIUS = 150
+local DEFAULT_RADIUS = GameConfig.Sound and GameConfig.Sound.DEFAULT_RADIUS or 150
 
 -- Get SoundConfig for configured sound IDs
 local SoundConfig = require(MiningGame:WaitForChild("SoundConfig"))
@@ -45,7 +48,7 @@ local VALID_CATEGORIES = {
 -- Rate limiting
 local rateLimit = {} :: {[string]: number}
 local function checkRateLimit(userId: number, key: string, window: number): boolean
-    local now = tick()
+    local now = Time.mono()
     local k = string.format("%d:%s", userId, key)
     local last = rateLimit[k]
     if not last or (now - last) > window then
@@ -143,7 +146,10 @@ function SoundBroadcast.BroadcastNear(
         end
         
         -- Send to client
-        Remotes.RE.OnSoundEffect:FireClient(player, data)
+        Bus:emit(EventNames.SOUND_PLAY, {
+            to = { kind = "player", player = player },
+            payload = data
+        })
     end
 end
 
@@ -161,7 +167,10 @@ function SoundBroadcast.BroadcastToPlayer(
     }
 )
     local data = sanitizePayload(payload)
-    Remotes.RE.OnSoundEffect:FireClient(player, data)
+    Bus:emit(EventNames.SOUND_PLAY, {
+        to = { kind = "player", player = player },
+        payload = data
+    })
 end
 
 -- Broadcast to all players
@@ -181,7 +190,10 @@ function SoundBroadcast.BroadcastToAll(
     if originPlayer then
         data.originUserId = originPlayer.UserId
     end
-    Remotes.RE.OnSoundEffect:FireAllClients(data)
+    Bus:emit(EventNames.SOUND_PLAY, {
+        to = { kind = "all" },
+        payload = data
+    })
 end
 
 -- Utility functions for common sound types
@@ -275,13 +287,16 @@ function SoundBroadcast.Collect(
     -- Get configured sound ID
     local soundId = SoundConfig.SoundIDs.rewards[soundType] or SoundConfig.SoundIDs.rewards.item
     
-    -- Use PlaySound remote for backward compatibility with ItemService
-    Remotes.RE.PlaySound:FireClient(player, {
-        soundId = soundId,
-        volume = 0.8, -- Slightly louder for pickup feedback
-        position = position,
-        category = "collect",
-        rarity = rarity,
+    -- Use EventBus for sound playback
+    Bus:emit(EventNames.SOUND_PLAY, {
+        to = { kind = "player", player = player },
+        payload = {
+            soundId = soundId,
+            volume = 0.8, -- Slightly louder for pickup feedback
+            position = position,
+            category = "collect",
+            rarity = rarity,
+        }
     })
 end
 
