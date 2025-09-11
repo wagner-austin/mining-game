@@ -8,9 +8,11 @@
 local HttpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
+local Time = require(MiningGame:WaitForChild("Time"))
 local WorldTime = require(MiningGame:WaitForChild("WorldTime"))
 local Logger = require(MiningGame:WaitForChild("Logger"))
 local log = Logger.new("TimeService")
+local MathUtils = require(MiningGame:WaitForChild("MathUtils"))
 
 local TimeService = {}
 TimeService.__index = TimeService
@@ -31,12 +33,12 @@ end
 
 -- Get current game time (0-24 hours) using Unix time
 function TimeService:GetCurrentTime(): number
-	return WorldTime.clockTimeFromUnix(os.time())
+	return WorldTime.clockTimeFromUnix(Time.unix())
 end
 
 -- Get time until a specific hour (in real seconds)
 function TimeService:GetSecondsUntilTime(targetHour: number): number
-	return WorldTime.secondsUntilHour(targetHour, os.time())
+	return WorldTime.secondsUntilHour(targetHour, Time.unix())
 end
 
 -- Internal helper to loop a daily event using absolute timestamps (drift-resistant)
@@ -45,12 +47,12 @@ local function loopDaily(eventId: string)
 		local ev = scheduledEvents[eventId]
 		if not ev or not ev.running then return end
 		
-		local waitSec = math.max(0, ev.nextUnix - os.time())
+		local waitSec = MathUtils.nonNegative(ev.nextUnix - Time.unix())
 		-- Break long waits into chunks so BindToClose can stop quickly
 		while waitSec > 5 do
 			task.wait(math.min(30, waitSec))
 			if not scheduledEvents[eventId] or not scheduledEvents[eventId].running then return end
-			waitSec = math.max(0, ev.nextUnix - os.time())
+			waitSec = MathUtils.nonNegative(ev.nextUnix - Time.unix())
 		end
 		task.wait(waitSec)
 		
@@ -59,7 +61,7 @@ local function loopDaily(eventId: string)
 		if not ev or not ev.running then return end
 		
 		log:debug("Firing event at %d:00 (current time: %.2f)", 
-			ev.hour, WorldTime.clockTimeFromUnix(os.time()))
+			ev.hour, WorldTime.clockTimeFromUnix(Time.unix()))
 		
 		local ok, err = pcall(ev.callback)
 		if not ok then
@@ -82,7 +84,7 @@ end
 function TimeService:ScheduleEvent(hour: number, callback: () -> (), recurring: boolean?): string
 	local id = HttpService:GenerateGUID(false)
 	local secondsUntil = self:GetSecondsUntilTime(hour)
-	local nextUnix = os.time() + secondsUntil
+	local nextUnix = Time.unix() + secondsUntil
 	
 	scheduledEvents[id] = {
 		hour = hour,
