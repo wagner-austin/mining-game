@@ -8,10 +8,14 @@ All documentation is organized in the `/docs/` directory for better organization
 
 ### System Architecture
 - **[README.md](README.md)** - Project overview and setup
-- **[docs/API_DOCUMENTATION.md](docs/API_DOCUMENTATION.md)** - API documentation index ✅
-  - **[docs/API_REMOTE_FUNCTIONS.md](docs/API_REMOTE_FUNCTIONS.md)** - RemoteFunction reference (33 functions)
-  - **[docs/API_REMOTE_EVENTS.md](docs/API_REMOTE_EVENTS.md)** - RemoteEvent reference (14 events)
+- **[docs/SERVICE_ARCHITECTURE.md](docs/SERVICE_ARCHITECTURE.md)** - ServiceContainer and dependency injection ✅ NEW
+- **[docs/EVENTBUS_SYSTEM.md](docs/EVENTBUS_SYSTEM.md)** - Event-driven pub/sub communication ✅ NEW
+- **[docs/REMOTE_ARCHITECTURE.md](docs/REMOTE_ARCHITECTURE.md)** - RFRegistry and RemoteManager system ✅ NEW
+- **[docs/API_DOCUMENTATION.md](docs/API_DOCUMENTATION.md)** - API documentation index ✅ UPDATED
+  - **[docs/API_REMOTE_FUNCTIONS.md](docs/API_REMOTE_FUNCTIONS.md)** - RemoteFunction reference (46+ functions)
+  - **[docs/API_REMOTE_EVENTS.md](docs/API_REMOTE_EVENTS.md)** - RemoteEvent reference (via EventBus)
   - **[docs/API_BEST_PRACTICES.md](docs/API_BEST_PRACTICES.md)** - Best practices, examples, testing
+- **[docs/ARCHITECTURE_REFACTOR_Q1_2025.md](docs/ARCHITECTURE_REFACTOR_Q1_2025.md)** - Q1 2025 refactor implementation ✅ COMPLETED
 - **[docs/MASTER_IMPLEMENTATION_ROADMAP.md](docs/MASTER_IMPLEMENTATION_ROADMAP.md)** - Development roadmap
 - **[docs/PLANNING_INDEX.md](docs/PLANNING_INDEX.md)** - Planning documents overview
 - **[docs/CURRENT_IMPLEMENTATION_PLAN.md](docs/CURRENT_IMPLEMENTATION_PLAN.md)** - Current sprint/implementation status
@@ -56,6 +60,9 @@ All documentation is organized in the `/docs/` directory for better organization
 ## Documentation Status
 
 ### Fully Documented ✅
+- Service Architecture (ServiceContainer, dependency injection, lifecycle management)
+- Remote Architecture (RFRegistry, RemoteManager, schema validation, rate limiting)
+- EventBus System (Pub/sub pattern, event flow, middleware support)
 - API System (Complete RemoteFunction/RemoteEvent reference with schemas)
 - UI System (Architecture, Components, Creation Guide)
 - Account & Profile System (DataService, SessionService, AccountDataProvider)
@@ -77,6 +84,8 @@ All documentation is organized in the `/docs/` directory for better organization
 - Grid Service (voxel terrain management, chunk system)
 - Inventory Service (item management, stacking)
 - Upgrade Service (player progression, tool upgrades)
+- FloatingIslandService (special world features)
+- CharacterStateManager (state management system)
 - Development Setup Guide
 - Testing Procedures
 - Debugging Guide
@@ -85,9 +94,11 @@ All documentation is organized in the `/docs/` directory for better organization
 
 ### For New Developers
 1. Start with [README.md](README.md)
-2. Read [docs/CURRENT_IMPLEMENTATION_PLAN.md](docs/CURRENT_IMPLEMENTATION_PLAN.md)
-3. Review [docs/UI_COMPONENT_GUIDE.md](docs/UI_COMPONENT_GUIDE.md) for UI work
-4. Check [docs/MATERIAL_SYSTEM_REFERENCE.md](docs/MATERIAL_SYSTEM_REFERENCE.md) for material work
+2. Understand [docs/SERVICE_ARCHITECTURE.md](docs/SERVICE_ARCHITECTURE.md) - How services work
+3. Learn [docs/EVENTBUS_SYSTEM.md](docs/EVENTBUS_SYSTEM.md) - Event communication
+4. Study [docs/REMOTE_ARCHITECTURE.md](docs/REMOTE_ARCHITECTURE.md) - Client-server communication
+5. Review [docs/UI_COMPONENT_GUIDE.md](docs/UI_COMPONENT_GUIDE.md) for UI work
+6. Check [docs/MATERIAL_SYSTEM_REFERENCE.md](docs/MATERIAL_SYSTEM_REFERENCE.md) for material work
 
 ### For UI Development
 - [docs/UI_SYSTEM.md](docs/UI_SYSTEM.md) - Architecture overview
@@ -134,18 +145,28 @@ Common use cases with code
 Common issues and solutions
 ```
 
-## Recent Updates (September 3, 2025)
+## Recent Updates (September 2025)
 
+### September 9, 2025
+- ✅ Created Service Architecture documentation (ServiceContainer, DI, lifecycle)
+- ✅ Created EventBus System documentation (pub/sub, middleware, event flow)
+- ✅ Created Remote Architecture documentation (RFRegistry, RemoteManager, validation)
+- ✅ Updated API Documentation to reflect new RFRegistry pattern
+- ✅ Documented Q1 2025 refactor completion in ARCHITECTURE_REFACTOR_Q1_2025.md
+
+### September 3, 2025
 - ✅ Created comprehensive Cloth System documentation
 - ✅ Updated Skinned Mesh Animation Guide with bone replication discoveries
 - ✅ Updated implementation plans with current project status
-- ✅ Corrected remote counts (42 RF, 24 RE)
+- ✅ Corrected remote counts (46+ RF via RFRegistry, events via EventBus)
 - ✅ Added timeline reality check to implementation plan
 
 ## Next Documentation Priorities
 
 1. **Movement System** - Players need to understand movement mechanics
 2. **Development Setup Guide** - For new team members
-3. **Service Documentation** - GridService, DigService, InventoryService
-4. **Testing Guide** - How to test features properly
-5. **Debugging Guide** - Common issues and solutions
+3. **Individual Service Documentation** - GridService, InventoryService, UpgradeService
+4. **Testing Guide** - How to test features with new architecture
+5. **Debugging Guide** - Common issues and solutions with new patterns
+6. **FloatingIslandService** - Document special world features
+7. **CharacterStateManager** - State management patterns
