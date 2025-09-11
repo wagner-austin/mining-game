@@ -2,652 +2,536 @@
 
 [← Back to API Documentation](API_DOCUMENTATION.md)
 
+[← Back to API Documentation](API_DOCUMENTATION.md)
+
 ## Overview
 
-RemoteEvents are used for server→client notifications. These are fire-and-forget messages that don't expect a response. The server fires these events to notify clients of state changes, effects, and other updates.
+Server→Client events are managed through the EventBus system with a single RemoteEvent bridge. All events follow a pub/sub pattern with type-safe event names, structured payloads, and automatic routing to appropriate clients.
 
-## Table of Contents
+## Architecture
 
-- [State Updates](#state-updates)
-- [Dig Feedback](#dig-feedback)
-- [Social Events](#social-events)
-- [Notifications](#notifications)
-- [UI Prompts](#ui-prompts)
-- [Effects](#effects)
-- [Event Connection Best Practices](#event-connection-best-practices)
+- **Single RemoteEvent**: All events flow through `Remotes.EventBus`
+- **EventBus Distribution**: Client-side EventBus distributes to subscribers
+- **Type-Safe Names**: Events use constants from `EventNames.lua`
+- **Target Routing**: Server specifies target (player/broadcast/team)
+- **Fast Path**: High-frequency events skip middleware for performance
 
-**Total Events: 26**
+## Client Usage
 
----
-
-## State Updates
-
-### `OnProfileUpdate`
-Fired when player's complete profile data updates.
-
-**Payload:**
 ```lua
-{
-    stats: PlayerStats,
-    inventory: Inventory,
-    upgrades: Upgrades,
-    settings: Settings
-}
-```
+-- Modern EventBus approach
+local EventBus = require(MiningGame.EventBus).global()
+local EventNames = require(MiningGame.EventNames)
 
-**When Fired:**
-- On initial player join
-- After major state changes
-- On profile recovery
-
----
-
-### `OnCurrencyChanged`
-Fired when player's currency changes.
-
-**Payload:**
-```lua
-{
-    coins = number?,
-    gems = number?,
-    delta = {
-        coins = number?,    -- Change amount
-        gems = number?      -- Change amount
-    }
-}
-```
-
-**Usage Example:**
-```lua
-Remotes.RE.OnCurrencyChanged.OnClientEvent:Connect(function(data)
-    if data.coins then
-        updateCoinDisplay(data.coins)
-        if data.delta.coins > 0 then
-            showCoinAnimation("+" .. data.delta.coins)
-        end
-    end
+-- Subscribe to events
+local unsubscribe = EventBus:on(EventNames.CURRENCY_CHANGED, function(data)
+    print("New balance:", data.payload.balance)
 end)
-```
 
-### `OnInventoryChanged`
-Fired when inventory is modified.
+-- Clean up when done
+unsubscribe()
 
-**Payload:**
-```lua
-{
-    action = "add" | "remove" | "equip" | "unequip",
-    itemId = string,
-    count = number?,      -- For add/remove
-    total = number?,      -- New total count
-    slot = string?        -- For equip/unequip
-}
-```
+-- For components with multiple subscriptions
+local subscriptions = {}
 
-**Usage Example:**
-```lua
-Remotes.RE.OnInventoryChanged.OnClientEvent:Connect(function(payload)
-    if payload.action == "add" then
-        showItemNotification(payload.itemId, payload.count)
-    elseif payload.action == "equip" then
-        updateEquipmentDisplay(payload.slot, payload.itemId)
-    end
-end)
-```
-
-### `OnUpgradesChanged`
-Fired when upgrades are purchased.
-
-**Payload:**
-```lua
-{
-    upgrades = {
-        speed = number,
-        size = number
-    },
-    coins = number  -- New coin balance after purchase
-}
-```
-
-### `OnBoostsChanged`
-Fired when boost status changes.
-
-**Payload:**
-```lua
-{
-    [boostType: string] = expiryTime: number  -- Unix timestamp when boost expires
-}
-```
-
-**Usage Example:**
-```lua
-Remotes.RE.OnBoostsChanged.OnClientEvent:Connect(function(boosts)
-    for boostType, expiryTime in pairs(boosts) do
-        local remaining = expiryTime - os.time()
-        if remaining > 0 then
-            showBoostTimer(boostType, remaining)
-        else
-            hideBoostTimer(boostType)
-        end
-    end
-end)
-```
-
-### `OnPetsChanged`
-Fired when pet status changes.
-
-**Payload:**
-```lua
-{
-    action = "equipped" | "unequipped" | "upgraded",
-    petId = string,
-    petData = PetData?  -- For equipped/upgraded
-}
-```
-
----
-
-## Dig Feedback
-
-### `OnDigFeedback`
-Fired after successful dig for visual/audio feedback.
-
-**Payload:**
-```lua
-{
-    cells = {
-        {x = number, y = number, z = number}  -- Cell coordinates destroyed
-    },
-    shake = boolean,      -- Apply camera shake
-    particles = boolean,  -- Show particle effects
-    sound = string?       -- Sound ID to play
-}
-```
-
-**Usage Example:**
-```lua
-Remotes.RE.OnDigFeedback.OnClientEvent:Connect(function(feedback)
-    if feedback.shake then
-        cameraShake(0.1, 0.15)  -- intensity, duration
-    end
+function Component:Init()
+    table.insert(subscriptions, EventBus:on(EventNames.INVENTORY_CHANGED, function(data)
+        self:UpdateInventory(data.payload)
+    end))
     
-    if feedback.particles then
-        for _, cell in ipairs(feedback.cells) do
-            spawnDigParticles(cell)
-        end
+    table.insert(subscriptions, EventBus:on(EventNames.PROFILE_UPDATED, function(data)
+        self:UpdateProfile(data.payload)
+    end))
+end
+
+function Component:Destroy()
+    for _, unsub in ipairs(subscriptions) do
+        unsub()
     end
-    
-    if feedback.sound then
-        playSound(feedback.sound)
-    end
-end)
-```
-
-### `OnTerrainUpdate`
-Fired when terrain is modified (for visual updates).
-
-**Payload:**
-```lua
-{
-    region = Region3,
-    material = Enum.Material
-}
-```
-
-### `OnLootDropped`
-Fired when loot spawns from digging.
-
-**Payload:**
-```lua
-{
-    item = {
-        id = string,
-        rarity = string,      -- "common", "rare", "epic", "legendary"
-        count = number
-    },
-    worldPos = Vector3,       -- Where the loot spawned
-    value = number?           -- Coin value if sold
-}
-```
-
-**Usage Example:**
-```lua
-Remotes.RE.OnLootDropped.OnClientEvent:Connect(function(loot)
-    -- Create floating UI at world position
-    local rarityColor = getRarityColor(loot.item.rarity)
-    createLootPopup(loot.worldPos, loot.item.id, loot.item.count, rarityColor)
-    
-    -- Play rarity-specific sound
-    playLootSound(loot.item.rarity)
-end)
-```
-
-### `OnFirstDig`
-Fired when a player digs for the first time.
-
-**Payload:**
-```lua
-{
-    message = string,         -- Welcome/tutorial message
-    reward = {
-        coins = number?,
-        gems = number?
-    }
-}
-```
-
----
-
-## Social Events
-
-### `OnNeighborJoined`
-Fired when a neighbor joins your cube area.
-
-**Payload:**
-```lua
-{
-    userId: number,
-    username: string,
-    displayName: string
-}
-```
-
-**When Fired:**
-- When another player visits your cube
-
----
-
-### `OnNeighborLeft`
-Fired when a neighbor leaves your cube area.
-
-**Payload:**
-```lua
-{
-    userId: number,
-    username: string
-}
-```
-
-**When Fired:**
-- When visiting player leaves
-- When visiting player disconnects
-
----
-
-### `OnCubeUpdate`
-Fired when cube state changes significantly.
-
-**Payload:**
-```lua
-{
-    cubeId: string,
-    tier: string,
-    extraction: number,
-    percentComplete: number
-}
-```
-
-**When Fired:**
-- Cube tier changes
-- Extraction milestones reached
-- Cube reset/regeneration
-
----
-
-## Notifications
-
-### `OnNotification`
-General notification system for various messages.
-
-**Payload:**
-```lua
-{
-    type = "info" | "success" | "warning" | "error",
-    message = string,
-    title = string?,          -- Optional title
-    duration = number?,       -- Seconds to display (default: 3)
-    color = Color3?,         -- Custom color override
-    icon = string?           -- Icon asset ID
-}
-```
-
-**Usage Example:**
-```lua
-Remotes.RE.OnNotification.OnClientEvent:Connect(function(notif)
-    local color = notif.color or getNotificationColor(notif.type)
-    local duration = notif.duration or 3
-    
-    showNotification({
-        title = notif.title or getNotificationTitle(notif.type),
-        message = notif.message,
-        color = color,
-        duration = duration,
-        icon = notif.icon
-    })
-end)
-```
-
-### `OnReward`
-Special notification for rewards and bonuses.
-
-**Payload:**
-```lua
-{
-    type = "coins" | "gems" | "item" | "boost",
-    amount = number | string,  -- Number for currency, string for items
-    source = string,           -- Where reward came from (e.g., "Daily Bonus", "Achievement")
-    multiplier = number?       -- If reward was boosted
-}
-```
-
-**Usage Example:**
-```lua
-Remotes.RE.OnReward.OnClientEvent:Connect(function(reward)
-    if reward.type == "coins" or reward.type == "gems" then
-        local displayAmount = reward.amount
-        if reward.multiplier then
-            displayAmount = displayAmount .. " (x" .. reward.multiplier .. ")"
-        end
-        showRewardPopup(reward.type, displayAmount, reward.source)
-    elseif reward.type == "item" then
-        showItemReward(reward.amount, reward.source)
-    end
-end)
-```
-
-### `OnAchievement`
-Fired when player unlocks an achievement.
-
-**Payload:**
-```lua
-{
-    id = string,              -- Achievement ID
-    name = string,            -- Display name
-    description = string,     -- Achievement description
-    reward = {
-        coins = number?,
-        gems = number?,
-        items = {string}?
-    }
-}
-```
-
-### `OnItemCollected`
-Fired when an item is successfully collected.
-
-**Payload:**
-```lua
-{
-    itemId = string,
-    count = number,
-    rarity = string,
-    value = number?           -- Sell value
-}
-```
-
----
-
-## UI Prompts
-
-### `ShowPickupPrompt`
-Display pickup prompt for nearby items.
-
-**Payload:**
-```lua
-{
-    dropModel = Model,        -- The drop model in workspace
-    itemData = {
-        id = string,
-        name = string,
-        rarity = string,
-        value = number
-    },
-    distance = number         -- Distance from player
-}
-```
-
-**Usage Example:**
-```lua
-Remotes.RE.ShowPickupPrompt.OnClientEvent:Connect(function(prompt)
-    -- Show proximity prompt
-    if prompt.distance < 10 then
-        showPickupUI(prompt.itemData, function()
-            -- Player pressed pickup button
-            Remotes.RF.PickupItem:InvokeServer(prompt.dropModel)
-        end)
-    end
-end)
-```
-
----
-
-## Effects
-
-### `PlaySound`
-Play a sound effect on the client.
-
-**Payload:**
-```lua
-{
-    soundId = string,         -- Sound asset ID
-    volume = number?,         -- Volume (0-1, default: 0.5)
-    pitch = number?,          -- Pitch (0.5-2, default: 1)
-    position = Vector3?       -- 3D sound position (nil for 2D)
-}
-```
-
-**Usage Example:**
-```lua
-Remotes.RE.PlaySound.OnClientEvent:Connect(function(data)
-    local sound = Instance.new("Sound")
-    sound.SoundId = data.soundId
-    sound.Volume = data.volume or 0.5
-    sound.Pitch = data.pitch or 1
-    
-    if data.position then
-        -- 3D sound
-        local part = Instance.new("Part")
-        part.Position = data.position
-        part.Anchored = true
-        part.CanCollide = false
-        part.Transparency = 1
-        part.Parent = workspace
-        sound.Parent = part
-        
-        sound.Ended:Connect(function()
-            part:Destroy()
-        end)
-    else
-        -- 2D sound
-        sound.Parent = workspace.CurrentCamera
-    end
-    
-    sound:Play()
-end)
-```
-
-### `OnSoundEffect`
-Alternative sound effect event with named sounds.
-
-**Payload:**
-```lua
-{
-    name = string,            -- Sound name from config
-    properties = {
-        Volume = number?,
-        Pitch = number?,
-        EmitterSize = number?
-    }
-}
-```
-
-### `OnParticleEffect`
-Trigger particle effects at a position.
-
-**Payload:**
-```lua
-{
-    effectType = string,      -- Effect name
-    position = Vector3,
-    duration = number?,       -- How long to emit
-    properties = {           -- Optional overrides
-        Color = ColorSequence?,
-        Size = NumberSequence?,
-        Rate = number?
-    }
-}
-```
-
-### `OnCameraShake`
-Trigger camera shake effect.
-
-**Payload:**
-```lua
-{
-    intensity = number,       -- Shake intensity (0.1-1.0)
-    duration = number        -- Duration in seconds
-}
-```
-
-**Usage Example:**
-```lua
-Remotes.RE.OnCameraShake.OnClientEvent:Connect(function(data)
-    local camera = workspace.CurrentCamera
-    local originalCFrame = camera.CFrame
-    local shakeTime = 0
-    
-    RunService.RenderStepped:Connect(function(dt)
-        shakeTime = shakeTime + dt
-        if shakeTime < data.duration then
-            local shake = math.random() * data.intensity
-            camera.CFrame = originalCFrame * CFrame.Angles(
-                math.rad(shake),
-                math.rad(shake),
-                0
-            )
-        else
-            camera.CFrame = originalCFrame
-            return -- Disconnect
-        end
-    end)
-end)
-```
-
-### `OnCubeOriginChanged`
-Fired when the player's cube origin is set or changed.
-
-**Payload:**
-```lua
-CFrame  -- The cube's origin position and rotation
-```
-
-**Usage Example:**
-```lua
-Remotes.RE.OnCubeOriginChanged.OnClientEvent:Connect(function(origin)
-    -- Store cube origin for client-side calculations
-    playerCubeOrigin = origin
-    
-    -- Update any UI or systems that depend on cube position
-    if visualFeedback then
-        visualFeedback:SetCubeOrigin(origin)
-    end
-end)
-```
-
-### `OnTerrainPoke`
-Debug event for terrain manipulation feedback.
-
-**Payload:**
-```lua
-{
-    position = Vector3,
-    radius = number,
-    success = boolean
-}
-```
-
----
-
-### `ClothUpdate`
-Fired to update cloth bone transforms on client.
-
-**Payload:**
-```lua
-clothId: string,      -- Unique cloth instance ID
-offsets: {            -- Array of bone transform offsets
-    {x: number, y: number, z: number}
-}
-```
-
-**When Fired:**
-- Every frame (60Hz) while cloth is active
-- Server calculates physics, client applies visuals
-
-**Usage Example:**
-```lua
-Remotes.RE.ClothUpdate.OnClientEvent:Connect(function(clothId, offsets)
-    local cloth = findClothById(clothId)
-    if cloth then
-        for i, offset in ipairs(offsets) do
-            local bone = cloth.bones[i]
-            if bone then
-                bone.Transform = CFrame.new(offset[1], offset[2], offset[3])
-            end
-        end
-    end
-end)
-```
-
----
-
-## Event Connection Best Practices
-
-### Memory Management
-Always store connections and clean them up when no longer needed:
-
-```lua
-local connections = {}
-
--- Connect events
-connections.currency = Remotes.RE.OnCurrencyChanged.OnClientEvent:Connect(onCurrencyChanged)
-connections.inventory = Remotes.RE.OnInventoryChanged.OnClientEvent:Connect(onInventoryChanged)
-
--- Clean up when UI is destroyed
-local function cleanup()
-    for _, connection in pairs(connections) do
-        connection:Disconnect()
-    end
-    connections = {}
 end
 ```
 
-### Error Handling
-Wrap event handlers in pcall for safety:
+## Event Categories
+
+### State Updates
+
+#### `PROFILE_UPDATED`
+Complete profile data update.
+
+**Payload:**
+```lua
+{
+    to = {kind = "player", player = Player},
+    payload = {
+        stats = PlayerStats,
+        inventory = Inventory,
+        upgrades = Upgrades,
+        settings = Settings
+    }
+}
+```
+
+#### `CURRENCY_CHANGED`
+Currency balance changes.
+
+**Payload:**
+```lua
+{
+    to = {kind = "player", player = Player},
+    payload = {
+        currency = "coins" | "gems",
+        balance = number,
+        delta = number  -- Change amount (+/-)
+    }
+}
+```
+
+#### `INVENTORY_CHANGED`
+Inventory modifications.
+
+**Payload:**
+```lua
+{
+    to = {kind = "player", player = Player},
+    payload = {
+        action = "add" | "remove" | "equip" | "unequip" | "sold",
+        itemId = string,
+        quantity = number?,
+        total = number?,
+        slot = string?,
+        value = number?  -- For sold action
+    }
+}
+```
+
+#### `UPGRADES_CHANGED`
+Upgrade purchases or changes.
+
+**Payload:**
+```lua
+{
+    to = {kind = "player", player = Player},
+    payload = {
+        upgradeType = string,
+        level = number,
+        stats = EffectiveStats
+    }
+}
+```
+
+#### `BOOSTS_CHANGED`
+Active boost modifications.
+
+**Payload:**
+```lua
+{
+    to = {kind = "player", player = Player},
+    payload = {
+        boostType = string,
+        expiresAt = number?,  -- Unix timestamp
+        active = boolean
+    }
+}
+```
+
+### Gameplay Events
+
+#### `DIG_FEEDBACK`
+Digging action feedback (fast-path optimized).
+
+**Payload:**
+```lua
+{
+    to = {kind = "player", player = Player},
+    payload = {
+        position = Vector3,
+        material = string,
+        cellsDestroyed = number,
+        cooldownEnds = number?
+    }
+}
+```
+
+#### `CUBE_ORIGIN_CHANGED`
+Cube position update.
+
+**Payload:**
+```lua
+{
+    to = {kind = "player", player = Player},
+    payload = {
+        origin = Vector3,
+        playerId = number
+    }
+}
+```
+
+#### `LOOT_DROPPED`
+Item drop notification.
+
+**Payload:**
+```lua
+{
+    to = {kind = "player", player = Player},
+    payload = {
+        itemId = string,
+        quantity = number,
+        position = Vector3,
+        rarity = string
+    }
+}
+```
+
+#### `FIRST_DIG`
+First dig achievement.
+
+**Payload:**
+```lua
+{
+    to = {kind = "player", player = Player},
+    payload = {
+        position = Vector3,
+        reward = {coins = number}
+    }
+}
+```
+
+### Notifications
+
+#### `NOTIFICATION_PUSH`
+General notifications.
+
+**Payload:**
+```lua
+{
+    to = {kind = "player", player = Player},
+    payload = {
+        type = "info" | "success" | "warning" | "error",
+        title = string,
+        message = string,
+        duration = number?,
+        icon = string?
+    }
+}
+```
+
+#### `ACHIEVEMENT_UNLOCKED`
+Achievement completion.
+
+**Payload:**
+```lua
+{
+    to = {kind = "player", player = Player},
+    payload = {
+        achievementId = string,
+        name = string,
+        description = string,
+        reward = {
+            coins = number?,
+            gems = number?,
+            items = {[string]: number}?
+        }
+    }
+}
+```
+
+#### `ANNOUNCEMENT_BROADCAST`
+Server-wide announcements.
+
+**Payload:**
+```lua
+{
+    to = {kind = "broadcast"},
+    payload = {
+        message = string,
+        priority = "low" | "normal" | "high",
+        duration = number,
+        color = Color3?
+    }
+}
+```
+
+### Social Events
+
+#### `NEIGHBOR_JOINED`
+Player joined neighborhood.
+
+**Payload:**
+```lua
+{
+    to = {kind = "broadcast"},
+    payload = {
+        playerId = number,
+        playerName = string,
+        origin = Vector3
+    }
+}
+```
+
+#### `NEIGHBOR_LEFT`
+Player left neighborhood.
+
+**Payload:**
+```lua
+{
+    to = {kind = "broadcast"},
+    payload = {
+        playerId = number,
+        playerName = string
+    }
+}
+```
+
+### UI & Interaction
+
+#### `ITEM_COLLECTED`
+Item pickup confirmation.
+
+**Payload:**
+```lua
+{
+    to = {kind = "player", player = Player},
+    payload = {
+        itemId = string,
+        quantity = number,
+        source = "pickup" | "reward" | "purchase"
+    }
+}
+```
+
+#### `PICKUP_PROMPT`
+Show pickup UI.
+
+**Payload:**
+```lua
+{
+    to = {kind = "player", player = Player},
+    payload = {
+        itemModel = Instance,
+        itemId = string,
+        quantity = number
+    }
+}
+```
+
+### Effects & Feedback
+
+#### `SOUND_EFFECT`
+Trigger client-side sound.
+
+**Payload:**
+```lua
+{
+    to = {kind = "player", player = Player},
+    payload = {
+        soundId = string,
+        position = Vector3?,
+        volume = number?,
+        pitch = number?
+    }
+}
+```
+
+#### `PARTICLE_EFFECT`
+Spawn particle effect.
+
+**Payload:**
+```lua
+{
+    to = {kind = "player", player = Player},
+    payload = {
+        effectType = string,
+        position = Vector3,
+        color = Color3?,
+        size = number?
+    }
+}
+```
+
+#### `CAMERA_SHAKE`
+Camera shake effect.
+
+**Payload:**
+```lua
+{
+    to = {kind = "player", player = Player},
+    payload = {
+        intensity = number,
+        duration = number,
+        fadeIn = number?,
+        fadeOut = number?
+    }
+}
+```
+
+#### `RUNTIME_EFFECTS_CHANGED`
+Visual effects update.
+
+**Payload:**
+```lua
+{
+    to = {kind = "player", player = Player},
+    payload = {
+        effects = {
+            [effectId]: {
+                enabled = boolean,
+                intensity = number?
+            }
+        }
+    }
+}
+```
+
+## Event Patterns
+
+### Subscribing to Events
 
 ```lua
-Remotes.RE.OnNotification.OnClientEvent:Connect(function(data)
-    local success, err = pcall(function()
-        processNotification(data)
+local EventBus = require(MiningGame.EventBus).global()
+local EventNames = require(MiningGame.EventNames)
+
+-- Basic subscription
+EventBus:on(EventNames.CURRENCY_CHANGED, function(data)
+    updateUI(data.payload)
+end)
+
+-- With priority (lower = earlier)
+EventBus:on(EventNames.DIG_FEEDBACK, handleDigFeedback, 10)
+
+-- One-time subscription
+EventBus:once(EventNames.FIRST_DIG, function(data)
+    showTutorial("Great job on your first dig!")
+end)
+```
+
+### Managing Subscriptions
+
+```lua
+local Component = {}
+
+function Component:Init()
+    self.subscriptions = {}
+    
+    -- Store all unsubscribe functions
+    local events = {
+        [EventNames.CURRENCY_CHANGED] = self.OnCurrencyChanged,
+        [EventNames.INVENTORY_CHANGED] = self.OnInventoryChanged,
+        [EventNames.PROFILE_UPDATED] = self.OnProfileUpdated
+    }
+    
+    for event, handler in pairs(events) do
+        table.insert(self.subscriptions, 
+            EventBus:on(event, function(data)
+                handler(self, data)
+            end))
+    end
+end
+
+function Component:Destroy()
+    -- Clean up all subscriptions
+    for _, unsub in ipairs(self.subscriptions) do
+        unsub()
+    end
+end
+```
+
+### Client to Server Requests
+
+```lua
+-- Use RemoteEventBridge for client→server
+local Bridge = require(MiningGame.RemoteEventBridge)
+local RequestNames = require(MiningGame.RequestNames)
+
+-- Send request to server
+Bridge.send(RequestNames.INVENTORY_REQUEST_SELL, {
+    itemId = "diamond",
+    quantity = 5
+})
+
+-- Convenience methods
+Bridge.requestSell("diamond", 5)
+Bridge.requestEquip("sword", "weapon")
+Bridge.requestDig(Vector3.new(10, 0, 10))
+```
+
+## Performance Considerations
+
+### Fast Path Events
+
+High-frequency events skip middleware for performance:
+
+```lua
+-- On client initialization
+local Bus = EventBus.global()
+Bus:markFastPath(EventNames.DIG_FEEDBACK)
+```
+
+### Event Batching
+
+Server can batch related updates:
+
+```lua
+-- Server-side
+EventBus:emit(EventNames.PROFILE_UPDATED, {
+    to = {kind = "player", player = player},
+    payload = {
+        stats = stats,
+        inventory = inventory,
+        upgrades = upgrades
+    }
+})
+-- Instead of three separate events
+```
+
+## Error Handling
+
+```lua
+-- Defensive event handling
+EventBus:on(EventNames.INVENTORY_CHANGED, function(data)
+    -- Validate payload
+    if not data.payload or not data.payload.itemId then
+        warn("Invalid inventory event payload")
+        return
+    end
+    
+    -- Safe property access
+    local quantity = data.payload.quantity or 0
+    local action = data.payload.action or "unknown"
+    
+    -- Handle event
+    processInventoryChange(action, data.payload.itemId, quantity)
+end)
+```
+
+## Best Practices
+
+1. **Use Event Constants** - Always use EventNames/RequestNames
+2. **Clean Up Subscriptions** - Prevent memory leaks
+3. **Validate Payloads** - Don't assume data structure
+4. **Handle Missing Data** - Use defensive programming
+5. **Batch Related Updates** - Reduce event count
+6. **Mark Fast Paths** - For high-frequency events
+
+## Debugging
+
+```lua
+-- Log all events (dev only)
+if RunService:IsStudio() then
+    EventBus:use(function(ctx, next)
+        print(string.format("[Event] %s", ctx.event))
+        next()
     end)
-    
-    if not success then
-        warn("Notification handler error:", err)
-    end
-end)
+end
+
+-- Monitor specific event
+EventBus:on(EventNames.CURRENCY_CHANGED, function(data)
+    print("Currency event:", data)
+end, 1) -- High priority to log first
 ```
 
-### Validation
-Always validate data from RemoteEvents:
+## See Also
 
-```lua
-Remotes.RE.OnCurrencyChanged.OnClientEvent:Connect(function(data)
-    -- Validate data structure
-    if type(data) ~= "table" then return end
-    
-    -- Validate number values
-    if data.coins and type(data.coins) == "number" then
-        updateCoins(math.max(0, data.coins))
-    end
-end)
-```
-
-[← RemoteFunctions](API_REMOTE_FUNCTIONS.md) | [Best Practices →](API_BEST_PRACTICES.md)
+- [EventBus System](EVENTBUS_SYSTEM.md) - Complete EventBus documentation
+- [Remote Architecture](REMOTE_ARCHITECTURE.md) - Client-server communication
+- [API RemoteFunctions](API_REMOTE_FUNCTIONS.md) - Request-response patterns
+- [Service Architecture](SERVICE_ARCHITECTURE.md) - Server-side services
