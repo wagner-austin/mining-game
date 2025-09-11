@@ -211,28 +211,17 @@ local GAMEPASS_CACHE_TTL = 120 -- 2 minutes
                 }
             end
             
-            -- Grant reward
+            -- Grant reward directly on profile and queue save
             local reward = GameConfig.DailyReward or { coins = 100 }
-            local success = DataService:UpdatePlayerData(player, function(data)
-                data.stats.coins = (data.stats.coins or 0) + reward.coins
-                data.lastDailyReward = now
-                return data
-            end)
-            
-            if success then
-                return {
-                    ok = true,
-                    success = true,
-                    coins = reward.coins,
-                    nextClaimTime = now + 86400
-                }
-            end
+            profile.coins = (profile.coins or 0) + (reward.coins or 0)
+            profile.lastDailyReward = now
+            DataService:QueueSave(player)
             
             return {
-                ok = false,
-                success = false,
-                err = "CLAIM_FAILED",
-                reason = "Failed to claim reward"
+                ok = true,
+                success = true,
+                coins = reward.coins or 0,
+                nextClaimTime = now + 86400
             }
         end,
         opts = { requireProfile = true, rateLimitSec = 1.0 },
