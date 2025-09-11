@@ -6,17 +6,28 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
+local Time = require(MiningGame:WaitForChild("Time"))
 local Logger = require(MiningGame:WaitForChild("Logger"))
 local log = Logger.new("SessionService")
+local MathUtils = require(MiningGame:WaitForChild("MathUtils"))
+local ServiceValidator = require(MiningGame:WaitForChild("ServiceValidator"))
 
+-- Services (injected via Init)
 local DataService
-local ok, ds = pcall(function()
-    return require(script.Parent:WaitForChild("DataService"))
-end)
-if ok then DataService = ds end
 
 local SessionService = {}
+type SessionServiceT = {
+    Init: (self: SessionServiceT, container: any) -> (),
+    Start: (self: SessionServiceT) -> (),
+}
 local sessionStartByUserId: {[number]: number} = {}
+local _conns = {}
+
+-- Initialize with DI container
+function SessionService:Init(container)
+    DataService = ServiceValidator.get(container, "DataService", {"GetPlayerData", "AddPlaytime"})
+    log:info("Initialized with dependencies")
+end
 
 -- Public API for other services to read session info
 function SessionService.getSessionStartTime(userId: number): number?
@@ -25,14 +36,14 @@ end
 
 function SessionService.getSessionElapsed(userId: number): number
     local startTime = sessionStartByUserId[userId]
-    return startTime and math.max(0, os.time() - startTime) or 0
+    return startTime and MathUtils.nonNegative(Time.unix() - startTime) or 0
 end
 
 -- Initialize tracking when module loads
-local function init()
+function SessionService:Start()
     -- Track when players join
-    Players.PlayerAdded:Connect(function(player)
-        sessionStartByUserId[player.UserId] = os.time()
+    table.insert(_conns, Players.PlayerAdded:Connect(function(player)
+        sessionStartByUserId[player.UserId] = Time.unix()
         log:info("Player {} session started at {}", player.Name, sessionStartByUserId[player.UserId])
         log:event("session_started", {
             uid = player.UserId,
@@ -41,18 +52,18 @@ local function init()
         
         -- Session tracking is now handled in DataService:LoadPlayerAsync
         -- We only need to track the session start time here for playtime calculation
-    end)
+    end))
 
     -- Update lifetime playtime when players leave
-    Players.PlayerRemoving:Connect(function(player)
+    table.insert(_conns, Players.PlayerRemoving:Connect(function(player)
         local startTime = sessionStartByUserId[player.UserId]
         if startTime then
-            local sessionDuration = math.max(0, os.time() - startTime)
+            local sessionDuration = MathUtils.nonNegative(Time.unix() - startTime)
             log:info("%s played for %d seconds this session", player.Name, sessionDuration)
             log:event("session_ended", {
                 uid = player.UserId,
                 duration = sessionDuration,
-                timestamp = os.time()
+                timestamp = math.floor(Time.unix())
             })
             
             -- Add to lifetime playtime
@@ -64,20 +75,28 @@ local function init()
             
             sessionStartByUserId[player.UserId] = nil
         end
-    end)
+    end))
     
     -- Handle players already in game (Studio test mode)
     for _, player in ipairs(Players:GetPlayers()) do
         if not sessionStartByUserId[player.UserId] then
-            sessionStartByUserId[player.UserId] = os.time()
+            sessionStartByUserId[player.UserId] = Time.unix()
             log:info("Found existing player {} - tracking from now", player.Name)
         end
     end
     
-    log:info("Initialized - tracking player sessions")
+    log:info("Started - tracking player sessions")
 end
 
--- Auto-initialize
-init()
+-- Stop lifecycle
+function SessionService:Stop()
+    for _, conn in ipairs(_conns) do
+        if conn and conn.Disconnect then
+            pcall(function() conn:Disconnect() end)
+        end
+    end
+    table.clear(_conns)
+    log:info("Stopped")
+end
 
 return SessionService
