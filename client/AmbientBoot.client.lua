@@ -8,6 +8,8 @@ local player = Players.LocalPlayer
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
 local AmbientController = require(MiningGame:WaitForChild("AmbientController"))
 local MaterialManager = require(MiningGame:WaitForChild("MaterialManager"))
+local ClientRF = require(MiningGame:WaitForChild("ClientRF"))
+local Ready = require(MiningGame:WaitForChild("Ready"))
 
 -- Initialize MaterialManager to handle palette-based lighting
 MaterialManager.Initialize()
@@ -17,19 +19,18 @@ task.spawn(function()
     if not player:GetAttribute("DataLoaded") then
         player:GetAttributeChangedSignal("DataLoaded"):Wait()
     end
-    local Remotes = require(MiningGame:WaitForChild("Remotes"))
-    -- Small retry loop in case the service is a tick behind
-    for i = 1, 3 do
-        local ok, prefs = pcall(function()
-            return Remotes.RF.GetMaterialPreferences:InvokeServer()
-        end)
-        if ok and prefs and prefs.palette then
-            local pal = string.lower(prefs.palette)
-            print("[AmbientBoot] Applying saved palette:", pal)
-            MaterialManager.SetPalette(pal)
-            break
-        end
-        task.wait(0.25)
+    if not Ready.wait(10) then
+        warn("[AmbientBoot] Server not ready; skipping initial palette fetch")
+        return
+    end
+    -- Use ClientRF with retry for material preferences
+    local prefs, err = ClientRF.callWithRetry("GetMaterialPreferences", 3)
+    if not err and prefs and prefs.palette then
+        local pal = string.lower(prefs.palette)
+        print("[AmbientBoot] Applying saved palette:", pal)
+        MaterialManager.SetPalette(pal)
+    elseif err then
+        print("[AmbientBoot] Failed to get material preferences:", err)
     end
 end)
 
