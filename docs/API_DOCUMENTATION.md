@@ -2,45 +2,60 @@
 
 ## Overview
 
-This document provides an index to the comprehensive API documentation for all client-server communication in the Mining Game. All communication occurs through RemoteEvents and RemoteFunctions located in `ReplicatedStorage.Remotes.MiningGame`.
+This document provides an index to the comprehensive API documentation for all client-server communication in the Mining Game. The API uses a centralized RFRegistry pattern with strict validation, rate limiting, and Result normalization for all RemoteFunctions, while RemoteEvents are handled through the EventBus system.
 
 ## Documentation Structure
 
-The API documentation is split into focused sections for easier navigation:
+The API documentation is organized into several focused sections:
 
-1. **[API_REMOTE_FUNCTIONS.md](API_REMOTE_FUNCTIONS.md)** - Client→Server requests with responses
-2. **[API_REMOTE_EVENTS.md](API_REMOTE_EVENTS.md)** - Server→Client notifications
-3. **[API_BEST_PRACTICES.md](API_BEST_PRACTICES.md)** - Best practices, examples, and testing
+1. **[REMOTE_ARCHITECTURE.md](REMOTE_ARCHITECTURE.md)** - Complete remote system architecture (NEW)
+2. **[API_REMOTE_FUNCTIONS.md](API_REMOTE_FUNCTIONS.md)** - Client→Server requests with responses
+3. **[API_REMOTE_EVENTS.md](API_REMOTE_EVENTS.md)** - Server→Client notifications via EventBus
+4. **[EVENTBUS_SYSTEM.md](EVENTBUS_SYSTEM.md)** - Event-driven communication system (NEW)
+5. **[API_BEST_PRACTICES.md](API_BEST_PRACTICES.md)** - Best practices, examples, and testing
 
 ## Quick Reference
 
 ### Architecture
 
-- **RemoteFunctions**: Used for client→server requests that require a response
-- **RemoteEvents**: Used for server→client notifications (fire-and-forget)
-- **Security**: All validation happens server-side; never trust client input
-- **Rate Limiting**: Built into critical functions like digging
+- **RFRegistry**: Centralized RF management with automatic discovery from `RemoteFns/` specs
+- **RemoteManager**: Enforces schema validation, rate limiting, and profile requirements
+- **EventBus**: Decoupled pub/sub system for all server→client events
+- **ClientRF**: Client helper with Result unwrapping and retry logic
+- **Security**: Strict server-side validation with schema validators
+- **Rate Limiting**: Enforced on all RemoteFunctions via token bucket algorithm
 
 ### Client Usage
 
 ```lua
--- Getting remotes
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
-local Remotes = require(MiningGame:WaitForChild("Remotes"))
+-- Modern approach with ClientRF
+local ClientRF = require(MiningGame.ClientRF)
+local EventBus = require(MiningGame.EventBus).global()
+local EventNames = require(MiningGame.EventNames)
 
--- Using RemoteFunctions
-local result = Remotes.RF.RequestDig:InvokeServer(worldPos)
+-- RemoteFunction calls with automatic Result unwrapping
+local profile, err = ClientRF.call("GetProfile")
+if not profile then
+    warn("Failed:", err)
+    return
+end
 
--- Listening to RemoteEvents
-Remotes.RE.OnCurrencyChanged.OnClientEvent:Connect(function(data)
-    -- Handle update
+-- EventBus for server events
+EventBus:on(EventNames.CURRENCY_CHANGED, function(data)
+    print("New balance:", data.payload.balance)
 end)
+
+-- Client to server events
+local Bridge = require(MiningGame.RemoteEventBridge)
+Bridge.send(RequestNames.INVENTORY_REQUEST_SELL, {
+    itemId = "diamond",
+    quantity = 5
+})
 ```
 
 ## API Categories
 
-### RemoteFunctions (42 total)
+### RemoteFunctions (59 total, organized in RemoteFns/)
 
 #### Core Systems
 - **Gameplay**: GetProfile, RequestDig, StartContinuousDig, StopContinuousDig
@@ -60,7 +75,7 @@ end)
 
 [See full RemoteFunction documentation →](API_REMOTE_FUNCTIONS.md)
 
-### RemoteEvents (26 total)
+### RemoteEvents (via EventBus)
 
 #### State Updates
 - Profile, currency, inventory, upgrades, boosts, pets
@@ -81,16 +96,21 @@ end)
 - Sound effects, particles, camera shake, cloth updates
 
 [See full RemoteEvent documentation →](API_REMOTE_EVENTS.md)
+[See EventBus documentation →](EVENTBUS_SYSTEM.md)
 
 ## Implementation Status
 
 ### ✅ Fully Implemented
+- RFRegistry pattern with automatic spec discovery
+- RemoteManager with strict validation and rate limiting
+- EventBus system for decoupled communication
+- Result format normalization
 - Core dig/mining system
 - Currency and inventory management
 - Material customization
 - Theme settings
 - Metrics tracking
-- Debug tools
+- Debug tools (Studio-only)
 
 ### ⚠️ Partially Implemented
 - Pet system (backend exists, no UI)
@@ -105,10 +125,13 @@ end)
 
 ## Quick Links
 
+- [Remote Architecture](REMOTE_ARCHITECTURE.md) - Complete remote system design
+- [Service Architecture](SERVICE_ARCHITECTURE.md) - Service container and DI
+- [EventBus System](EVENTBUS_SYSTEM.md) - Event-driven patterns
 - [Error Handling Guide](API_BEST_PRACTICES.md#error-handling)
 - [Performance Optimization](API_BEST_PRACTICES.md#performance-optimization)
 - [Testing Checklist](API_BEST_PRACTICES.md#testing-checklist)
-- [Migration Notes](API_BEST_PRACTICES.md#migration-notes)
+- [Migration Guide Q1 2025](MIGRATION_GUIDE_Q1_2025.md) - Migrating to new patterns
 
 ## Support
 
