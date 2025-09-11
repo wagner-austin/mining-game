@@ -5,6 +5,9 @@
 local RunService = game:GetService("RunService")
 local Stats = game:GetService("Stats")
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Shared = ReplicatedStorage:WaitForChild("MiningGame")
+local Time = require(Shared:WaitForChild("Time"))
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -47,7 +50,7 @@ statsLabel.Parent = frame
 
 -- Performance tracking
 local frameCount = 0
-local lastUpdate = tick()
+local lastUpdate = Time.mono()
 local fps = 0
 
 -- Event-based counters (no scanning)
@@ -75,7 +78,7 @@ local sampleWindow = 0.5
 
 RunService.Heartbeat:Connect(function(dt)
     frameCount = frameCount + 1
-    local now = tick()
+    local now = Time.mono()
     
     if now - lastUpdate >= sampleWindow then
         fps = frameCount / (now - lastUpdate)
