@@ -1,6 +1,7 @@
 --!strict
 -- DebugTab.lua
 -- Debug controls for testing and development (Studio-only)
+-- Migrated to use BaseTabComponent for consistent UI patterns
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -10,12 +11,36 @@ local RunService = game:GetService("RunService")
 
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
 local Theme = require(MiningGame:WaitForChild("UI"):WaitForChild("Theme"))
-local Remotes = require(MiningGame:WaitForChild("Remotes"))
 local Logger = require(MiningGame:WaitForChild("Logger"))
+local GameConfig = require(MiningGame:WaitForChild("GameConfig"))
+local ClientRF = require(MiningGame:WaitForChild("ClientRF"))
+local UIConstants = require(MiningGame:WaitForChild("UI"):WaitForChild("UIConstants"))
+
+-- Shorthand
+local UIx = UIConstants
+
+local BaseTabComponent = require(script.Parent:WaitForChild("BaseTabComponent"))
+
+-- Client error ring (loaded from PlayerScripts)
+local ClientError = require(Players.LocalPlayer:WaitForChild("PlayerScripts"):WaitForChild("ClientErrorHandler"))
+
 local log = Logger.new("DebugTab")
 
 local DebugTab = {}
 DebugTab.__index = DebugTab
+setmetatable(DebugTab, { __index = BaseTabComponent })
+
+-- Helper for cleaner RF status handling with optional message builder
+local function rfStatus(self, okMsgOrFn)
+    return function(data, err)
+        if err then
+            self:_showStatus("✗ " .. err, true)
+        else
+            local msg = type(okMsgOrFn) == "function" and okMsgOrFn(data) or okMsgOrFn
+            self:_showStatus("✓ " .. (msg or "Success"), false)
+        end
+    end
+end
 
 type Config = {
     parent: Frame,
@@ -24,558 +49,450 @@ type Config = {
     portalParent: Frame?,
 }
 
-function DebugTab.new(config: Config)
-    local self = setmetatable({}, DebugTab)
+type DebugTabT = typeof(setmetatable({} :: any, DebugTab)) & {
+    _resetConfirm: boolean,
+    _statusTimeout: thread?,
+    _statusCard: Frame?,
+    _statusLabel: TextLabel?,
+    _statusIsError: boolean?,
+    _simCard: Frame?,
+    _maxAgentCount: number,
+    _currentStrategy: string,
+    _strategies: {string},
+    _countBox: TextBox?,
+    _strategyLabel: TextLabel?,
+    _toggleBtn: TextButton?,
+    new: (config: Config) -> DebugTabT,
+}
+
+function DebugTab.new(config: Config): DebugTabT
+    -- Initialize base component
+    local self = setmetatable(BaseTabComponent.new({
+        parent = config.parent,
+        position = config.position,
+        size = config.size,
+        portalParent = config.portalParent,
+        stacked = true,
+        name = "DebugTab",
+    }), DebugTab)
     
-    -- Theme configuration (single source of truth)
-    local theme = {
-        colors = Theme.colors,
-        fonts = Theme.fonts,
-        sizes = Theme.sizes,
-        -- Standardized text sizes
-        titleSize = 20,
-        buttonSize = 18,
-        labelSize = 16,
-        smallSize = 14,
-    }
-    
-    -- Track connections for cleanup
-    self._connections = {}
+    -- Tab-specific state
     self._resetConfirm = false
+    self._statusTimeout = nil
+    self._statusCard = nil
+    self._statusLabel = nil
     
-    -- Main container (matching MaterialsTab and AccountTab structure)
-    local container = Instance.new("Frame")
-    container.Name = "DebugTab"
-    container.Size = config.size or UDim2.new(1, 0, 0, 0)
-    container.Position = config.position or UDim2.new(0, 0, 0, 0)
-    container.AutomaticSize = Enum.AutomaticSize.Y
-    container.BackgroundTransparency = 1
-    container.Parent = config.parent
-    self.container = container
+    -- Build UI
+    self:_createStatusSection()
+    self:_createCubeSection()
+    self:_createCurrencySection()
+    self:_createStatsSection()
+    self:_createSimAgentsSection()
     
-    -- Stack sections vertically (like AccountTab)
-    local layout = Instance.new("UIListLayout")
-    layout.FillDirection = Enum.FillDirection.Vertical
-    layout.Padding = UDim.new(0, 16)
-    layout.SortOrder = Enum.SortOrder.LayoutOrder
-    layout.Parent = container
-    
-    local padding = Instance.new("UIPadding")
-    padding.PaddingTop = UDim.new(0, 12)
-    padding.PaddingBottom = UDim.new(0, 12)
-    padding.PaddingLeft = UDim.new(0, 16)
-    padding.PaddingRight = UDim.new(0, 16)
-    padding.Parent = container
-    
-    -- Helper to create section card (consistent theme)
-    local function createSectionCard(): Frame
-        local card = Instance.new("Frame")
-        card.Name = "Card"
-        card.Size = UDim2.new(1, 0, 0, 0)
-        card.AutomaticSize = Enum.AutomaticSize.Y
-        card.BackgroundColor3 = theme.colors.Surface
-        card.BackgroundTransparency = Theme.card.backgroundTransparency
-        card.Parent = container
-        
-        local corner = Instance.new("UICorner")
-        corner.CornerRadius = UDim.new(0, theme.sizes.CornerRadius)
-        corner.Parent = card
-        
-        local pad = Instance.new("UIPadding")
-        pad.PaddingTop = UDim.new(0, 12)
-        pad.PaddingBottom = UDim.new(0, 12)
-        pad.PaddingLeft = UDim.new(0, 16)
-        pad.PaddingRight = UDim.new(0, 16)
-        pad.Parent = card
-        
-        local cardLayout = Instance.new("UIListLayout")
-        cardLayout.FillDirection = Enum.FillDirection.Vertical
-        cardLayout.Padding = UDim.new(0, 8)
-        cardLayout.SortOrder = Enum.SortOrder.LayoutOrder
-        cardLayout.Parent = card
-        
-        return card
+    -- Floating Islands section (if enabled)
+    if GameConfig.FloatingIslands.ALLOW_IN_DEBUG_TAB then
+        self:_createIslandsSection()
     end
     
-    -- Helper to create section title (consistent theme)
-    local function createSectionTitle(parent: Frame, text: string)
-        local title = Instance.new("TextLabel")
-        title.Name = "Title"
-        title.Size = UDim2.new(1, 0, 0, 24)
-        title.BackgroundTransparency = 1
-        title.Text = text
-        title.TextColor3 = theme.colors.Text
-        title.TextXAlignment = Enum.TextXAlignment.Left
-        title.Font = theme.fonts.Primary
-        title.TextSize = theme.titleSize
-        title.LayoutOrder = 0
-        title.Parent = parent
-        return title
-    end
+    -- Client Errors section (Studio only)
+    self:_createClientErrorsSection()
     
-    -- Helper to create label (consistent theme)
-    local function createLabel(parent: Frame, text: string, isDim: boolean?)
-        local label = Instance.new("TextLabel")
-        label.Name = "Label"
-        label.Size = UDim2.new(1, 0, 0, 0)
-        label.AutomaticSize = Enum.AutomaticSize.Y
-        label.BackgroundTransparency = 1
-        label.Text = text
-        label.TextColor3 = isDim and theme.colors.TextDim or theme.colors.Text
-        label.TextXAlignment = Enum.TextXAlignment.Left
-        label.Font = theme.fonts.Primary
-        label.TextSize = theme.labelSize
-        label.TextWrapped = true
-        label.Parent = parent
-        return label
-    end
+    -- Setup hotkeys for SimAgents
+    self:_setupHotkeys()
     
-    -- Helper to create button (consistent theme)
-    local function createButton(parent: Frame, text: string, onClick: () -> (), isDanger: boolean?)
-        local button = Instance.new("TextButton")
-        button.Name = text:gsub(" ", ""):gsub("[^%w]", "").."Button"
-        button.Size = UDim2.new(1, 0, 0, theme.sizes.MinButtonHeight)
-        button.BackgroundColor3 = isDanger and theme.colors.Error or theme.colors.Surface
-        button.BackgroundTransparency = Theme.button.surfaceTransparency
-        button.BorderSizePixel = 0
-        button.Text = text
-        button.TextColor3 = isDanger and theme.colors.Error or theme.colors.Text
-        button.TextScaled = false
-        button.TextSize = theme.buttonSize
-        button.Font = theme.fonts.Primary
-        button.AutoButtonColor = false
-        button.Parent = parent
-        
-        local corner = Instance.new("UICorner")
-        corner.CornerRadius = UDim.new(0, theme.sizes.CornerRadius)
-        corner.Parent = button
-        
-        -- Hover effects
-        button.MouseEnter:Connect(function()
-            TweenService:Create(button, TweenInfo.new(0.15), {
-                BackgroundTransparency = Theme.button.surfaceHoverTransparency
-            }):Play()
-        end)
-        
-        button.MouseLeave:Connect(function()
-            TweenService:Create(button, TweenInfo.new(0.15), {
-                BackgroundTransparency = Theme.button.surfaceTransparency
-            }):Play()
-        end)
-        
-        button.Activated:Connect(onClick)
-        
-        return button
-    end
-    
-    -- Status feedback system
-    local statusCard = createSectionCard()
+    return self :: any
+end
+
+-- Status feedback system
+function DebugTab:_createStatusSection()
+    local statusCard = self:createSectionCard(self.container, { layoutOrder = 0 })
     statusCard.Name = "StatusCard"
     statusCard.Visible = false
-    statusCard.LayoutOrder = 0 -- Show at top
     
-    local statusLabel = Instance.new("TextLabel")
+    local statusLabel = self:createLabel(statusCard, "", {
+        size = UDim2.new(1, 0, 0, UIx.Size.ROW_STANDARD),
+        alignment = Enum.TextXAlignment.Center
+    })
     statusLabel.Name = "StatusLabel"
-    statusLabel.Size = UDim2.new(1, 0, 0, 24)
-    statusLabel.BackgroundTransparency = 1
-    statusLabel.Font = theme.fonts.Primary
-    statusLabel.TextScaled = false
-    statusLabel.TextSize = theme.labelSize
-    statusLabel.TextXAlignment = Enum.TextXAlignment.Center
-    statusLabel.Parent = statusCard
     
-    local statusTimeout = nil
-    local function showStatus(message: string, isError: boolean?)
-        statusCard.Visible = true
-        statusCard.BackgroundColor3 = isError and theme.colors.Error or theme.colors.Success
-        statusLabel.Text = message
-        statusLabel.TextColor3 = theme.colors.Text
-        
-        -- Cancel previous timeout
-        if statusTimeout then
-            task.cancel(statusTimeout)
-        end
-        
-        -- Auto-hide after 3 seconds
-        statusTimeout = task.delay(3, function()
-            if statusCard and statusLabel.Text == message then
-                statusCard.Visible = false
-            end
-            statusTimeout = nil
-        end)
-    end
+    self._statusCard = statusCard
+    self._statusLabel = statusLabel
+    self._statusIsError = false
     
-    -- === CUBE CONTROLS SECTION ===
-    local cubeSection = createSectionCard()
-    cubeSection.LayoutOrder = 1
-    createSectionTitle(cubeSection, "Cube Controls")
-    
-    -- Non-destructive respawn button (safe for all players)
-    createButton(cubeSection, "Respawn Cube Model", function()
-        local success, result = pcall(function()
-            return Remotes.RF.RespawnCubeModel:InvokeServer()
-        end)
-        
-        if success and result and result.success then
-            showStatus("✓ " .. (result.message or "Cube respawned"), false)
-        else
-            local msg = result and result.reason or tostring(result)
-            showStatus("✗ Failed: " .. msg, true)
+    -- Register theme updater for dynamic status color
+    self:_addThemeUpdater(function()
+        if self._statusCard then
+            self._statusCard.BackgroundColor3 = self._statusIsError and self._theme.colors.Error or self._theme.colors.Success
         end
     end)
+end
+
+function DebugTab:_showStatus(message: string, isError: boolean?)
+    if not self._statusCard or not self._statusLabel then return end
     
-    -- Destructive reset button (Studio-only, danger styling)
-    createButton(cubeSection, "Reset Cube (Wipes Progress!)", function()
+    self._statusIsError = not not isError -- Convert to boolean
+    self._statusCard.Visible = true
+    self._statusCard.BackgroundColor3 = isError and self._theme.colors.Error or self._theme.colors.Success
+    self._statusLabel.Text = message
+    
+    -- Cancel previous timeout
+    if self._statusTimeout then
+        self:clearTimeout(self._statusTimeout)
+    end
+    
+    -- Auto-hide after 3 seconds
+    self._statusTimeout = self:setTimeout(3, function()
+        if self._statusCard and self._statusLabel.Text == message then
+            self._statusCard.Visible = false
+        end
+        self._statusTimeout = nil
+    end)
+end
+
+-- Cube Controls Section
+function DebugTab:_createCubeSection()
+    local card = self:createSectionCard(self.container, { layoutOrder = 1, name = "CubeControlsCard" })
+    self:createSectionTitle(card, "Cube Controls")
+    
+    -- Non-destructive respawn button
+    self:createButton(card, "Respawn Cube Model", function()
+        local data, err = ClientRF.call("RespawnCubeModel")
+        rfStatus(self, function(d) return (d and d.message) or "Cube respawned" end)(data, err)
+    end, { layoutOrder = 1 })
+    
+    -- Destructive reset button with danger styling
+    self:createButton(card, "Reset Cube (Wipes Progress!)", function()
         if self._resetConfirm then
             -- Second click - actually reset
-            local success, result = pcall(function()
-                return Remotes.RF.DebugResetCube:InvokeServer()
-            end)
-            
+            local data, err = ClientRF.call("DebugResetCube")
             self._resetConfirm = false
-            
-            if success and result and result.success then
-                showStatus("✓ Cube reset to fresh state!", false)
-            else
-                local msg = result and result.reason or tostring(result)
-                showStatus("✗ Failed: " .. msg, true)
-            end
+            rfStatus(self, "Cube reset to fresh state!")(data, err)
         else
             -- First click - ask for confirmation
             self._resetConfirm = true
-            showStatus("⚠️ Click again to confirm WIPE", true)
-            task.delay(3, function()
+            self:_showStatus("⚠️ Click again to confirm WIPE", true)
+            self:setTimeout(3, function()
                 self._resetConfirm = false
             end)
         end
-    end, true) -- isDanger = true
+    end, { variant = "danger", layoutOrder = 2 })
     
     -- Teleport Home button
-    createButton(cubeSection, "Teleport to Spawn", function()
-        local success, result = pcall(function()
-            return Remotes.RF.TeleportToHome:InvokeServer()
-        end)
-        
-        if success and result and result.success then
-            showStatus("✓ Teleported to spawn!", false)
-        else
-            local msg = result and result.reason or tostring(result)
-            showStatus("✗ Failed: " .. msg, true)
-        end
-    end)
-    
-    -- === CURRENCY SECTION ===
-    local currencySection = createSectionCard()
-    currencySection.LayoutOrder = 2
-    createSectionTitle(currencySection, "Currency Cheats")
+    self:createButton(card, "Teleport to Spawn", function()
+        local data, err = ClientRF.call("TeleportToHome")
+        rfStatus(self, "Teleported to spawn!")(data, err)
+    end, { layoutOrder = 3 })
+end
+
+-- Currency Section
+function DebugTab:_createCurrencySection()
+    local card = self:createSectionCard(self.container, { layoutOrder = 2 })
+    self:createSectionTitle(card, "Currency Cheats")
     
     -- Add Coins button
-    createButton(currencySection, "Add 1000 Coins", function()
-        local success, result = pcall(function()
-            return Remotes.RF.DebugAddCurrency:InvokeServer("coins", 1000)
-        end)
-        
-        if success and result and result.success then
-            showStatus("✓ Added 1000 coins!", false)
-        else
-            local msg = result and result.reason or tostring(result)
-            showStatus("✗ Failed: " .. msg, true)
-        end
-    end)
+    self:createButton(card, "Add 1000 Coins", function()
+        local data, err = ClientRF.call("DebugAddCurrency", "coins", 1000)
+        rfStatus(self, "Added 1000 coins!")(data, err)
+    end, { layoutOrder = 1 })
     
     -- Add Gems button
-    createButton(currencySection, "Add 100 Gems", function()
-        local success, result = pcall(function()
-            return Remotes.RF.DebugAddCurrency:InvokeServer("gems", 100)
-        end)
-        
-        if success and result and result.success then
-            showStatus("✓ Added 100 gems!", false)
-        else
-            local msg = result and result.reason or tostring(result)
-            showStatus("✗ Failed: " .. msg, true)
-        end
-    end)
-    
-    -- === STATS SECTION ===
-    local statsSection = createSectionCard()
-    statsSection.LayoutOrder = 3
-    createSectionTitle(statsSection, "Player Stats")
+    self:createButton(card, "Add 100 Gems", function()
+        local data, err = ClientRF.call("DebugAddCurrency", "gems", 100)
+        rfStatus(self, "Added 100 gems!")(data, err)
+    end, { layoutOrder = 2 })
+end
+
+-- Stats Section
+function DebugTab:_createStatsSection()
+    local card = self:createSectionCard(self.container, { layoutOrder = 3 })
+    self:createSectionTitle(card, "Player Stats")
     
     -- Reset Stats button
-    createButton(statsSection, "Reset All Stats", function()
-        local success, result = pcall(function()
-            return Remotes.RF.DebugResetStats:InvokeServer()
-        end)
-        
-        if success and result and result.success then
-            showStatus("✓ Stats reset successfully!", false)
+    self:createButton(card, "Reset All Stats", function()
+        local data, err = ClientRF.call("DebugResetStats")
+        rfStatus(self, "Stats reset successfully!")(data, err)
+    end, { layoutOrder = 1 })
+end
+
+-- SimAgents Section (Studio Only)
+function DebugTab:_createSimAgentsSection()
+    local card = self:createSectionCard(self.container, { layoutOrder = 99 })
+    self:createSectionTitle(card, "Sim Agents (Studio)")
+    
+    -- Store references for hotkeys
+    self._simCard = card
+    self._maxAgentCount = 25
+    self._currentStrategy = "grid"
+    self._strategies = {"grid", "grid_altitude_noise", "grid_terrain_snap"}
+    
+    -- Row with TextBox + Set button  
+    local row = self:createRow(card, UIx.Size.BUTTON_SMALL_HEIGHT)
+    row.LayoutOrder = 1  -- After title
+    
+    -- Count text box
+    self._countBox = self:createTextBox(row, "Count", "9", {
+        size = UIx.px(80, UIx.Size.BUTTON_SMALL_HEIGHT)
+    })
+    
+    -- Set button
+    self:createButton(row, "Set Agents", function()
+        local n = tonumber(self._countBox.Text) or 0
+        local data, err = ClientRF.call("SimAgents_SetCount", math.clamp(n, 0, self._maxAgentCount))
+        if not err and data and data.count then
+            self:_showStatus("✓ SimAgents set to " .. tostring(data.count), false)
+            self._countBox.Text = tostring(data.count)
         else
-            local msg = result and result.reason or tostring(result)
-            showStatus("✗ Failed: " .. msg, true)
+            self:_showStatus("✗ Failed to set agents" .. (err and ": " .. err or ""), true)
         end
-    end)
-    
-    -- === SIM AGENTS SECTION (Studio Only) ===
-    local simSection = createSectionCard()
-    simSection.LayoutOrder = 99
-    createSectionTitle(simSection, "Sim Agents (Studio)")
-    
-    -- Store max count from server
-    local maxAgentCount = 25
-    
-    -- Row with TextBox + Set button
-    local row = Instance.new("Frame")
-    row.Size = UDim2.new(1, 0, 0, 32)
-    row.BackgroundTransparency = 1
-    row.Parent = simSection
-    
-    local rowLayout = Instance.new("UIListLayout")
-    rowLayout.FillDirection = Enum.FillDirection.Horizontal
-    rowLayout.Padding = UDim.new(0, 8)
-    rowLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    rowLayout.Parent = row
-    
-    -- Helper to create text box (consistent theme)
-    local function createTextBox(parent: Frame, placeholder: string, defaultText: string?): TextBox
-        local textBox = Instance.new("TextBox")
-        textBox.Name = placeholder:gsub(" ", "").."Box"
-        textBox.Size = UDim2.new(0, 80, 1, 0)
-        textBox.ClearTextOnFocus = false
-        textBox.Text = defaultText or ""
-        textBox.PlaceholderText = placeholder
-        textBox.Font = theme.fonts.Primary
-        textBox.TextSize = theme.buttonSize
-        textBox.TextColor3 = theme.colors.Text
-        textBox.PlaceholderColor3 = theme.colors.TextDim
-        textBox.BackgroundColor3 = theme.colors.Surface
-        textBox.BackgroundTransparency = Theme.card.backgroundTransparency
-        textBox.Parent = parent
-        
-        local corner = Instance.new("UICorner")
-        corner.CornerRadius = UDim.new(0, theme.sizes.CornerRadius)
-        corner.Parent = textBox
-        
-        return textBox
-    end
-    
-    local countBox = createTextBox(row, "Count", "9")
-    
-    -- Helper to create inline button (for row layouts)
-    local function createInlineButton(parent: Frame, text: string, width: number, onClick: () -> ()): TextButton
-        local button = Instance.new("TextButton")
-        button.Name = text:gsub(" ", ""):gsub("[^%w]", "").."Button"
-        button.Size = UDim2.new(0, width, 1, 0)
-        button.Text = text
-        button.Font = theme.fonts.Primary
-        button.TextSize = theme.buttonSize
-        button.TextColor3 = theme.colors.Text
-        button.BackgroundColor3 = theme.colors.Surface
-        button.BackgroundTransparency = Theme.button.surfaceTransparency
-        button.AutoButtonColor = false
-        button.Parent = parent
-        
-        local corner = Instance.new("UICorner")
-        corner.CornerRadius = UDim.new(0, theme.sizes.CornerRadius)
-        corner.Parent = button
-        
-        -- Hover effects
-        button.MouseEnter:Connect(function()
-            TweenService:Create(button, TweenInfo.new(0.15), {
-                BackgroundTransparency = Theme.button.surfaceHoverTransparency
-            }):Play()
-        end)
-        
-        button.MouseLeave:Connect(function()
-            TweenService:Create(button, TweenInfo.new(0.15), {
-                BackgroundTransparency = Theme.button.surfaceTransparency
-            }):Play()
-        end)
-        
-        button.Activated:Connect(onClick)
-        
-        return button
-    end
-    
-    local setBtn = createInlineButton(row, "Set Agents", 120, function()
-        local n = tonumber(countBox.Text) or 0
-        local ok, success, count = pcall(function()
-            return Remotes.RF.SimAgents_SetCount:InvokeServer(math.clamp(n, 0, maxAgentCount))
-        end)
-        if ok and success then
-            showStatus("✓ SimAgents set to " .. tostring(count or n), false)
-            countBox.Text = tostring(count or n)
-        else
-            showStatus("✗ Failed to set agents", true)
-        end
-    end)
+    end, { width = 120 })
     
     -- Spawn Strategy controls
-    local strategies = {"grid", "grid_altitude_noise", "grid_terrain_snap", "pcg_probe"}
-    local currentStrategy = "grid"
-    local strategyLabel = createLabel(simSection, "Spawn Strategy: Loading...", true) -- isDim = true
-    
-    local function updateStrategyDisplay()
-        strategyLabel.Text = "Spawn Strategy: " .. currentStrategy
-    end
+    self._strategyLabel = self:createLabel(card, "Spawn Strategy: Loading...", {
+        isDim = true,
+        layoutOrder = 2
+    })
     
     -- Load current strategy
     task.spawn(function()
-        local okList, list = pcall(function() return Remotes.RF.SpawnStrategy_List:InvokeServer() end)
-        if okList and type(list) == "table" and #list > 0 then 
-            strategies = list
-            log:debug("Loaded spawn strategies: {}", table.concat(list, ", "))
+        local listData, listErr = ClientRF.call("SpawnStrategy_List")
+        if not listErr and listData and listData.strategies then
+            self._strategies = listData.strategies
+            log:debug("Loaded spawn strategies: {}", table.concat(listData.strategies, ", "))
         end
         
-        local okGet, got = pcall(function() return Remotes.RF.SpawnStrategy_Get:InvokeServer() end)
-        if okGet and type(got) == "string" then 
-            currentStrategy = got
-            log:debug("Current spawn strategy: {}", got)
+        local getData, getErr = ClientRF.call("SpawnStrategy_Get")
+        if not getErr and getData and getData.current then
+            self._currentStrategy = getData.current
+            log:debug("Current spawn strategy: {}", getData.current)
         end
         
-        updateStrategyDisplay()
+        self:_updateStrategyDisplay()
     end)
     
-    -- Change Strategy button (cycles through options)
-    createButton(simSection, "Next Spawn Strategy", function()
-        local idx = 1
-        for i, s in ipairs(strategies) do
-            if s == currentStrategy then
-                idx = i
-                break
-            end
-        end
-        currentStrategy = strategies[(idx % #strategies) + 1]
-        updateStrategyDisplay()
-        
-        -- Apply to server
-        local ok, res = pcall(function() 
-            return Remotes.RF.SpawnStrategy_Set:InvokeServer(currentStrategy) 
-        end)
-        
-        if ok and res and res.success then
-            showStatus("✓ Strategy: " .. tostring(res.strategy), false)
-            
-            -- Auto-respawn SimAgents if any exist
-            task.spawn(function()
-                local okStat, status = pcall(function()
-                    return Remotes.RF.SimAgents_GetStatus:InvokeServer()
-                end)
-                if okStat and status and status.count > 0 then
-                    pcall(function()
-                        Remotes.RF.SimAgents_SetCount:InvokeServer(status.count)
-                    end)
-                end
-            end)
-        else
-            local reason = (ok and res and res.reason) or "Unknown error"
-            showStatus("✗ Strategy change failed: " .. reason, true)
-            -- Revert display
-            task.spawn(function()
-                local okGet, got = pcall(function() 
-                    return Remotes.RF.SpawnStrategy_Get:InvokeServer() 
-                end)
-                if okGet and type(got) == "string" then 
-                    currentStrategy = got
-                    updateStrategyDisplay()
-                end
-            end)
-        end
-    end)
+    -- Change Strategy button
+    self:createButton(card, "Next Spawn Strategy", function()
+        self:_cycleSpawnStrategy()
+    end, { layoutOrder = 3 })
     
     -- Respawn All button
-    createButton(simSection, "Respawn All SimAgents", function()
-        local ok, success = pcall(function()
-            return Remotes.RF.SimAgents_RespawnAll:InvokeServer()
-        end)
-        if ok and success then
-            showStatus("✓ Respawned all SimAgents", false)
-        else
-            showStatus("✗ Failed to respawn", true)
-        end
-    end)
+    self:createButton(card, "Respawn All SimAgents", function()
+        local data, err = ClientRF.call("SimAgents_RespawnAll")
+        rfStatus(self, "Respawned all SimAgents")(data, err)
+    end, { layoutOrder = 4 })
     
     -- Clear button
-    createButton(simSection, "Clear SimAgents", function()
-        local ok, success = pcall(function()
-            return Remotes.RF.SimAgents_Clear:InvokeServer()
-        end)
-        if ok and success then
-            showStatus("✓ Cleared SimAgents", false)
-            countBox.Text = "0"
-        else
-            showStatus("✗ Failed to clear", true)
+    self:createButton(card, "Clear SimAgents", function()
+        local data, err = ClientRF.call("SimAgents_Clear")
+        if not err then
+            self._countBox.Text = "0"
         end
-    end)
+        rfStatus(self, "Cleared SimAgents")(data, err)
+    end, { layoutOrder = 5 })
     
     -- Toggle terrain cubes button
-    local toggleBtn = createButton(simSection, "Use Terrain Cubes: ...", function() end)
-    toggleBtn.Activated:Connect(function()
-        local ok, status = pcall(function()
-            return Remotes.RF.SimAgents_GetStatus:InvokeServer()
-        end)
-        if ok and status then
-            local want = not status.useTerrainCubes
-            local ok2, success = pcall(function()
-                return Remotes.RF.SimAgents_SetTerrainCubes:InvokeServer(want)
-            end)
-            if ok2 and success then
-                toggleBtn.Text = "Use Terrain Cubes: " .. (want and "On" or "Off")
-                showStatus("✓ Terrain cubes " .. (want and "enabled" or "disabled"), false)
-            else
-                showStatus("✗ Toggle failed", true)
-            end
-        else
-            showStatus("✗ Status unavailable", true)
-        end
-    end)
+    self._toggleBtn = self:createButton(card, "Use Terrain Cubes: ...", function()
+        self:_toggleTerrainCubes()
+    end, { layoutOrder = 6 })
     
     -- Initialize UI from server status
     task.spawn(function()
-        local ok, status = pcall(function()
-            return Remotes.RF.SimAgents_GetStatus:InvokeServer()
-        end)
-        if ok and status then
-            maxAgentCount = status.maxCount or 25
-            toggleBtn.Text = "Use Terrain Cubes: " .. (status.useTerrainCubes and "On" or "Off")
-            countBox.Text = tostring(status.count)
+        local status, err = ClientRF.call("SimAgents_GetStatus")
+        if not err and status then
+            self._maxAgentCount = status.maxCount or 25
+            self._toggleBtn.Text = "Use Terrain Cubes: " .. (status.useTerrainCubes and "On" or "Off")
+            self._countBox.Text = tostring(status.count)
             
             -- Display additional status info
             if status.playerCount then
-                createLabel(simSection, "Real Players: " .. status.playerCount, true) -- isDim = true
+                self:createLabel(card, "Real Players: " .. status.playerCount, { isDim = true })
             end
-            -- Strategy is now shown in the spawn strategy controls above
             
             if not status.enabled then
-                createLabel(simSection, "⚠️ SimAgents disabled (not in Studio)", false) -- warning, not dim
-                simSection.Visible = false -- Hide the section outside Studio
+                self:createLabel(card, "⚠️ SimAgents disabled (not in Studio)")
+                card.Visible = false -- Hide the section outside Studio
             end
         else
-            simSection.Visible = false -- Hide if we can't get status
+            card.Visible = false -- Hide if we can't get status
         end
     end)
+end
+
+-- Removed _createInlineButton - using BaseTabComponent:createButton instead which already has width support
+
+function DebugTab:_updateStrategyDisplay()
+    if self._strategyLabel then
+        self._strategyLabel.Text = "Spawn Strategy: " .. self._currentStrategy
+    end
+end
+
+function DebugTab:_cycleSpawnStrategy()
+    local idx = 1
+    for i, s in ipairs(self._strategies) do
+        if s == self._currentStrategy then
+            idx = i
+            break
+        end
+    end
+    self._currentStrategy = self._strategies[(idx % #self._strategies) + 1]
+    self:_updateStrategyDisplay()
     
-    -- Hotkeys for quick iteration (Studio only)
+    -- Apply to server
+    local data, err = ClientRF.call("SpawnStrategy_Set", self._currentStrategy)
+    
+    if not err and data then
+        self:_showStatus("✓ Strategy: " .. (data.current or self._currentStrategy), false)
+        
+        -- Recompute positions under the new strategy
+        task.spawn(function()
+            ClientRF.call("SimAgents_RespawnAll")
+        end)
+    else
+        self:_showStatus("✗ Strategy change failed: " .. (err or "Unknown error"), true)
+        -- Revert display
+        task.spawn(function()
+            local getData, getErr = ClientRF.call("SpawnStrategy_Get")
+            if not getErr and getData and getData.current then
+                self._currentStrategy = getData.current
+                self:_updateStrategyDisplay()
+            end
+        end)
+    end
+end
+
+function DebugTab:_toggleTerrainCubes()
+    local status, err = ClientRF.call("SimAgents_GetStatus")
+    if not err and status then
+        local want = not status.useTerrainCubes
+        local data2, err2 = ClientRF.call("SimAgents_SetTerrainCubes", want)
+        if not err2 then
+            self._toggleBtn.Text = "Use Terrain Cubes: " .. (want and "On" or "Off")
+            self:_showStatus("✓ Terrain cubes " .. (want and "enabled" or "disabled"), false)
+        else
+            self:_showStatus("✗ Toggle failed: " .. err2, true)
+        end
+    else
+        self:_showStatus("✗ Status unavailable" .. (err and ": " .. err or ""), true)
+    end
+end
+
+-- Floating Islands Section
+function DebugTab:_createIslandsSection()
+    local card = self:createSectionCard(self.container, { layoutOrder = 5 })
+    self:createSectionTitle(card, "🏝️ Floating Islands")
+    
+    -- Spawn Medium Island button
+    self:createButton(card, "Spawn Medium Island", function()
+        local data, err = ClientRF.call("Debug_SpawnIsland", { 
+            preset = "medium", 
+            theme = "underwater_cave" 
+        })
+        rfStatus(self, "Spawned floating island!")(data, err)
+    end, { layoutOrder = 1 })
+    
+    -- Spawn Large Island button
+    self:createButton(card, "Spawn Large Island", function()
+        local data, err = ClientRF.call("Debug_SpawnIsland", { 
+            preset = "large", 
+            theme = "underwater_cave" 
+        })
+        rfStatus(self, "Spawned large island!")(data, err)
+    end, { layoutOrder = 2 })
+end
+
+function DebugTab:_createClientErrorsSection()
+    if not RunService:IsStudio() then return end
+
+    local card = self:createSectionCard(self.container, { layoutOrder = 999 })
+    card.Name = "ClientErrors"
+
+    local lastN = (GameConfig.Client and GameConfig.Client.CLIENT_ERROR_RING_SIZE) or 20
+    self:createLabel(card, ("Client Errors (last %d)"):format(lastN), {
+        isDim = true,
+        size = UDim2.new(1, 0, 0, UIx.Size.ROW_STANDARD),
+        alignment = Enum.TextXAlignment.Left,
+    })
+
+    -- controls row
+    local row = self:createRow(card, UIx.Size.BUTTON_SMALL_HEIGHT)
+    row.LayoutOrder = 1
+
+    local list = nil -- Forward declare for closure
+
+    self:createButton(row, "Refresh", function()
+        self:_refreshClientErrors(list)
+    end, { width = 100 })
+
+    local autoToggle = Instance.new("TextButton")
+    autoToggle.Text = "Auto"
+    autoToggle.Size = UDim2.fromOffset(60, UIx.Size.BUTTON_SMALL_HEIGHT)
+    autoToggle.BackgroundColor3 = self._theme.colors.Surface
+    autoToggle.Parent = row
+
+    -- list
+    list = Instance.new("TextLabel")
+    list.Name = "ErrorsList"
+    list.Size = UDim2.new(1, 0, 0, UIx.Size.CARD_LARGE)
+    list.BackgroundTransparency = 0.2
+    list.BackgroundColor3 = self._theme.colors.Surface
+    list.LayoutOrder = 2
+    list.TextXAlignment = Enum.TextXAlignment.Left
+    list.TextYAlignment = Enum.TextYAlignment.Top
+    list.TextColor3 = self._theme.colors.Text
+    list.Font = self._theme.fonts.Mono or Enum.Font.Code
+    list.TextSize = 14
+    list.TextWrapped = true
+    list.Text = "(no client errors)"
+    list.Parent = card
+
+    -- helpers
+    function self:_refreshClientErrors(target)
+        local recent = ClientError.recent()
+        if #recent == 0 then
+            target.Text = "(no client errors)"
+            return
+        end
+        local lines = {}
+        for i = math.max(1, #recent - 19), #recent do
+            local e = recent[i]
+            table.insert(lines, string.format("[%s] %s", e.tag, e.err))
+        end
+        target.Text = table.concat(lines, "\n")
+    end
+
+    -- auto refresh
+    local auto = true
+    autoToggle.Text = "Auto: ON"
+    autoToggle.Activated:Connect(function()
+        auto = not auto
+        autoToggle.Text = auto and "Auto: ON" or "Auto: OFF"
+    end)
+
+    -- polling task
+    self._clientErrorsConn = RunService.RenderStepped:Connect(function()
+        if auto then self:_refreshClientErrors(list) end
+    end)
+end
+
+-- Setup hotkeys for SimAgents control
+function DebugTab:_setupHotkeys()
     local function bumpAgentCount(actionName, state, delta)
         if state ~= Enum.UserInputState.Begin then return Enum.ContextActionResult.Pass end
         
-        local ok, status = pcall(function()
-            return Remotes.RF.SimAgents_GetStatus:InvokeServer()
-        end)
-        if not ok or not status or not status.enabled then 
+        local status, err = ClientRF.call("SimAgents_GetStatus")
+        if err or not status or not status.enabled then 
             return Enum.ContextActionResult.Pass
         end
         
         local currentCount = status.count or 0
         local newCount = math.clamp(currentCount + delta, 0, status.maxCount or 25)
         
-        local ok2, success, count = pcall(function()
-            return Remotes.RF.SimAgents_SetCount:InvokeServer(newCount)
-        end)
+        local data, err2 = ClientRF.call("SimAgents_SetCount", newCount)
         
-        if ok2 and success then
-            countBox.Text = tostring(count or newCount)
-            showStatus("SimAgents: " .. tostring(count or newCount), false)
+        if not err2 and data then
+            if self._countBox then
+                self._countBox.Text = tostring(data.count or newCount)
+            end
+            self:_showStatus("SimAgents: " .. tostring(data.count or newCount), false)
         end
         
         return Enum.ContextActionResult.Sink
@@ -602,31 +519,40 @@ function DebugTab.new(config: Config)
         Enum.KeyCode.LeftBracket
     )
     
-    -- Store connections for cleanup
-    table.insert(self._connections, {
+    -- Store cleanup action
+    self:addConnection({
         Disconnect = function()
             ContextActionService:UnbindAction("SimAgentsIncrease")
             ContextActionService:UnbindAction("SimAgentsDecrease")
         end
     })
-    
-    return self
 end
 
+-- Override destroy for tab-specific cleanup
 function DebugTab:destroy()
-    -- Disconnect all connections
-    for _, conn in ipairs(self._connections) do
-        if conn then
-            conn:Disconnect()
-        end
+    -- Cancel status timeout
+    if self._statusTimeout then
+        task.cancel(self._statusTimeout)
+        self._statusTimeout = nil
     end
-    self._connections = {}
     
-    -- Destroy container
-    if self.container then
-        self.container:Destroy()
-        self.container = nil
+    -- Client errors poll
+    if self._clientErrorsConn then
+        self._clientErrorsConn:Disconnect()
+        self._clientErrorsConn = nil
     end
+    
+    -- Clear tab-specific references
+    self._statusCard = nil
+    self._statusLabel = nil
+    self._statusIsError = nil
+    self._countBox = nil
+    self._toggleBtn = nil
+    self._strategyLabel = nil
+    self._simCard = nil
+    
+    -- Call base destroy (handles connections, container, theme cleanup)
+    BaseTabComponent.destroy(self)
 end
 
 return DebugTab
