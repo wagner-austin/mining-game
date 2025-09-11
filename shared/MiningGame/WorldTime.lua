@@ -4,6 +4,10 @@
 	Ensures client and server always agree on day/night cycle timing
 ]]
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
+local Time = require(MiningGame:WaitForChild("Time"))
+
 local WorldTime = {}
 
 -- CONFIG: Change these in one place for the entire game
@@ -23,7 +27,7 @@ end
 
 -- Real seconds until a target in-game hour (0-24) from a given Unix time
 function WorldTime.secondsUntilHour(targetHour: number, fromUnix: number?): number
-	fromUnix = fromUnix or os.time()
+	fromUnix = fromUnix or Time.unix()
 	local daySec     = WorldTime.secondsPerGameDay()
 	local curPhase   = (fromUnix - WorldTime.EPOCH_UNIX) % daySec
 	local targetSec  = ((targetHour % 24) / 24) * daySec
