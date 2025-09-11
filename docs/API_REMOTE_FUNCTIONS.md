@@ -4,782 +4,337 @@
 
 ## Overview
 
-RemoteFunctions are used for client→server communication that requires a response. The client invokes the function and waits for the server to return data.
+RemoteFunctions are managed through the RFRegistry system with centralized specifications in the `server/MiningGame/RemoteFns/` directory. All RemoteFunctions have strict schema validation, rate limiting, and automatic Result normalization.
 
-## Table of Contents
+## Architecture
 
-- [Core Gameplay](#core-gameplay)
-- [Inventory Management](#inventory-management)
-- [Pet Management](#pet-management)
-- [Purchases & Upgrades](#purchases--upgrades)
-- [Material & Theme Customization](#material--theme-customization)
-- [Player Movement & Spawning](#player-movement--spawning)
-- [Social & Neighbors](#social--neighbors)
-- [Metrics & Analytics](#metrics--analytics)
-- [Item Drops](#item-drops)
-- [Cloth Simulation](#cloth-simulation)
-- [Debug Functions](#debug-functions-studiodeveloper-only)
-- [Spawn Strategy](#spawn-strategy-developer-only)
-- [Simulation Agents](#simulation-agents-studio-only)
+All RemoteFunctions are:
+- Defined in spec files (`RemoteFns/*.rf.lua`)
+- Auto-discovered by RFRegistry at startup
+- Wrapped with middleware for timing and error handling
+- Validated with schema functions
+- Rate limited with token bucket algorithm
+- Return standardized Result format
 
-**Total Functions: 42**
+## Client Usage
 
----
-
-## Core Gameplay
-
-### `GetProfile()`
-Returns the player's complete profile including stats, inventory, and current state.
-
-**Returns:**
 ```lua
-{
-    profile = {
-        coins = number,
-        gems = number,
-        blocksDestroyed = number,
-        totalBlocksDestroyed = number,
-        upgrades = {
-            speed = number,
-            size = number
-        },
-        inventory = {[itemId] = count},
-        equipment = {[slot] = itemId},
-        materials = {[materialId] = boolean},
-        currentMaterial = string,
-        pets = {[petId] = PetData},
-        activePets = {string},
-        boosts = {[boostType] = expiryTime}
-    },
-    cubeState = {
-        chunksData = table,
-        totalChunks = number,
-        dugCells = number,
-        compressedSize = number
-    },
-    effectiveStats = {
-        speed = number,
-        delay = number,
-        size = number,
-        multiplier = number
-    },
-    gamepasses = {[gamepassId] = boolean}
-}
+-- Modern approach with ClientRF
+local ClientRF = require(MiningGame.ClientRF)
+
+-- Call with automatic Result unwrapping
+local profile, err = ClientRF.call("GetProfile")
+if not profile then
+    warn("Failed to get profile:", err)
+    return
+end
+
+-- With parameters
+local result, err = ClientRF.call("SellItems", { diamond = 5 })
+if not result then
+    if err == "INSUFFICIENT_ITEMS" then
+        -- Handle specific error
+    end
+end
+
+-- With retry on network failure
+local data, err = ClientRF.callWithRetry("GetInventory", 3)
 ```
 
-### `RequestDig(worldPos: Vector3)`
-Process a dig request at the specified world position.
-
-**Parameters:**
-- `worldPos`: Vector3 position where the player wants to dig
-
-**Returns:**
-```lua
-{
-    ok = boolean,                      -- Success status
-    reason = string?,                   -- Error message if failed
-    cellsDestroyed = number?,          -- Number of cells destroyed
-    loot = {[itemId] = count}?,        -- Items received
-    nextAllowedAt = number?,           -- Unix timestamp for cooldown
-    effectiveStats = EffectiveStats?   -- Updated player stats
-}
-```
-
-**Error Reasons:**
-- `"No cube data"` - Player cube not initialized
-- `"Outside your cube"` - Position outside player's cube
-- `"On cooldown"` - Dig cooldown not expired
-- `"Protected cell"` - Trying to dig a protected cell
-
----
-
-### `StartContinuousDig(worldPos: Vector3)`
-Start continuous digging at a position (hold to dig).
-
-**Parameters:**
-- `worldPos`: World position to start digging
-
-**Returns:**
-```lua
-{
-    success: boolean,
-    reason: string?  -- Error reason if failed
-}
-```
-
----
-
-### `StopContinuousDig()`
-Stop continuous digging.
-
-**Returns:**
-```lua
-{
-    success: boolean
-}
-```
-
----
-
-## Inventory Management
-
-### `SellItems(items: {[string]: number})`
-Sell items from inventory for coins.
-
-**Parameters:**
-- `items`: Dictionary mapping itemId → quantity to sell
-
-**Returns:**
-```lua
-{
-    success = boolean,
-    coinsEarned = number?,
-    totalValue = number?,
-    reason = string?  -- Error message if failed
-}
-```
-
-### `EquipItem(itemId: string)`
-Equip an item from inventory.
-
-**Parameters:**
-- `itemId`: ID of the item to equip
-
-**Returns:**
-```lua
-{
-    success = boolean,
-    slot = string?,      -- Slot where item was equipped
-    unequipped = string?, -- Previous item that was unequipped
-    reason = string?      -- Error message if failed
-}
-```
-
-### `UnequipItem(slot: string)`
-Unequip an item from a specific slot.
-
-**Parameters:**
-- `slot`: Equipment slot ("pickaxe", "head", "back", "aura", "trail")
-
-**Returns:**
-```lua
-{
-    success = boolean,
-    itemId = string?,    -- Item that was unequipped
-    reason = string?     -- Error message if failed
-}
-```
-
-### `UseConsumable(itemId: string)`
-Use a consumable item from inventory.
-
-**Parameters:**
-- `itemId`: ID of the consumable to use
-
-**Returns:**
-```lua
-{
-    success = boolean,
-    effect = string?,     -- Effect applied
-    duration = number?,   -- Duration in seconds
-    reason = string?      -- Error message if failed
-}
-```
-
----
-
-## Pet Management
-
-### `EquipPet(petId: string)`
-Equip a pet from inventory.
-
-**Parameters:**
-- `petId`: ID of the pet to equip
-
-**Returns:**
-```lua
-{
-    success: boolean,
-    reason: string?  -- Error reason if failed
-}
-```
-
----
-
-### `UnequipPet(petId: string)`
-Unequip an active pet.
-
-**Parameters:**
-- `petId`: ID of the pet to unequip
-
-**Returns:**
-```lua
-{
-    success: boolean,
-    reason: string?
-}
-```
-
----
-
-### `UpgradePet(petId: string)`
-Upgrade a pet's level or abilities.
-
-**Parameters:**
-- `petId`: ID of the pet to upgrade
-
-**Returns:**
-```lua
-{
-    success: boolean,
-    newLevel: number?,
-    cost: number?,
-    reason: string?
-}
-```
-
----
-
-## Purchases & Upgrades
-
-### `PurchaseUpgrade(upgradeType: string)`
-Purchase a tool upgrade with coins.
-
-**Parameters:**
-- `upgradeType`: "speed" or "size"
-
-**Returns:**
-```lua
-{
-    success = boolean,
-    newLevel = number?,     -- New upgrade level
-    cost = number?,         -- Cost paid
-    nextCost = number?,     -- Cost for next upgrade
-    reason = string?        -- Error message if failed
-}
-```
-
-### `PurchaseProduct(purchaseType: string, purchaseId: string)`
-Initiate a Robux purchase (Developer Product or Gamepass).
-
-**Parameters:**
-- `purchaseType`: "product" or "gamepass"
-- `purchaseId`: Product/gamepass ID from GameConfig
-
-**Returns:**
-```lua
-{
-    success = boolean,
-    reason = string?  -- Error message if failed
-}
-```
-
-### `PurchaseMaterial(materialId: string)`
-Purchase a cube material skin with coins.
-
-**Parameters:**
-- `materialId`: Material ID from GameConfig
-
-**Returns:**
-```lua
-{
-    success = boolean,
-    cost = number?,      -- Amount paid
-    reason = string?     -- Error message if failed
-}
-```
-
----
-
-## Material & Theme Customization
-
-### `ApplyCubeSurfaceMaterial(materialKey: string)`
-Apply a surface material to the player's cube.
-
-**Parameters:**
-- `materialKey`: Key from MaterialDefinitions
-
-**Returns:**
-```lua
-{
-    success = boolean,
-    materialKey = string?,
-    reason = string?
-}
-```
-
-### `ApplyFloorMaterial(materialKey: string)`
-Apply a floor material to the player's cube.
-
-**Parameters:**
-- `materialKey`: Key from MaterialDefinitions
-
-**Returns:**
-```lua
-{
-    success = boolean,
-    materialKey = string?,
-    reason = string?
-}
-```
-
-### `GetMaterialPreferences()`
-Get the player's material preferences.
-
-**Returns:**
-```lua
-{
-    surfaceMaterial = string,
-    floorMaterial = string,
-    palette = string
-}
-```
-
-### `SetPalettePreference(paletteKey: string)`
-Set the player's color palette preference.
-
-**Parameters:**
-- `paletteKey`: Palette key identifier
-
-**Returns:**
-```lua
-boolean  -- Success status
-```
-
-### `GetThemeSettings()`
-Get the player's theme settings.
-
-**Returns:**
-```lua
-{
-    soundTheme = string,      -- Current sound theme
-    visualTheme = string,     -- Current visual theme
-    particleLevel = string,   -- Particle effect level
-    screenShake = boolean     -- Screen shake enabled
-}
-```
-
-### `UpdateThemeSettings(patch: table)`
-Update theme settings with a partial update.
-
-**Parameters:**
-- `patch`: Table with theme settings to update
-
-**Returns:**
-```lua
-{
-    success = boolean,
-    settings = ThemeSettings?,
-    reason = string?
-}
-```
-
----
-
-## Player Movement & Spawning
-
-### `TeleportToHome()`
-Teleport the player to their cube spawn point.
-
-**Returns:**
-```lua
-{
-    success = true
-}
-```
-
-### `RespawnCubeModel()`
-Regenerate the player's cube visual model.
-
-**Returns:**
-```lua
-{
-    success = boolean,
-    message = string
-}
-```
-
----
-
-## Social & Neighbors
-
-### `VisitNeighbor(playerId: number)`
-Visit another player's cube.
-
-**Parameters:**
-- `playerId`: UserId of the player to visit
-
-**Returns:**
-```lua
-{
-    success: boolean,
-    reason: string?  -- Error if failed
-}
-```
-
----
-
-### `ReturnHome()`
-Return from visiting a neighbor to your own cube.
-
-**Returns:**
-```lua
-{
-    success: boolean
-}
-```
-
----
-
-### `GetNeighborhood()`
-Get list of available neighbors to visit.
-
-**Returns:**
-```lua
-{
-    neighbors: {
-        {
-            userId: number,
-            username: string,
-            cubeLevel: number,
-            online: boolean
-        }
-    }
-}
-```
-
----
-
-### `UpdateSettings(settings: table)`
-Update player's game settings.
-
-**Parameters:**
-- `settings`: Table of settings to update
-
-**Returns:**
-```lua
-{
-    success: boolean,
-    updated: table  -- Settings that were updated
-}
-```
-
----
-
-## Metrics & Analytics
-
-### `GetMetrics()`
-Get comprehensive player metrics and statistics.
-
-**Returns:**
-```lua
-{
-    gameplay = {
-        totalBlocksDug = number,
-        dugThisSession = number,
-        blocksPerMinute = number,
-        digAccuracy = number,
-        longestStreak = number
-    },
-    economy = {
-        coins = number,
-        gems = number,
-        totalCoinsEarned = number,
-        totalCoinsSpent = number,
-        totalGemsEarned = number,
-        totalGemsSpent = number,
-        netWorth = number
-    },
-    session = {
-        sessionStartTime = number,
-        sessionDurationSec = number,
-        totalPlaytimeSec = number,
-        totalSessions = number,
-        avgSessionLengthSec = number
-    },
-    progression = {
-        speedLevel = number,
-        sizeLevel = number,
-        petsOwned = number,
-        activePets = number,
-        materialTier = number,
-        totalUpgrades = number
-    },
-    world = {
-        currentMaterial = string,
-        cubeSize = number,
-        totalChunks = number,
-        dugCells = number,
-        cubeProgress = number  -- Percentage
-    }
-}
-```
-
-### `GetServerMetrics()`
-Get server-wide metrics (limited for regular players, full for developers).
-
-**Returns (Regular Players):**
-```lua
-{
-    totalPlayers = number,
-    serverUptimeSec = number
-}
-```
-
-**Returns (Developers):**
-```lua
-{
-    totalPlayers = number,
-    serverUptimeSec = number,
-    activeDiggers = number,
-    totalBlocksDugServer = number,
-    avgSessionLength = number,
-    peakPlayers = number,
-    totalSessions = number,
-    serverStartTime = number
-}
-```
-
----
-
-## Item Drops
-
-### `PickupItem(dropModel: Model)`
-Collect a dropped item in the world.
-
-**Parameters:**
-- `dropModel`: The Model instance of the drop to collect
-
-**Returns:**
-```lua
-boolean  -- Collection success
-```
-
-### `SpawnTestItem(itemId: string)` *(Debug Only)*
-Spawn a test item near the player for testing.
-
-**Parameters:**
-- `itemId`: ID of the item to spawn
-
-**Returns:**
-```lua
-{
-    success = boolean,
-    reason = string?
-}
-```
-
----
-
-## Cloth Simulation
-
-### `ClothSpawn(opts: table?)`
-Spawn a cloth simulation for the player.
-
-**Parameters:**
-- `opts`: Optional configuration (not used in simple version)
-
-**Returns:**
-```lua
-{
-    success: boolean
-}
-```
-
----
-
-### `ClothDestroy()`
-Destroy the player's active cloth simulation.
-
-**Returns:**
-```lua
-{
-    success: boolean
-}
-```
-
----
-
-## Debug Functions *(Studio/Developer Only)*
-
-### `DebugAddCurrency(currencyType: string, amount: number)`
-Add currency for testing (Studio only).
-
-**Parameters:**
-- `currencyType`: "coins" or "gems"
-- `amount`: Amount to add
-
-**Returns:**
-```lua
-{
-    success = boolean,
-    added = number?,
-    reason = string?
-}
-```
-
-### `DebugResetCube()`
-Reset the player's cube to default state (Studio only).
-
-**Returns:**
-```lua
-{
-    success = boolean,
-    message = string
-}
-```
-
-### `DebugResetStats()`
-Reset all player stats to default (Studio only).
-
-**Returns:**
-```lua
-{
-    success = boolean,
-    message = string
-}
-```
-
----
-
-## Spawn Strategy *(Developer Only)*
-
-### `SpawnStrategy_Get()`
-Get the current spawn strategy.
-
-**Returns:**
-```lua
-string  -- Current strategy name
-```
-
-### `SpawnStrategy_List()`
-Get list of available spawn strategies.
-
-**Returns:**
-```lua
-{string}  -- Array of strategy names
-```
-
-### `SpawnStrategy_Set(strategy: string)`
-Set the spawn strategy (Studio only).
-
-**Parameters:**
-- `strategy`: Strategy name to set
-
-**Returns:**
-```lua
-{
-    success = boolean,
-    strategy = string?,
-    reason = string?
-}
-```
-
----
-
-## Simulation Agents *(Studio Only)*
-
-### `SimAgents_SetCount(count: number)`
-Set the number of simulation agents.
-
-**Parameters:**
-- `count`: Number of agents (0-50)
-
-**Returns:**
-```lua
-boolean, number|string  -- Success, new count or error message
-```
-
-### `SimAgents_GetStatus()`
-Get simulation agent status.
-
-**Returns:**
-```lua
-{
-    count = number,
-    config = {
-        digCooldown = number,
-        digRadius = number,
-        autoRespawn = boolean,
-        createTerrainCubes = boolean
-    },
-    activeAgents = {
-        {
-            name = string,
-            state = string,
-            blocksDestroyed = number,
-            lastDig = number
-        }
-    }
-}
-```
-
-### `SimAgents_RespawnAll()`
-Respawn all simulation agents.
-
-**Returns:**
-```lua
-boolean, string?  -- Success, error message if failed
-```
-
-### `SimAgents_Clear()`
-Remove all simulation agents.
-
-**Returns:**
-```lua
-boolean, string?  -- Success, error message if failed
-```
-
-### `SimAgents_SetTerrainCubes(enabled: boolean)`
-Toggle terrain cube creation for agents.
-
-**Parameters:**
-- `enabled`: Whether to create terrain cubes
-
-**Returns:**
-```lua
-boolean, string?  -- Success, error message if failed
-```
-
----
-
-## Common Error Responses
-
-All RemoteFunctions that can fail follow this pattern:
+## RemoteFunction Categories
+
+**Total Functions: 59 across 15 specification modules**
+
+### Core Module (`Core.rf.lua`)
+- `GetServerUnix` - Server timestamp
+- `TeleportToHome` - Return to spawn
+- `DebugAddCurrency` (debug-only)
+- `DebugResetCube` (debug-only)
+- `DebugResetStats` (debug-only)
+- `GetMetrics` - Player metrics
+- `GetServerMetrics` - Server performance metrics
+- `SpawnStrategy_Get` (debug-only)
+- `SpawnStrategy_List` (debug-only)
+- `SpawnStrategy_Set` (debug-only)
+
+### Digging (`Dig.rf.lua`)
+- `GetProfile` - Complete player profile and stats
+- `RequestDig` - Single dig action
+- `StartContinuousDig` - Begin hold-to-dig
+- `StopContinuousDig` - End hold-to-dig
+- `RespawnCubeModel` - Reset cube visuals
+
+### Inventory (`Inventory.rf.lua`)
+- `GetInventory` - Full inventory data
+- `SellItems` - Sell items for currency (expects `{[itemId]=count}`)
+- `EquipItem` - Equip to slot
+- `UnequipItem` - Remove from slot
+- `UseConsumable` - Activate consumable item
+- `GetEquippedItems` - Raw map (slot -> itemId)
+- `GetAllEquipped` - Raw map (userId -> (slot -> itemId))
+
+### Upgrades (`Upgrade.rf.lua`)
+- `PurchaseUpgrade` - Buy player upgrade
+
+### Monetization (`Monetization.rf.lua`)
+- `PurchaseProduct` - Buy game product (stubbed: NOT_IMPLEMENTED)
+- `PurchaseMaterial` - Buy material (stubbed: NOT_IMPLEMENTED)
+- `GetPrices` - Available products/prices
+- `GetGamepasses` - Player's gamepass ownership (cached)
+- `ClaimDailyReward` - Daily reward claim
+
+### Material Customization (`CubeMaterial.rf.lua`)
+- `ApplyCubeSurfaceMaterial` - Apply cube surface material
+- `ApplyFloorMaterial` - Apply floor material
+- `GetMaterialPreferences` - Get current preferences
+- `SetPalettePreference` - Choose palette
+
+### Theme Settings (`ThemeSettings.rf.lua`)
+- `GetThemeSettings` - Current theme settings
+- `UpdateThemeSettings` - Patch theme (uiTheme, soundPack, volumes)
+- `GetAvailableThemes` - Available UI themes
+- `GetAvailableSoundPacks` - Available sound packs
+
+### Composition (`Composition.rf.lua`)
+- `ListCompositions` - Available themes/compositions
+- `ApplyComposition` - Apply theme composition
+- `RegenerateComposition` - Rebuild composition
+
+### Pets (`Pets.rf.lua`)
+- `EquipPet` (stub: NOT_IMPLEMENTED)
+- `UnequipPet` (stub: NOT_IMPLEMENTED)
+- `UpgradePet` (stub: NOT_IMPLEMENTED)
+
+### Neighborhood (`Neighborhood.rf.lua`)
+- `GetNeighborhood` (stub: enabled in Studio)
+- `VisitNeighbor` (stub)
+- `ReturnHome` (stub)
+
+### Items (`Item.rf.lua`)
+- `PickupItem` - Collect world item (validates instance & tag)
+- `SpawnTestItem` (debug-only)
+
+### Floating Islands (`FloatingIsland.rf.lua`)
+- `Debug_SpawnIsland` (debug-only)
+
+### Settings (`Settings.rf.lua`)
+- `GetSettings` - Theme settings or defaults
+- `UpdateGeneralSettings` - General/theme updates (validated)
+- `GetAllSettings` - Merged settings view
+- `ResetSettings` - Reset to defaults (all/theme)
+
+### Debug Functions (Studio Only)
+
+#### ClothDebug (`ClothDebug.rf.lua`)
+- `ClothSpawn` - Create cloth instance
+- `ClothDestroy` - Remove cloth
+
+#### SimAgents (`SimAgents.rf.lua`)
+- `SimAgents_SetCount`
+- `SimAgents_GetStatus`
+- `SimAgents_RespawnAll`
+- `SimAgents_Clear`
+- `SimAgents_SetTerrainCubes`
+
+## Result Format
+
+All RemoteFunctions return standardized Result format:
 
 ```lua
 -- Success
 {
-    success = true,
-    -- ... additional data
+    ok = true,
+    data = <value>
 }
 
--- Failure
+-- Error
 {
-    success = false,
-    reason = string  -- Human-readable error message
+    ok = false,
+    err = "ERROR_CODE",
+    reason = "Human readable message"
 }
 ```
 
-### Common Error Reasons
+The ClientRF automatically unwraps this format, returning:
+- `(data, nil)` on success
+- `(nil, errorCode)` on failure
 
-- **Authentication**
-  - `"Not authorized"` - Missing permissions
-  - `"Studio only"` - Function only available in Studio
-  
-- **Data Validation**
-  - `"Invalid parameters"` - Missing or invalid input
-  - `"Item not found"` - Referenced item doesn't exist
-  - `"Invalid amount"` - Number out of valid range
-  
-- **State Errors**
-  - `"Not enough coins"` - Insufficient currency
-  - `"Already equipped"` - Item already in use
-  - `"On cooldown"` - Action rate limited
-  - `"Inventory full"` - No space for items
-  
-- **System Errors**
-  - `"Data not loaded"` - Player data not ready
-  - `"Service unavailable"` - Backend service error
+## Common Error Codes
 
-[← Back to API Documentation](API_DOCUMENTATION.md) | [RemoteEvents →](API_REMOTE_EVENTS.md)
+| Code | Description |
+|------|-------------|
+| `RATE_LIMIT` | Too many requests |
+| `INVALID_INPUT` | Failed schema validation |
+| `NO_PROFILE` | Profile not loaded |
+| `INSUFFICIENT_FUNDS` | Not enough currency |
+| `INSUFFICIENT_ITEMS` | Not enough items |
+| `ITEM_NOT_FOUND` | Invalid item ID |
+| `ALREADY_OWNED` | Already purchased |
+| `NOT_AVAILABLE` | Feature disabled |
+| `INTERNAL` | Server error |
+
+## Rate Limiting
+
+Each RemoteFunction has a configured rate limit:
+
+```lua
+-- Examples from specs
+RequestDig: 0.1 sec (10/sec max)
+SellItems: 0.5 sec (2/sec max)
+GetProfile: 1 sec (1/sec max)
+PurchaseProduct: 2 sec (0.5/sec max)
+```
+
+Rate limited requests return:
+```lua
+{
+    ok = false,
+    err = "RATE_LIMIT",
+    reason = "Too many requests"
+}
+```
+
+## Schema Validation
+
+All parameters are validated server-side:
+
+```lua
+-- Example from SellItems
+validate = function(itemType: string?, count: number?)
+    if not itemType then 
+        return false, "Missing itemType"
+    end
+    if not count or count <= 0 then 
+        return false, "Invalid count"
+    end
+    return true
+end
+```
+
+Failed validation returns:
+```lua
+{
+    ok = false,
+    err = "INVALID_INPUT",
+    reason = <validation error message>
+}
+```
+
+## Context System
+
+All handlers receive a context object:
+
+```lua
+handler = function(ctx, ...)
+    -- ctx.player: Player instance (always present)
+    -- ctx.profile: Player data (if requireProfile = true)
+    
+    local player = ctx.player
+    local profile = ctx.profile
+    
+    -- Service access
+    local service = getService("ServiceName")
+    return service:DoSomething(player, ...)
+end
+```
+
+## Examples
+
+### Getting Player Data
+
+```lua
+-- Get full profile
+local profile, err = ClientRF.call("GetProfile")
+if profile then
+    print("Coins:", profile.coins)
+    print("Level:", profile.level)
+end
+
+-- Get just inventory
+local inventory, err = ClientRF.call("GetInventory")
+if inventory then
+    for itemId, count in pairs(inventory) do
+        print(itemId, "x", count)
+    end
+end
+```
+
+### Making Purchases
+
+```lua
+-- Buy an upgrade
+local result, err = ClientRF.call("PurchaseUpgrade", "speed")
+if result then
+    print("Upgrade successful!")
+elseif err == "INSUFFICIENT_FUNDS" then
+    print("Not enough coins!")
+end
+
+-- Buy a product
+local result, err = ClientRF.call("PurchaseProduct", "gem_pack_1")
+if err == "ALREADY_OWNED" then
+    print("You already own this!")
+end
+```
+
+### Digging Operations
+
+```lua
+-- Single dig
+local result, err = ClientRF.call("RequestDig", Vector3.new(10, 0, 10))
+if result then
+    print("Destroyed", result.cellsDestroyed, "cells")
+    if result.loot then
+        for item, count in pairs(result.loot) do
+            print("Got", count, item)
+        end
+    end
+elseif err == "ON_COOLDOWN" then
+    print("Wait before digging again")
+end
+
+-- Continuous dig
+ClientRF.call("StartContinuousDig", position)
+-- ... later ...
+ClientRF.call("StopContinuousDig")
+```
+
+### Error Handling Patterns
+
+```lua
+local function safePurchase(productId)
+    local result, err = ClientRF.call("PurchaseProduct", productId)
+    
+    if result then
+        return true, "Purchase successful"
+    end
+    
+    -- Handle specific errors
+    local errorMessages = {
+        INSUFFICIENT_FUNDS = "Not enough currency",
+        ALREADY_OWNED = "You already own this",
+        ITEM_NOT_FOUND = "Product doesn't exist",
+        RATE_LIMIT = "Too many purchases, please wait",
+        NO_PROFILE = "Profile not loaded, try again",
+        INTERNAL = "Server error, please try later"
+    }
+    
+    return false, errorMessages[err] or "Unknown error: " .. tostring(err)
+end
+```
+
+## Best Practices
+
+1. **Always handle errors** - Network calls can fail
+2. **Use specific error checks** - Handle known error codes appropriately
+3. **Implement retry logic** - Use `ClientRF.callWithRetry` for critical operations
+4. **Cache when appropriate** - Some data doesn't change frequently
+5. **Batch operations** - Use bulk endpoints when available (e.g., `SellAllItems`)
+6. **Respect rate limits** - Don't spam requests in loops
+
+## See Also
+
+- [Remote Architecture](REMOTE_ARCHITECTURE.md) - Complete remote system design
+- [EventBus System](EVENTBUS_SYSTEM.md) - Server→Client events
+- [API Best Practices](API_BEST_PRACTICES.md) - Guidelines and patterns
+- [Service Architecture](SERVICE_ARCHITECTURE.md) - Server-side services
