@@ -9,6 +9,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
 local Logger = require(MiningGame:WaitForChild("Logger"))
+local GameConfig = require(MiningGame:WaitForChild("GameConfig"))
 local log = Logger.new("EventScheduler")
 
 -- Create TimeService instance
@@ -23,7 +24,7 @@ local function setupScheduledEvents()
 	log:info("Setting up scheduled events...")
 	
 	-- Morning announcement (6 AM) - Recurring daily
-	local morningId = timeService:ScheduleEvent(6, function()
+	local morningId = timeService:ScheduleEvent(GameConfig.Scheduler.MORNING_HOUR, function()
 		log:info("[Event] ☀️ Good morning! The sun is rising.")
 		log:info("  -> Current game time: %.2f", timeService:GetCurrentTime())
 		-- You could send notifications to players here
@@ -40,7 +41,7 @@ local function setupScheduledEvents()
 	table.insert(eventIds, noonId)
 	
 	-- Evening event (18:00 / 6 PM) - Recurring daily
-	local eveningId = timeService:ScheduleEvent(18, function()
+	local eveningId = timeService:ScheduleEvent(GameConfig.Scheduler.EVENING_HOUR, function()
 		log:info("[Event] 🌅 Evening has arrived. The sun is setting.")
 		log:info("  -> Current game time: %.2f", timeService:GetCurrentTime())
 		-- Example: Spawn night creatures, change shop prices, etc.
@@ -87,7 +88,7 @@ setupScheduledEvents()
 local lastPeriodLogged = ""
 task.spawn(function()
 	while true do
-		task.wait(30) -- Check every 30 seconds
+		task.wait(GameConfig.Scheduler.CHECK_INTERVAL)
 		
 		local time = timeService:GetCurrentTime()
 		local period = timeService:GetTimePeriod()
