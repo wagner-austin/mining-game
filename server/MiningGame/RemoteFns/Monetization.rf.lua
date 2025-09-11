@@ -39,6 +39,17 @@ for id, _ in pairs(PRODUCTS_BY_ID) do
     VALID_PRODUCTS[id] = true
 end
 
+-- Gamepass map by semantic id (e.g., "VIP")
+local PASSES_BY_ID = {}
+do
+    local passes = (GameConfig.Monetization and GameConfig.Monetization.GAMEPASSES) or {}
+    for _, pass in ipairs(passes) do
+        if type(pass) == "table" and type(pass.id) == "string" then
+            PASSES_BY_ID[pass.id] = pass
+        end
+    end
+end
+
 -- Valid material keys from MaterialDefinitions
 local VALID_MATERIALS = {}
 for key, _ in pairs(MaterialDefinitions.Materials) do
@@ -77,6 +88,33 @@ local GAMEPASS_CACHE_TTL = 120 -- 2 minutes
             return type(productId) == "string" and VALID_PRODUCTS[productId] == true
         end,
         opts = { requireProfile = true, rateLimitSec = 2.0 }, -- Higher limit to prevent double-taps
+    },
+
+    {
+        name = "PurchaseGamepass",
+        handler = function(ctx, id: string)
+            local player = ctx.player
+            -- Validate gamepass exists by semantic id (e.g., "VIP")
+            local pass = PASSES_BY_ID[id]
+            if not pass or type(pass.gamepassId) ~= "number" or pass.gamepassId <= 0 then
+                return {
+                    ok = false,
+                    success = false,
+                    err = "INVALID_GAMEPASS",
+                    reason = string.format("Unknown or unavailable gamepass: %s", tostring(id))
+                }
+            end
+            -- Prompt the Roblox purchase flow via service
+            local prompted = MonetizationService:PromptPurchase(player, "gamepass", id)
+            if prompted then
+                return { ok = true, success = true, prompted = true }
+            end
+            return { ok = false, success = false, err = "PROMPT_FAILED", reason = "Failed to prompt gamepass purchase" }
+        end,
+        validate = function(id)
+            return type(id) == "string" and PASSES_BY_ID[id] ~= nil
+        end,
+        opts = { requireProfile = true, rateLimitSec = 2.0 },
     },
     
     {
