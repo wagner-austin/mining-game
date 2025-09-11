@@ -11,44 +11,41 @@ local Debris = game:GetService("Debris")
 
 -- Shared modules
 local Shared = ReplicatedStorage:WaitForChild("MiningGame")
+local Time = require(Shared:WaitForChild("Time"))
 local Logger = require(Shared:WaitForChild("Logger"))
 local log = Logger.new("ItemService")
 local GameConfig = require(Shared:WaitForChild("GameConfig"))
 local Types = require(Shared:WaitForChild("Types"))
+local MathUtils = require(Shared:WaitForChild("MathUtils"))
+local ServiceValidator = require(Shared:WaitForChild("ServiceValidator"))
+local ErrorService = require(script.Parent:WaitForChild("ErrorService"))
 
--- Server siblings
-local InventoryService = require(script.Parent.InventoryService)
-local LootService = require(script.Parent.LootService)
-local DataService = require(script.Parent.DataService)
-local UpgradeService = require(script.Parent.UpgradeService)
+-- Non-service modules (not part of DI)
 local SoundBroadcast = require(script.Parent.SoundBroadcast)
 local ItemAnimations = require(script.Parent.ItemAnimations)
 
--- Shared remotes accessor
-local Remotes = require(ReplicatedStorage.MiningGame.Remotes)
+-- Services (injected via Init)
+local InventoryService
+local LootService
+local DataService
+local UpgradeService
+local AchievementService
+local AnnouncementService
+
+-- Use EventBus for events
+local EventBus = require(Shared:WaitForChild("EventBus"))
+local EventNames = require(Shared:WaitForChild("EventNames"))
+local Bus = EventBus.global()
+
+-- Forward declare functions used in Start
+local setupRemotes: () -> ()
+local startUpdateLoop: () -> ()
 
 local ItemService = {}
+ItemService.__index = ItemService
 
--- Constants
-local ITEM_DROP_HEIGHT = 2 -- Studs above spawn position (deprecated - calculated)
-local ITEM_PICKUP_RANGE = 12 -- Studs (increased for better feel)
-local ITEM_MAGNET_RANGE = 50 -- Studs for auto-collection (gamepass default)
-local ITEM_LIFETIME = GameConfig.Loot.ITEM_LIFETIME or 300 -- From config
-local DESPAWN_RETRY_DELAY = GameConfig.Loot.DESPAWN_RETRY_DELAY or 10
-local OWNER_GRACE_SECONDS = GameConfig.Loot.OWNER_GRACE_SECONDS or 5
-local FINAL_DESPAWN_AFTER = 120 -- Seconds after becoming public to hard-despawn
-local MAX_DROPS_PER_PLAYER = 20 -- Performance limit (reduced for stacked drops)
-local MAX_DROPS_PER_DIG = 5 -- Maximum physical drops per dig action
-local ITEM_HOVER_HEIGHT = 2
-local ITEM_ROTATION_SPEED = 1
-
--- Timing for update loops
-local AUTO_COLLECT_INTERVAL = 0.2 -- seconds (reduced from 0.5 for snappier walk-over pickup)
-local PICKUP_PROMPT_INTERVAL = 0.1 -- seconds (unused - prompts disabled)
-local USE_PICKUP_PROMPTS = false -- Disabled - all players use walk-over pickup
-
--- Active drops tracking
-local activeDrops: {[Model]: {
+-- Types
+type DropData = {
     owner: Player,
     itemId: string,
     count: number,
@@ -56,12 +53,84 @@ local activeDrops: {[Model]: {
     value: number?,
     spawnTime: number,
     claimed: boolean,
-}} = {}
+}
 
+type ItemServiceT = {
+    Init: (self: ItemServiceT, container: any) -> (),
+    Start: (self: ItemServiceT, container: any) -> (),
+    SpawnLootFromDig: (self: ItemServiceT, countsById: {[string]: number}, position: Vector3, owner: Player?) -> {Model},
+    GetNearbyDrops: (self: ItemServiceT, position: Vector3, range: number) -> {Model},
+    RemoveDrop: (self: ItemServiceT, dropModel: Model) -> (),
+}
+
+-- Active drops tracking (moved before Start method that uses it)
+local activeDrops: {[Model]: DropData} = {}
+
+-- Player tracking tables (moved before Start method to avoid forward reference)
 local playerDropCounts: {[Player]: number} = {}
 local playerPickupCooldowns: {[Player]: number} = {}
+local lastPromptedDrop: {[Player]: Model} = {}
+
+-- Initialize with DI container
+function ItemService:Init(container)
+    InventoryService = ServiceValidator.get(container, "InventoryService", {"AddItem", "AddItemsBulk"})
+    LootService = ServiceValidator.get(container, "LootService", {"GetItemDefinition", "CalculateSellValue", "GetRarityColor"})
+    DataService = ServiceValidator.get(container, "DataService", {"GetPlayerData", "QueueSave"})
+    UpgradeService = ServiceValidator.get(container, "UpgradeService", {"ComputeEffectiveStats"})
+    AchievementService = ServiceValidator.get(container, "AchievementService", {"RecordRarityFind"})
+    AnnouncementService = ServiceValidator.get(container, "AnnouncementService", {"AnnounceRareFind"})
+    log:info("Initialized with dependencies")
+end
+
+-- Start method to connect events after all services are initialized
+function ItemService:Start(container)
+    -- Handle player leaving
+    Players.PlayerRemoving:Connect(function(player)
+        -- Collect drops to remove (safe iteration)
+        local toRemove = {}
+        for dropModel, dropData in pairs(activeDrops) do
+            if dropData.owner == player then
+                table.insert(toRemove, dropModel)
+            end
+        end
+        
+        -- Remove drops after iteration
+        for _, dropModel in ipairs(toRemove) do
+            ItemService:RemoveDrop(dropModel)
+        end
+        
+        playerDropCounts[player] = nil
+        playerPickupCooldowns[player] = nil
+        lastPromptedDrop[player] = nil
+    end)
+    
+    -- Initialize
+    setupRemotes()
+    startUpdateLoop()
+    
+    log:info("Started with player connections and update loop")
+end
+
+-- Constants
+local ITEM_DROP_HEIGHT = 2 -- Studs above spawn position (deprecated - calculated)
+local ITEM_PICKUP_RANGE = GameConfig.Loot.PICKUP_RANGE -- Studs (increased for better feel)
+local ITEM_MAGNET_RANGE = GameConfig.Loot.AUTO_COLLECT_RANGE -- Studs for auto-collection (gamepass default)
+local ITEM_LIFETIME = GameConfig.Loot.ITEM_LIFETIME or 300 -- From config
+local DESPAWN_RETRY_DELAY = GameConfig.Loot.DESPAWN_RETRY_DELAY or 10
+local OWNER_GRACE_SECONDS = GameConfig.Loot.OWNER_GRACE_SECONDS or 5
+local FINAL_DESPAWN_AFTER = 120 -- Seconds after becoming public to hard-despawn
+local MAX_DROPS_PER_PLAYER = GameConfig.Loot.MAX_DROPS_PER_PLAYER -- Performance limit (reduced for stacked drops)
+local MAX_DROPS_PER_DIG = GameConfig.Loot.MAX_DROPS_PER_DIG -- Maximum physical drops per dig action
+local ITEM_HOVER_HEIGHT = 2
+local ITEM_ROTATION_SPEED = GameConfig.Loot.ROTATION_SPEED
+
+-- Timing for update loops
+local AUTO_COLLECT_INTERVAL = 0.2 -- seconds (reduced from 0.5 for snappier walk-over pickup)
+local PICKUP_PROMPT_INTERVAL = 0.1 -- seconds (unused - prompts disabled)
+local USE_PICKUP_PROMPTS = false -- Disabled - all players use walk-over pickup
+
+-- Other tracking tables (already declared at top of file)
 local hoverTweens: {[Model]: Tween} = setmetatable({}, { __mode = "k" }) -- Weak table for tween storage
-local lastPromptedDrop: {[Player]: Model} = {} -- Track last prompted drop per player
 
 -- Create a folder for item drops
 local function getDropsFolder(): Folder
@@ -302,7 +371,7 @@ function ItemService:SpawnStackedDrop(itemId: string, count: number, position: V
         count = count,
         rarity = itemDef.rarity,
         value = itemDef.value,
-        spawnTime = tick(),
+        spawnTime = Time.mono(),
         claimed = false,
     }
     
@@ -342,7 +411,7 @@ function ItemService:SpawnStackedDrop(itemId: string, count: number, position: V
                             if activeDrops[model] and not activeDrops[model].claimed then
                                 -- Fix owner cap accounting before making public
                                 if data.owner then
-                                    playerDropCounts[data.owner] = math.max(0, (playerDropCounts[data.owner] or 0) - 1)
+                                    playerDropCounts[data.owner] = MathUtils.saturatingSub((playerDropCounts[data.owner] or 0), 1)
                                 end
                                 -- Make public so anyone can pick it up
                                 data.owner = nil
@@ -363,7 +432,7 @@ function ItemService:SpawnStackedDrop(itemId: string, count: number, position: V
                 else
                     -- Owner gone: make public immediately
                     if data.owner then
-                        playerDropCounts[data.owner] = math.max(0, (playerDropCounts[data.owner] or 0) - 1)
+                        playerDropCounts[data.owner] = MathUtils.saturatingSub((playerDropCounts[data.owner] or 0), 1)
                     end
                     data.owner = nil
                     log:debug("Drop made public - owner disconnected: %s", data.itemId)
@@ -406,15 +475,36 @@ function ItemService:AutoCollectDrop(dropModel: Model, collector: Player): boole
     
     if addedCount > 0 then
         -- Send collection feedback
-        Remotes.RE.OnItemCollected:FireClient(collector, {
-            itemId = dropData.itemId,
-            count = addedCount,
-            rarity = dropData.rarity,
+        Bus:emit(EventNames.ITEM_COLLECTED, {
+            to = { kind = "player", player = collector },
+            payload = {
+                itemId = dropData.itemId,
+                count = addedCount,
+                rarity = dropData.rarity,
+            }
         })
         
         -- Play collection sound via SoundBroadcast
         if dropModel.PrimaryPart then
             SoundBroadcast.Collect(collector, dropModel.PrimaryPart.Position, dropData.rarity)
+        end
+        
+        -- Track achievements for rare finds
+        AchievementService.RecordRarityFind(collector, dropData.rarity)
+        
+        -- Announce rare finds (EPIC+ get server announcements, MYTHIC goes global)
+        if dropData.rarity and (dropData.rarity == "EPIC" or dropData.rarity == "LEGENDARY" or dropData.rarity == "MYTHIC") then
+            local itemDef = LootService:GetItemDefinition(dropData.itemId)
+            local displayName
+            if itemDef and itemDef.name then
+                displayName = itemDef.name
+            else
+                -- Fallback: title-case the id so banners still appear (prevents silent failure)
+                displayName = tostring(dropData.itemId):gsub("_", " "):gsub("(%a)([%w_']*)", function(f, r)
+                    return f:upper() .. r:lower()
+                end)
+            end
+            AnnouncementService.AnnounceRareDrop(collector.DisplayName, displayName, dropData.rarity)
         end
         
         -- Log collection event
@@ -455,7 +545,7 @@ function ItemService:AutoCollectDrop(dropModel: Model, collector: Player): boole
            and def and (def.type == "pickaxe" or def.type == "cosmetic") then
             -- Make public so others can pick it up
             if dropData.owner then
-                playerDropCounts[dropData.owner] = math.max(0, (playerDropCounts[dropData.owner] or 0) - 1)
+                playerDropCounts[dropData.owner] = MathUtils.saturatingSub((playerDropCounts[dropData.owner] or 0), 1)
             end
             dropData.owner = nil
             log:debug("Stack-capped item made public: %s", dropData.itemId)
@@ -513,7 +603,7 @@ function ItemService:CollectDrop(dropModel: Model, collector: Player): boolean
     end
     
     -- Check cooldown
-    local now = tick()
+    local now = Time.mono()
     local lastPickup = playerPickupCooldowns[collector] or 0
     if now - lastPickup < 0.1 then -- 100ms cooldown
         return false
@@ -531,11 +621,32 @@ function ItemService:CollectDrop(dropModel: Model, collector: Player): boolean
         local remaining = dropData.count - addedCount
         
         -- Send collection feedback
-        Remotes.RE.OnItemCollected:FireClient(collector, {
-            itemId = dropData.itemId,
-            count = addedCount,
-            rarity = dropData.rarity,
+        Bus:emit(EventNames.ITEM_COLLECTED, {
+            to = { kind = "player", player = collector },
+            payload = {
+                itemId = dropData.itemId,
+                count = addedCount,
+                rarity = dropData.rarity,
+            }
         })
+        
+        -- Track achievements for rare finds
+        AchievementService.RecordRarityFind(collector, dropData.rarity)
+        
+        -- Announce rare finds (EPIC+ get server announcements, MYTHIC goes global)
+        if dropData.rarity and (dropData.rarity == "EPIC" or dropData.rarity == "LEGENDARY" or dropData.rarity == "MYTHIC") then
+            local itemDef = LootService:GetItemDefinition(dropData.itemId)
+            local displayName
+            if itemDef and itemDef.name then
+                displayName = itemDef.name
+            else
+                -- Fallback: title-case the id so banners still appear (prevents silent failure)
+                displayName = tostring(dropData.itemId):gsub("_", " "):gsub("(%a)([%w_']*)", function(f, r)
+                    return f:upper() .. r:lower()
+                end)
+            end
+            AnnouncementService.AnnounceRareDrop(collector.DisplayName, displayName, dropData.rarity)
+        end
         
         -- Log collection event
         log:event("item_collected", {
@@ -585,10 +696,13 @@ function ItemService:CollectDrop(dropModel: Model, collector: Player): boolean
         -- Inventory full or at stack limit
         dropData.claimed = false -- Allow retry
         
-        Remotes.RE.OnNotification:FireClient(collector, {
-            type = "error",
-            message = "Inventory full!",
-            color = Color3.new(1, 0, 0),
+        Bus:emit(EventNames.ANNOUNCEMENT_BROADCAST, {
+            to = { kind = "player", player = collector },
+            payload = {
+                message = "Inventory full!",
+                type = "error",
+                duration = 2.5,
+            }
         })
         
         return false
@@ -599,13 +713,13 @@ end
 function ItemService:RemoveDrop(dropModel: Model)
     local dropData = activeDrops[dropModel]
     if dropData and dropData.owner then
-        playerDropCounts[dropData.owner] = math.max(0, (playerDropCounts[dropData.owner] or 0) - 1)
+        playerDropCounts[dropData.owner] = MathUtils.saturatingSub((playerDropCounts[dropData.owner] or 0), 1)
     end
     
     -- Stop hover tween if exists
     local hoverTween = hoverTweens[dropModel]
     if hoverTween then
-        pcall(function() hoverTween:Cancel() end)
+        ErrorService.safecall("Tween:Cancel", function() hoverTween:Cancel() end)
     end
     hoverTweens[dropModel] = nil
     
@@ -729,25 +843,83 @@ local function handleAutoCollection(dt: number)
         return
     end
     autoCollectAccumulator = 0
-    
+
     for _, player in ipairs(Players:GetPlayers()) do
         local character = player.Character
-        if character and character.PrimaryPart then
-            -- ALL players get walk-over pickup (was gamepass-only)
-            local range = ITEM_PICKUP_RANGE  -- 8 studs for everyone
-            local drops = ItemService:GetNearbyDrops(
-                character.PrimaryPart.Position,
-                range
-            )
-            
-            for _, dropModel in ipairs(drops) do
-                local dropData = activeDrops[dropModel]
-                -- Allow pickup: no owner, is owner, or grace period expired
-                local canPickup = not dropData.owner
-                    or dropData.owner == player
-                    or (tick() - dropData.spawnTime) > OWNER_GRACE_SECONDS
-                if dropData and not dropData.claimed and canPickup then
-                    ItemService:AutoCollectDrop(dropModel, player)
+        if not (character and character.PrimaryPart) then continue end
+
+        local playerPos = character.PrimaryPart.Position
+        local hasAuto, magnetRange = hasAutoCollect(player)
+        local range = hasAuto and (magnetRange or ITEM_MAGNET_RANGE) or ITEM_PICKUP_RANGE
+        local nearby = ItemService:GetNearbyDrops(playerPos, range)
+
+        -- Group eligible drops by itemId for this player
+        local perItem: {[string]: {Model}} = {}
+        for _, dropModel in ipairs(nearby) do
+            local dropData = activeDrops[dropModel]
+            if dropData and not dropData.claimed then
+                local canPickup = (not dropData.owner)
+                    or (dropData.owner == player)
+                    or ((Time.mono() - dropData.spawnTime) > OWNER_GRACE_SECONDS)
+                if canPickup then
+                    local bucket = perItem[dropData.itemId]
+                    if not bucket then
+                        bucket = {}
+                        perItem[dropData.itemId] = bucket
+                    end
+                    table.insert(bucket, dropModel)
+                end
+            end
+        end
+
+        if next(perItem) ~= nil then
+            -- Build requested counts
+            local countsById: {[string]: number} = {}
+            for itemId, list in pairs(perItem) do
+                countsById[itemId] = #list
+            end
+
+            -- Apply to inventory once
+            local actuallyAdded = InventoryService:AddItemsBulk(player, countsById)
+
+            -- For each item, remove exactly the number we actually added
+            for itemId, added in pairs(actuallyAdded) do
+                if added > 0 then
+                    local bucket = perItem[itemId]
+                    -- Emit collection feedback once per itemId with aggregated count
+                    Bus:emit(EventNames.ITEM_COLLECTED, {
+                        to = { kind = "player", player = player },
+                        payload = {
+                            itemId = itemId,
+                            count = added,
+                            rarity = (LootService:GetItemDefinition(itemId) or {}).rarity,
+                        }
+                    })
+
+                    -- Announce and record achievements for rare finds
+                    local def = LootService:GetItemDefinition(itemId)
+                    if def and def.rarity and (def.rarity == "EPIC" or def.rarity == "LEGENDARY" or def.rarity == "MYTHIC") then
+                        AchievementService.RecordRarityFind(player, def.rarity)
+                        AnnouncementService.AnnounceRareDrop(player.DisplayName, def.name or itemId, def.rarity)
+                    end
+
+                    -- Remove 'added' number of drops
+                    for i = 1, math.min(added, #bucket) do
+                        local model = bucket[i]
+                        local d = activeDrops[model]
+                        if d and not d.claimed then
+                            d.claimed = true
+                            if model.PrimaryPart then
+                                ItemAnimations.stopAnimations(model, hoverTweens[model])
+                                hoverTweens[model] = nil
+                                ItemAnimations.flyDropToPlayer(model, player, function()
+                                    ItemService:RemoveDrop(model)
+                                end)
+                            else
+                                ItemService:RemoveDrop(model)
+                            end
+                        end
+                    end
                 end
             end
         end
@@ -774,7 +946,7 @@ local function handleManualPickup(dt: number)
                 local drops = ItemService:GetNearbyDrops(playerPos, ITEM_PICKUP_RANGE)
                 
                 -- Log every 2 seconds for debugging
-                local now = tick()
+                local now = Time.mono()
                 if now - lastLogTime > 2 then
                     lastLogTime = now
                     local dropCount = 0
@@ -806,11 +978,14 @@ local function handleManualPickup(dt: number)
                     if nearestDrop ~= lastPromptedDrop[player] then
                         local dropData = activeDrops[nearestDrop]
                         log:debug("Sending pickup prompt for %s at distance %.1f", dropData.itemId, nearestDist)
-                        Remotes.RE.ShowPickupPrompt:FireClient(player, {
-                            dropModel = nearestDrop,
-                            itemId = dropData.itemId,
-                            count = dropData.count,
-                            rarity = dropData.rarity,
+                        Bus:emit(EventNames.PICKUP_PROMPT, {
+                            to = { kind = "player", player = player },
+                            payload = {
+                                dropModel = nearestDrop,
+                                itemId = dropData.itemId,
+                                count = dropData.count,
+                                rarity = dropData.rarity,
+                            }
                         })
                         lastPromptedDrop[player] = nearestDrop
                     end
@@ -818,8 +993,11 @@ local function handleManualPickup(dt: number)
                     -- No drops in range - hide prompt if one was showing
                     if lastPromptedDrop[player] then
                         log:debug("Hiding pickup prompt - no drops in range")
-                        Remotes.RE.ShowPickupPrompt:FireClient(player, {
-                            dropModel = nil,  -- Signal to hide prompt
+                        Bus:emit(EventNames.PICKUP_PROMPT, {
+                            to = { kind = "player", player = player },
+                            payload = {
+                                dropModel = nil,  -- Signal to hide prompt
+                            }
                         })
                         lastPromptedDrop[player] = nil
                     end
@@ -840,7 +1018,7 @@ end
 
 -- Main update loop
 local updateConnection
-local function startUpdateLoop()
+startUpdateLoop = function()
     if updateConnection then
         updateConnection:Disconnect()
     end
@@ -855,69 +1033,13 @@ local function startUpdateLoop()
     end)
 end
 
--- Setup remote handlers
-local function setupRemotes()
-    -- Handle pickup request with validation
-    Remotes.RF.PickupItem.OnServerInvoke = function(player: Player, dropModel: Model)
-        log:debug("PickupItem request from:", player.Name)
-        
-        -- Validate model type
-        if typeof(dropModel) ~= "Instance" or not dropModel:IsA("Model") then
-            log:debug("Invalid model type")
-            return false
-        end
-        
-        -- Validate it's a real drop
-        if not CollectionService:HasTag(dropModel, "ItemDrop") then
-            log:debug("Model not tagged as ItemDrop")
-            return false
-        end
-        
-        log:debug("Attempting to collect drop")
-        return ItemService:CollectDrop(dropModel, player)
-    end
-    
-    -- Debug: spawn test item
-    if GameConfig.Debug.ENABLED then
-        Remotes.RF.SpawnTestItem.OnServerInvoke = function(player: Player, itemId: string)
-            local character = player.Character
-            if character and character.PrimaryPart then
-                ItemService:SpawnStackedDrop(
-                    itemId or "diamond",
-                    1,
-                    character.PrimaryPart.Position + Vector3.new(0, 0, 5),
-                    player
-                )
-                return true
-            end
-            return false
-        end
-    end
+-- [MIGRATED TO ItemServiceRemotes.lua]
+-- All remote handlers now use centralized RemoteManager pattern
+setupRemotes = function()
+    -- Remote handlers have been migrated to ItemServiceRemotes.lua
 end
 
--- Handle player leaving
-Players.PlayerRemoving:Connect(function(player)
-    -- Collect drops to remove (safe iteration)
-    local toRemove = {}
-    for dropModel, dropData in pairs(activeDrops) do
-        if dropData.owner == player then
-            table.insert(toRemove, dropModel)
-        end
-    end
-    
-    -- Remove drops after iteration
-    for _, dropModel in ipairs(toRemove) do
-        ItemService:RemoveDrop(dropModel)
-    end
-    
-    playerDropCounts[player] = nil
-    playerPickupCooldowns[player] = nil
-    lastPromptedDrop[player] = nil
-end)
-
--- Initialize
-setupRemotes()
-startUpdateLoop()
+-- Player events and initialization moved to Start method
 
 log:info("Initialized")
 
