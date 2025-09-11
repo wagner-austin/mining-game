@@ -1,0 +1,12 @@
+std = "roblox"
+exclude = ["**/*.disabled.lua", "Vendor/**", "Packages/**", "Generated/**"]
+
+[rules]
+global_usage = "deny"
+unused_variable = "warn"
+shadowing = "warn"
+cyclomatic_complexity = "warn"
+if_same_then_else = "warn"
+
+[config.global_usage]
+globals = ["MG"]
