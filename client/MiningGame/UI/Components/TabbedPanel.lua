@@ -32,7 +32,24 @@ export type Props = {
     onTabChange: ((newTab: string, oldTab: string?) -> ())?,
 }
 
-function TabbedPanel.new(props: Props)
+export type TabbedPanelT = {
+    _base: any,
+    container: Frame?,
+    popoverLayer: Frame?,
+    _tabs: {TabSpec},
+    _tabContainer: any,
+    new: (props: Props) -> TabbedPanelT,
+    getTabContent: (self: TabbedPanelT, tabName: string) -> Frame?,
+    switchTab: (self: TabbedPanelT, tabName: string) -> (),
+    getCurrentTab: (self: TabbedPanelT) -> string?,
+    setTabEnabled: (self: TabbedPanelT, tabName: string, enabled: boolean) -> (),
+    getContent: (self: TabbedPanelT) -> Frame,
+    show: (self: TabbedPanelT) -> (),
+    hide: (self: TabbedPanelT) -> (),
+    destroy: (self: TabbedPanelT) -> (),
+}
+
+function TabbedPanel.new(props: Props): TabbedPanelT
     local self = setmetatable({}, TabbedPanel)
 
     -- Base panel
