@@ -7,8 +7,18 @@ local Players = game:GetService("Players")
 
 -- Wait for MiningGame to load
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
+local Ready = require(MiningGame:WaitForChild("Ready"))
 local Remotes = require(MiningGame:WaitForChild("Remotes"))
 local AccountDataProvider = require(script.Parent.Parent:WaitForChild("Data"):WaitForChild("AccountDataProvider"))
+local SoundManager = require(MiningGame:WaitForChild("SoundManager"))
+
+-- Use EventBus for event handling
+local EventBus = require(MiningGame:WaitForChild("EventBus"))
+local EventNames = require(MiningGame:WaitForChild("EventNames"))
+local Bus = EventBus.global()
+
+-- Store unsub functions for cleanup
+local unsubs: {() -> ()} = {}
 
 -- Load UI modules
 local UIManager = require(script.Parent:WaitForChild("UIManager"))
@@ -18,16 +28,26 @@ local SettingsPanel = require(script.Parent:WaitForChild("Panels"):WaitForChild(
 
 print("[ClientUI] Initializing UI system...")
 
+-- Wait for server to be ready before making any API calls
+if not Ready.wait(30) then
+    warn("[ClientUI] Server not ready after 30s - UI bootstrap aborted")
+    return
+end
+print("[ClientUI] Server ready, continuing UI initialization...")
+
 -- Initialize UI Manager
 local manager = UIManager.new()
 manager:init()
+
+-- Make UIManager globally accessible for other systems
+_G.UIManager = manager
 
 -- Create and register Main HUD
 local hud = MainHUD.new()
 manager:registerScene(hud)
 manager:showScene("MainHUD")
 
--- Create data providers
+-- Create data providers (now safe to make API calls)
 local accountDataProvider = AccountDataProvider.new(Remotes, UIUtils)
 
 -- Create and register Settings Panel with provider
@@ -61,26 +81,51 @@ accountDataProvider:onChanged():Connect(function(key, value, snapshot)
     end
 end)
 
--- Guard remote event lookups to prevent crashes
-local RE = Remotes and Remotes.RE
-if RE then
-    -- Notifications
-    local onNotif = RE.OnNotification
-    if onNotif then
-        onNotif.OnClientEvent:Connect(function(notification)
-            local notifType = notification.notificationType or "info"
-            manager:showNotification(notification.message, notifType)
-        end)
-    else
-        print("[ClientUI] OnNotification not found (using local test toasts)")
+-- Listen for announcements via EventBus
+table.insert(unsubs, Bus:on(EventNames.ANNOUNCEMENT_BROADCAST, function(payload)
+    local kind = (payload.type or "info"):lower()
+    
+    if kind == "banner" and payload.color then
+        -- Server announcements - show with proper formatting
+        manager:showServerAnnouncement(payload.message, payload.color)
+        return
     end
-else
-    print("[ClientUI] Remote events not found - using test mode")
-end
+    
+    manager:showNotification(payload.message, kind)
+end))
+
+-- Listen for notifications via EventBus
+table.insert(unsubs, Bus:on(EventNames.NOTIFICATION_PUSH, function(payload)
+    local kind = (payload.type or "info"):lower()
+    
+    if kind == "banner" and payload.color then
+        -- Server announcements - show with proper formatting
+        manager:showServerAnnouncement(payload.message, payload.color)
+        return
+    end
+    
+    manager:showNotification(payload.message, kind)
+end))
+
+-- Cleanup on script destroy
+script.Destroying:Connect(function()
+    for _, unsub in ipairs(unsubs) do 
+        pcall(unsub) 
+    end
+    table.clear(unsubs)
+end)
 
 -- Future: Listen for extraction updates when ExtractionService is ready
 -- Remotes.RE.OnExtractionUpdated.OnClientEvent:Connect(function(curr: number, quota: number, tierName: string?)
 --     hud:SetExtraction(curr, quota, tierName)
 -- end)
+
+-- Start background music after UI is ready
+task.defer(function()
+    if not SoundManager.GetCurrentMusic() then
+        SoundManager.PlayMusic("main")
+        print("[ClientUI] Background music started: main")
+    end
+end)
 
 print("[ClientUI] UI system ready!")
