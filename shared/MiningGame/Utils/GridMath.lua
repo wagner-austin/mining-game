@@ -6,7 +6,9 @@ local GridMath = {}
 
 -- Convert world position to cell coordinates relative to cube origin
 function GridMath.worldToCell(worldPos: Vector3, cubeOrigin: CFrame, cellSize: number)
-    local localPos = cubeOrigin:PointToObjectSpace(worldPos)
+    -- IMPORTANT: Terrain cubes are axis-aligned, ignore rotation!
+    -- Use only position offset, not rotation transform
+    local localPos = worldPos - cubeOrigin.Position
     return math.floor(localPos.X / cellSize),
            math.floor(localPos.Y / cellSize),
            math.floor(localPos.Z / cellSize)
@@ -14,12 +16,14 @@ end
 
 -- Convert cell coordinates back to world position (center of cell)
 function GridMath.cellToWorld(cellX: number, cellY: number, cellZ: number, cubeOrigin: CFrame, cellSize: number): Vector3
+    -- IMPORTANT: Terrain cubes are axis-aligned, ignore rotation!
+    -- Use only position offset, not rotation transform
     local localPos = Vector3.new(
         (cellX + 0.5) * cellSize,
         (cellY + 0.5) * cellSize,
         (cellZ + 0.5) * cellSize
     )
-    return cubeOrigin:PointToWorldSpace(localPos)
+    return cubeOrigin.Position + localPos
 end
 
 -- Snap cell coordinates to Terrain voxel grid (4x4x4 studs)
