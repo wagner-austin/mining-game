@@ -9,6 +9,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local MaterialPalettes = require(script.Parent.MaterialPalettes)
 local GameConfig = require(script.Parent.GameConfig)
+local MathUtils = require(script.Parent:WaitForChild("MathUtils"))
 
 type Palette = {
     name: string,
@@ -149,7 +150,7 @@ local function applyEmissiveEffects(part: BasePart, emissive: number, palette: P
     
     -- For Neon material, adjust transparency for glow effect
     if part.Material == Enum.Material.Neon then
-        part.Transparency = math.max(0, 1 - (1 / (1 + emissive * 0.2)))
+        part.Transparency = MathUtils.nonNegative(1 - (1 / (1 + emissive * 0.2)))
     end
     
     -- Add highlight to parent model for additional glow
