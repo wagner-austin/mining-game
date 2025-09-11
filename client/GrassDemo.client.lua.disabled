@@ -1,0 +1,101 @@
+--!strict
+-- GrassDemo.client.lua
+-- Client-side grass field demo (place in StarterPlayerScripts)
+
+local Players = game:GetService("Players")
+local RS = game:GetService("ReplicatedStorage")
+
+local MiningGame = RS:WaitForChild("MiningGame")
+local GrassAnimation = require(MiningGame:WaitForChild("GrassAnimation"))
+
+local grass = GrassAnimation.new()
+grass:setCamera(workspace.CurrentCamera)
+
+-- Setup raycast params to exclude grass
+local rayParams = RaycastParams.new()
+rayParams.FilterType = Enum.RaycastFilterType.Exclude
+rayParams.FilterDescendantsInstances = { grass:getRoot() }
+
+local function spawnField()
+    local player = Players.LocalPlayer
+    local char = player.Character or player.CharacterAdded:Wait()
+    local hrp = char:WaitForChild("HumanoidRootPart")
+    local origin = hrp.Position
+    
+    -- Spawn mixed grass and snakes
+    for i = 1, 40 do
+        local r = math.sqrt(math.random()) * 20
+        local a = math.random() * math.pi * 2
+        local pos = origin + Vector3.new(math.cos(a)*r, 0, math.sin(a)*r)
+        
+        -- Raycast to ground (excluding grass parts)
+        local ray = workspace:Raycast(pos + Vector3.new(0, 50, 0), Vector3.new(0, -100, 0), rayParams)
+        if ray then 
+            pos = ray.Position 
+        end
+        
+        -- 20% chance for bone snake, 80% grass blade
+        if math.random() < 0.2 then
+            grass:createBoneSnake(pos, {
+                segments = 8 + math.random(4),
+                spacing = 0.6 + math.random() * 0.3,
+                radius = 0.2 + math.random() * 0.2,
+                swayAmount = 1 + math.random(),
+                color = Color3.fromRGB(50, 150 + math.random(100), 50)
+            })
+        else
+            grass:createGrassBlade(pos, {
+                segments = 6 + math.random(4),
+                height = 4 + math.random() * 3,
+                width = 0.2 + math.random() * 0.2,
+                swayAmount = 0.4 + math.random() * 0.4,
+                color = Color3.fromRGB(30 + math.random(40), 150 + math.random(70), 30 + math.random(40))
+            })
+        end
+    end
+    
+    print("[GrassDemo] Spawned field with", #grass.blades, "elements")
+end
+
+-- Start animation
+grass:start()
+
+-- Spawn initial field
+spawnField()
+
+-- Optional: Cull distant grass every second with logging
+task.spawn(function()
+    local lastVisibleCount = #grass.blades
+    while true do
+        task.wait(1)
+        grass:cullDistant(100)
+        
+        -- Count visible blades
+        local visibleCount = 0
+        for _, blade in ipairs(grass.blades) do
+            if blade._visible then
+                visibleCount = visibleCount + 1
+            end
+        end
+        
+        -- Log if visibility changed
+        if visibleCount ~= lastVisibleCount then
+            print(string.format("[GrassDemo] Culling: %d/%d blades visible", 
+                visibleCount, #grass.blades))
+            lastVisibleCount = visibleCount
+        end
+    end
+end)
+
+-- Clean up on character respawn
+Players.LocalPlayer.CharacterRemoving:Connect(function()
+    grass:cleanup()
+end)
+
+Players.LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(1)
+    -- Update raycast exclusion for new grass root
+    rayParams.FilterDescendantsInstances = { grass:getRoot() }
+    spawnField()
+    grass:start()
+end)
