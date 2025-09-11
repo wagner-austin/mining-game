@@ -13,6 +13,7 @@ local SoundConfig = require(MiningGame:WaitForChild("SoundConfig"))
 local SoundTheme = require(MiningGame:WaitForChild("SoundThemeManager"))
 local MaterialDefinitions = require(MiningGame:WaitForChild("MaterialDefinitions"))
 local Logger = require(MiningGame:WaitForChild("Logger"))
+local MathUtils = require(MiningGame:WaitForChild("MathUtils"))
 
 local log = Logger.new(Logger.CAT.Sound)
 
@@ -290,7 +291,7 @@ function SoundManager.PlayId(id: string, opts: PlayOpts?)
                     local maxDist = s.RollOffMaxDistance
                     local effectiveVolume = s.Volume
                     if distance > minDist then
-                        local falloff = math.max(0, 1 - (distance - minDist) / (maxDist - minDist))
+                        local falloff = MathUtils.nonNegative(1 - (distance - minDist) / (maxDist - minDist))
                         effectiveVolume = s.Volume * falloff
                     end
                     local audible = effectiveVolume > 0.01
@@ -302,8 +303,30 @@ function SoundManager.PlayId(id: string, opts: PlayOpts?)
         log:debug("  2D sound (plays everywhere)")
     end
     
+    -- For looped sounds (e.g., ambient beds), apply a micro fade-in to avoid pops
+    local targetVolume = s.Volume
+    local doMicroFadeIn = s.Looped == true
+
+    if doMicroFadeIn then
+        s.Volume = 0
+    end
+
     s:Play()
     log:debug("Sound IsPlaying: %s", tostring(s.IsPlaying))
+
+    if doMicroFadeIn then
+        -- Very short ramp (≈80ms) to target volume to avoid DC pops on start
+        task.spawn(function()
+            local fadeTime = 0.08
+            local steps = math.max(3, math.floor(fadeTime * 30)) -- 30 FPS
+            for i = 1, steps do
+                local t = i / steps
+                s.Volume = targetVolume * t
+                RunService.Heartbeat:Wait()
+            end
+            s.Volume = targetVolume
+        end)
+    end
 
     -- Cleanup (looped sounds should be managed by caller)
     if not s.Looped then
@@ -359,6 +382,22 @@ function SoundManager.PlayMusic(name: string, opts: PlayOpts?)
     -- Track the logical name for theme changes
     lastMusicName = name
     
+    -- If the requested track is already playing, gently ensure it's at target volume
+    if currentMusic and currentMusic.SoundId == id then
+        local maxVol = SoundConfig.MusicSettings.MaxVolume or 0.3
+        if not currentMusic.IsPlaying then currentMusic:Play() end
+        task.spawn(function()
+            local steps = 12
+            for i = 1, steps do
+                local t = i / steps
+                currentMusic.Volume = currentMusic.Volume + (maxVol - currentMusic.Volume) * t
+                RunService.Heartbeat:Wait()
+            end
+            currentMusic.Volume = maxVol
+        end)
+        return currentMusic
+    end
+
     -- Don't interrupt an ongoing fade
     if musicFading then return end
     
@@ -371,7 +410,8 @@ function SoundManager.PlayMusic(name: string, opts: PlayOpts?)
     local minVol = SoundConfig.MusicSettings.MinVolume or 0.1
     local maxVol = SoundConfig.MusicSettings.MaxVolume or 0.3
     
-    next.Volume = minVol
+    -- Start fully silent to avoid any start click, then ramp
+    next.Volume = 0
     next:Play()
 
     if currentMusic and currentMusic ~= next and SoundConfig.MusicSettings.CrossfadeEnabled then
@@ -385,7 +425,7 @@ function SoundManager.PlayMusic(name: string, opts: PlayOpts?)
             for i = 1, steps do
                 local t = i / steps
                 if oldMusic then 
-                    oldMusic.Volume = math.max(0, (1 - t) * maxVol) 
+                    oldMusic.Volume = MathUtils.nonNegative((1 - t) * maxVol) 
                 end
                 next.Volume = t * maxVol
                 RunService.Heartbeat:Wait()
@@ -407,12 +447,22 @@ function SoundManager.PlayMusic(name: string, opts: PlayOpts?)
             end
         end)
     else
-        -- Instant switch
+        -- Instant switch (no previous music): apply a short fade-in to maxVol
         if currentMusic then
             currentMusic:Stop()
             releaseSound(currentMusic)
         end
-        next.Volume = maxVol
+
+        task.spawn(function()
+            local fadeIn = math.max(0.08, math.min(0.3, fadeTime * 0.25)) -- quick, perceptually smooth
+            local steps = math.max(3, math.floor(fadeIn * 30))
+            for i = 1, steps do
+                local t = i / steps
+                next.Volume = minVol + (maxVol - minVol) * t
+                RunService.Heartbeat:Wait()
+            end
+            next.Volume = maxVol
+        end)
     end
     
     currentMusic = next
@@ -431,7 +481,7 @@ function SoundManager.StopMusic(fadeOut: boolean?)
         task.spawn(function()
             for i = 1, steps do
                 local t = i / steps
-                music.Volume = math.max(0, (1 - t) * (SoundConfig.MusicSettings.MaxVolume or 0.3))
+                music.Volume = MathUtils.nonNegative((1 - t) * (SoundConfig.MusicSettings.MaxVolume or 0.3))
                 RunService.Heartbeat:Wait()
             end
             
@@ -516,7 +566,7 @@ function SoundManager.StopAmbient(name: string, fadeOut: boolean?)
         task.spawn(function()
             for i = 1, steps do
                 local t = i / steps
-                s.Volume = math.max(0, (1 - t) * originalVolume)
+                s.Volume = MathUtils.nonNegative((1 - t) * originalVolume)
                 RunService.Heartbeat:Wait()
             end
             
