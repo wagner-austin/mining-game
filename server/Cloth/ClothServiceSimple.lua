@@ -9,11 +9,35 @@ local MiningGame = RS:WaitForChild("MiningGame")
 local Logger = require(MiningGame:WaitForChild("Logger"))
 local log = Logger.new("ClothSimple")
 
-local Remotes = require(MiningGame:WaitForChild("Remotes"))
-local ClothUpdate = Remotes.RE.ClothUpdate
+local EventBus = require(MiningGame:WaitForChild("EventBus"))
+local EventNames = require(MiningGame:WaitForChild("EventNames"))
+local Bus = EventBus.global()
 
 local Service = {}
 Service.__index = Service
+
+type BoneMeta = { col: number, row: number, rowsInCol: number }
+type ClothInstance = {
+    id: string,
+    model: Model,
+    mesh: MeshPart,
+    bones: { Bone },
+    columns: { { Bone } },
+    meta: { [Bone]: BoneMeta },
+    numCols: number,
+    maxRows: number,
+    player: Player,
+    debugParts: { Instance },
+}
+type ServiceT = {
+    _cloths: { [Player]: ClothInstance },
+    _time: number,
+    _frameCount: number?,
+    new: () -> ServiceT,
+    spawnFor: (self: ServiceT, player: Player) -> boolean,
+    destroyFor: (self: ServiceT, player: Player) -> (),
+    step: (self: ServiceT, dt: number) -> (),
+}
 
 -- Natural name sort to keep columns stable (e.g. "Col2" before "Col10")
 local function nameLess(a: Instance, b: Instance): boolean
@@ -26,7 +50,7 @@ local function nameLess(a: Instance, b: Instance): boolean
 end
 
 -- Build a column-row grid by walking root bones down their child chains
-local function buildGrid(mesh: MeshPart, bones: {Bone})
+local function buildGrid(mesh: MeshPart, bones: {Bone}): ({ { Bone } }, { [Bone]: BoneMeta }, number, number)
     local isBone = {}
     for _, b in ipairs(bones) do isBone[b] = true end
 
@@ -83,14 +107,14 @@ local function buildGrid(mesh: MeshPart, bones: {Bone})
     return columns, meta, #roots, maxRows
 end
 
-function Service.new()
-    local self = setmetatable({}, Service)
+function Service.new(): ServiceT
+    local self = setmetatable({}, Service) :: ServiceT
     self._cloths = {}  -- Active cloth instances
     self._time = 0
     return self
 end
 
-function Service:spawnFor(player: Player)
+function Service:spawnFor(player: Player): boolean
     -- Remove existing
     self:destroyFor(player)
     
@@ -278,8 +302,23 @@ function Service:step(dt: number)
                 self._frameCount, #offsets, player.Name, firstValue)
         end
         
-        -- Send to client
-        ClothUpdate:FireClient(player, cloth.id, offsets)
+        -- Convert {x,y,z} triples to Vector3 for strict typing
+        local v3 = table.create(#offsets)
+        for i, t in ipairs(offsets) do
+            if typeof(t) == "Vector3" then
+                v3[i] = t
+            elseif type(t) == "table" then
+                v3[i] = Vector3.new(t[1] or 0, t[2] or 0, t[3] or 0)
+            else
+                v3[i] = Vector3.new(0, 0, 0)
+            end
+        end
+        
+        -- Send to client (EventBus)
+        Bus:emit(EventNames.CLOTH_UPDATE, {
+            to = { kind = "player", player = player },
+            payload = { id = cloth.id, offsets = v3 }
+        })
     end
 end
 
