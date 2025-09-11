@@ -13,17 +13,38 @@ local Strategies = require(script.Parent.SpawnStrategies)
 
 local CubePositionService = {}
 
--- Choose active strategy from config (fallback to "grid")
-local function strategyFor(GameConfig)
-    local name = (GameConfig.Multiplayer and GameConfig.Multiplayer.SPAWN_STRATEGY) or "grid"
-    return Strategies[name] or Strategies.grid
-end
-
--- Store manual overrides
+-- Store manual overrides (moved before Start method that uses them)
 local playerOrigins: {[Player]: CFrame} = {}
 
 -- Store simulated positions for testing (userId -> CFrame)
 local simulatedOrigins: {[number]: CFrame} = {}
+
+-- Initialize with DI container (no dependencies currently)
+function CubePositionService:Init(container)
+    -- No dependencies needed currently
+    log:info("Initialized")
+end
+
+-- Start method to connect events after all services are initialized
+function CubePositionService:Start(container)
+    -- Clear origin on player leave
+    Players.PlayerRemoving:Connect(function(player)
+        playerOrigins[player] = nil
+        -- Keep userOrdinals[player.UserId] so reconnects get same position
+        -- Uncomment next line if you want reconnects to get a new position:
+        -- userOrdinals[player.UserId] = nil
+    end)
+    
+    log:info("Started with player connections")
+end
+
+-- Choose active strategy (uses SpawnStrategies dynamic getter which checks GameConfig)
+local function strategyFor(GameConfig)
+    local name = Strategies.GetCurrentStrategyName()
+    local strategy = Strategies[name] or Strategies.grid
+    log:debug("Using spawn strategy: {} (function={})", name, tostring(strategy))
+    return strategy
+end
 
 -- Store assigned ordinals by userId for consistency across respawns
 local userOrdinals: {[number]: number} = {}
@@ -31,19 +52,27 @@ local nextOrdinal = 1
 
 -- Single source of truth for ordinal -> origin using selected strategy
 function CubePositionService:ComputeDefaultOriginForOrdinal(ord: number): CFrame
-    return strategyFor(GameConfig)(ord, GameConfig)
+    log:debug("ComputeDefaultOriginForOrdinal called for ordinal {}", ord)
+    local cf = strategyFor(GameConfig)(ord, GameConfig)
+    log:info("Computed origin for ordinal {}: {}", ord, tostring(cf.Position))
+    return cf
 end
 
 -- Get cube origin for a player or simulated userId
 function CubePositionService:GetOrigin(playerOrUserId: Player | number): CFrame?
     -- Check if it's a simulated position (number userId)
     if typeof(playerOrUserId) == "number" then
-        return simulatedOrigins[playerOrUserId]
+        local simOrigin = simulatedOrigins[playerOrUserId]
+        if simOrigin then
+            log:debug("Returning simulated origin for userId {}: {}", playerOrUserId, tostring(simOrigin.Position))
+        end
+        return simOrigin
     end
     
     local player = playerOrUserId :: Player
     -- Check for manual override first
     if playerOrigins[player] then
+        log:debug("Returning manual override origin for {}: {}", player.Name, tostring(playerOrigins[player].Position))
         return playerOrigins[player]
     end
     
@@ -55,9 +84,12 @@ function CubePositionService:GetOrigin(playerOrUserId: Player | number): CFrame?
         ord = nextOrdinal
         userOrdinals[userId] = ord
         nextOrdinal = nextOrdinal + 1
-        log:debug("Assigned ordinal {} to userId {} ({})", ord, userId, player.Name)
+        log:info("Assigned NEW ordinal {} to userId {} ({})", ord, userId, player.Name)
+    else
+        log:debug("Using existing ordinal {} for userId {} ({})", ord, userId, player.Name)
     end
     
+    -- Return computed origin (SpawnService will freeze it via SetOrigin)
     return self:ComputeDefaultOriginForOrdinal(ord)
 end
 
@@ -79,13 +111,7 @@ function CubePositionService:UnregisterSimulatedPosition(userId: number)
     log:debug("Unregistered simulated position for userId {}", userId)
 end
 
--- Clear origin on player leave
-Players.PlayerRemoving:Connect(function(player)
-    playerOrigins[player] = nil
-    -- Keep userOrdinals[player.UserId] so reconnects get same position
-    -- Uncomment next line if you want reconnects to get a new position:
-    -- userOrdinals[player.UserId] = nil
-end)
+-- Player events moved to Start method
 
 log:info("Initialized")
 
