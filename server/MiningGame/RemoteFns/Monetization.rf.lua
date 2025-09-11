@@ -24,9 +24,19 @@ return function(container)
     opts: {requireProfile: boolean?, rateLimitSec: number?, debugOnly: boolean?}?
 }
 
--- Valid product IDs from GameConfig
+-- Valid product IDs from GameConfig (build map from Monetization.PRODUCTS)
+local PRODUCTS_BY_ID = {}
+do
+    local list = (GameConfig.Monetization and GameConfig.Monetization.PRODUCTS) or {}
+    for _, prod in ipairs(list) do
+        if type(prod) == "table" and type(prod.id) == "string" then
+            PRODUCTS_BY_ID[prod.id] = prod
+        end
+    end
+end
+
 local VALID_PRODUCTS = {}
-for id, _ in pairs(GameConfig.Products or {}) do
+for id, _ in pairs(PRODUCTS_BY_ID) do
     VALID_PRODUCTS[id] = true
 end
 
@@ -46,8 +56,8 @@ local GAMEPASS_CACHE_TTL = 120 -- 2 minutes
         handler = function(ctx, productId: string)
             local player = ctx.player
             
-            -- Validate product exists
-            local product = GameConfig.Products[productId]
+            -- Validate product exists (by string id in GameConfig.Monetization.PRODUCTS)
+            local product = PRODUCTS_BY_ID[productId]
             if not product then
                 return {
                     ok = false,
@@ -57,14 +67,12 @@ local GAMEPASS_CACHE_TTL = 120 -- 2 minutes
                 }
             end
             
-            -- TODO: Implement product purchases when monetization system is ready
-            -- MonetizationService:ProcessPurchase doesn't exist yet
-            return {
-                ok = false,
-                success = false,
-                err = "NOT_IMPLEMENTED",
-                reason = "Product purchases coming soon"
-            }
+            -- Prompt the purchase via MonetizationService (uses GameConfig.Monetization.PRODUCTS)
+            local prompted = MonetizationService:PromptPurchase(player, "product", productId)
+            if prompted then
+                return { ok = true, success = true, prompted = true }
+            end
+            return { ok = false, success = false, err = "PROMPT_FAILED", reason = "Failed to prompt product purchase" }
         end,
         validate = function(productId)
             return type(productId) == "string" and VALID_PRODUCTS[productId] == true
@@ -98,15 +106,19 @@ local GAMEPASS_CACHE_TTL = 120 -- 2 minutes
             -- Return current prices/products
             local prices = {}
             
-            for id, product in pairs(GameConfig.Products or {}) do
-                prices[id] = {
-                    id = id,
-                    name = product.name,
-                    price = product.price,
-                    currency = product.currency or "coins",
-                    rewards = product.rewards,
-                    description = product.description,
-                }
+            local list = (GameConfig.Monetization and GameConfig.Monetization.PRODUCTS) or {}
+            for _, product in ipairs(list) do
+                local id = product.id
+                if id then
+                    prices[id] = {
+                        id = id,
+                        name = product.name,
+                        price = product.robux or product.price,
+                        currency = product.currency or (product.robux and "robux" or "coins"),
+                        rewards = product.rewards or { coins = product.coins },
+                        description = product.description,
+                    }
+                end
             end
             
             return {
@@ -137,19 +149,20 @@ local GAMEPASS_CACHE_TTL = 120 -- 2 minutes
             
             -- Check owned gamepasses
             local owned = {}
-            for passId, passInfo in pairs(GameConfig.Gamepasses or {}) do
-                local hasPass = false
-                
-                -- Check if player owns it
-                local success, ownsPass = pcall(function()
-                    return MarketplaceService:UserOwnsGamePassAsync(player.UserId, passId)
-                end)
-                
-                if success then
-                    hasPass = ownsPass
+            local passes = (GameConfig.Monetization and GameConfig.Monetization.GAMEPASSES) or {}
+            for _, pass in ipairs(passes) do
+                local passId = pass.gamepassId
+                if type(passId) == "number" and passId > 0 then
+                    local hasPass = false
+                    -- Check if player owns it
+                    local success, ownsPass = pcall(function()
+                        return MarketplaceService:UserOwnsGamePassAsync(player.UserId, passId)
+                    end)
+                    if success then
+                        hasPass = ownsPass
+                    end
+                    owned[passId] = hasPass
                 end
-                
-                owned[passId] = hasPass
             end
             
             -- Update cache
