@@ -8,20 +8,43 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 -- Shared modules
 local Shared = ReplicatedStorage:WaitForChild("MiningGame")
+local Time = require(Shared:WaitForChild("Time"))
 local GameConfig = require(Shared:WaitForChild("GameConfig"))
 local Types = require(Shared:WaitForChild("Types"))
 local Logger = require(Shared:WaitForChild("Logger"))
+local MathUtils = require(Shared:WaitForChild("MathUtils"))
+local ServiceValidator = require(Shared:WaitForChild("ServiceValidator"))
+local ErrorService = require(script.Parent.ErrorService)  -- OK: ErrorService is a foundation service
+local Contracts = require(Shared:WaitForChild("EventContracts"))
 
--- Server siblings
-local DataService = require(script.Parent.DataService)
-local InventoryService = require(script.Parent.InventoryService)
-local UpgradeService = require(script.Parent.UpgradeService)
+-- Services (injected via Init)
+local DataService
+local InventoryService
+local UpgradeService
+local CurrencyService
+local UserMetricsService  -- Optional dependency
 
--- Shared remotes accessor
-local Remotes = require(ReplicatedStorage.MiningGame.Remotes)
+-- Use EventBus for events
+local EventBus = require(Shared:WaitForChild("EventBus"))
+local EventNames = require(Shared:WaitForChild("EventNames"))
+local Contracts = require(Shared:WaitForChild("EventContracts"))
+local Bus = EventBus.global()
 
 local MonetizationService = {}
+MonetizationService.__index = MonetizationService
 local log = Logger.new("MonetizationService")
+
+-- Initialize with DI container
+function MonetizationService:Init(container)
+    DataService = ServiceValidator.get(container, "DataService", {
+        "GetPlayerData", "QueueSave", "EnqueueReceiptGrant", "ConsumePendingGrants"
+    })
+    InventoryService = ServiceValidator.get(container, "InventoryService", {"AddItem", "AddItemsBulk"})
+    UpgradeService = ServiceValidator.get(container, "UpgradeService", {"GetPlayerGamepasses"})
+    CurrencyService = ServiceValidator.get(container, "CurrencyService", {"add"})
+    UserMetricsService = ServiceValidator.tryGet(container, "UserMetricsService", {"Invalidate"})  -- Optional
+    log:info("Initialized with dependencies")
+end
 
 -- Constants
 local PRICE_CACHE_EXPIRY = 300 -- 5 minutes
@@ -82,9 +105,9 @@ local function getProductPrice(infoType: Enum.InfoType, id: number): number?
         return cached.price
     end
 
-    local ok, info = pcall(function()
+    local ok, info = ErrorService.safecall("MarketplaceService:GetProductInfo", function()
         return MarketplaceService:GetProductInfo(id, infoType)
-    end)
+    end, { id = id, infoType = tostring(infoType) })
     if ok and info and info.PriceInRobux then
         priceCache[key][id] = { price = info.PriceInRobux, timestamp = now }
         return info.PriceInRobux
@@ -148,8 +171,11 @@ local function processPurchase(
 
     -- Persist + metrics
     DataService:QueueSave(player)
-    local ok, UMS = pcall(function() return require(script.Parent.UserMetricsService) end)
-    if ok and UMS then pcall(function() UMS:Invalidate(player) end) end
+    if UserMetricsService then 
+        ErrorService.safecall("UserMetricsService:Invalidate", function() 
+            UserMetricsService:Invalidate(player) 
+        end, { uid = player.UserId })
+    end
 
     return true
 end
@@ -186,55 +212,68 @@ local function handleProductPurchase(player: Player, product: Types.Product)
     -- Apply product effects
     if product.effect == "speed" then
         -- Apply speed boost
-        profile.boosts.speed = os.time() + (product.duration or 3600)
-        Remotes.RE.OnBoostsChanged:FireClient(player, profile.boosts)
+        profile.boosts.speed = Time.unix() + (product.duration or GameConfig.Timing.ONE_HOUR)
+        Bus:emit(EventNames.BOOSTS_CHANGED, {
+            to = { kind = "player", player = player },
+            payload = Contracts.BOOSTS_CHANGED(profile.boosts)
+        })
         
     elseif product.effect == "luck" then
         -- Apply luck boost
-        profile.boosts.luck = os.time() + (product.duration or 3600)
-        Remotes.RE.OnBoostsChanged:FireClient(player, profile.boosts)
+        profile.boosts.luck = Time.unix() + (product.duration or GameConfig.Timing.ONE_HOUR)
+        Bus:emit(EventNames.BOOSTS_CHANGED, {
+            to = { kind = "player", player = player },
+            payload = Contracts.BOOSTS_CHANGED(profile.boosts)
+        })
         
     elseif product.effect == "size" then
         -- Apply size boost
-        profile.boosts.size = os.time() + (product.duration or 3600)
-        Remotes.RE.OnBoostsChanged:FireClient(player, profile.boosts)
+        profile.boosts.size = Time.unix() + (product.duration or GameConfig.Timing.ONE_HOUR)
+        Bus:emit(EventNames.BOOSTS_CHANGED, {
+            to = { kind = "player", player = player },
+            payload = Contracts.BOOSTS_CHANGED(profile.boosts)
+        })
         
     elseif product.effect == "instant_dig" then
-        -- Perform mega dig immediately
-        local DigService = require(script.Parent.DigService)
+        -- Perform mega dig immediately via event
         local worldPos = player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character.HumanoidRootPart.Position
         
         if worldPos then
-            -- Temporarily boost stats for one dig
-            local oldSize = profile.upgrades.size or 0
-            
-            -- Apply mega dig stats
-            profile.upgrades.size = math.min(15, oldSize + (product.size or 10))
-            
-            -- Process dig
-            DigService:ProcessDigRequest(player, worldPos)
-            
-            -- Restore stats
-            profile.upgrades.size = oldSize
+            -- Request mega dig via event bus with validated contract
+            Bus:emit(EventNames.MEGA_DIG_REQUEST, {
+                to = { kind = "server" },
+                payload = Contracts.MEGA_DIG_REQUEST({
+                    player = player,
+                    position = worldPos,
+                    sizeBoost = product.size or 10
+                })
+            })
         end
         
     elseif product.effect == "auto_dig" then
         -- Start auto digger
-        profile.boosts.auto_dig = os.time() + (product.duration or 3600)
-        Remotes.RE.OnBoostsChanged:FireClient(player, profile.boosts)
+        profile.boosts.auto_dig = Time.unix() + (product.duration or GameConfig.Timing.ONE_HOUR)
+        Bus:emit(EventNames.BOOSTS_CHANGED, {
+            to = { kind = "player", player = player },
+            payload = Contracts.BOOSTS_CHANGED(profile.boosts)
+        })
         
-        -- Use DigService's auto-dig system instead of spawning our own loop
-        local DigService = require(script.Parent.DigService)
-        DigService:StartAutoDig(player)
+        -- Request auto-dig start via event bus with validated contract
+        Bus:emit(EventNames.AUTO_DIG_START, {
+            to = { kind = "server" },
+            payload = Contracts.AUTO_DIG_START({ player = player })
+        })
         
     elseif product.coins then
         -- Grant coins
-        DataService:AddCurrency(player, "coins", product.coins)
+        CurrencyService.add(player, "coins", product.coins)
         
-        Remotes.RE.OnReward:FireClient(player, {
-            type = "coins",
-            amount = product.coins,
-            source = "purchase",
+        Bus:emit(EventNames.REWARD_GRANTED, {
+            to = { kind = "player", player = player },
+            payload = Contracts.REWARD_GRANTED({
+                coins = product.coins,
+                meta = { source = "purchase" },
+            })
         })
     end
     
@@ -242,17 +281,20 @@ local function handleProductPurchase(player: Player, product: Types.Product)
     DataService:QueueSave(player)
     
     -- Send notification
-    Remotes.RE.OnNotification:FireClient(player, {
-        type = "purchase",
-        message = string.format("Purchase successful: %s!", product.id),
-        color = Color3.new(0, 1, 0),
+    Bus:emit(EventNames.NOTIFICATION_PUSH, {
+        to = { kind = "player", player = player },
+        payload = Contracts.NOTIFICATION_PUSH({
+            type = "purchase",
+            message = string.format("Purchase successful: %s!", product.id),
+            color = Color3.new(0, 1, 0),
+        })
     })
     
     return true
 end
 
 -- Process receipt callback (single handler for all products)
-MarketplaceService.ProcessReceipt = function(receipt)
+local function processReceipt(receipt)
     local userId = receipt.PlayerId
     local productId = receipt.ProductId
     local receiptId = receipt.PurchaseId
@@ -333,10 +375,13 @@ local function handleGamepassPurchase(player: Player, gamepass: Types.GamePass)
     
     -- Gamepass effects are permanent and checked in UpgradeService
     -- Just notify the player
-    Remotes.RE.OnNotification:FireClient(player, {
-        type = "gamepass",
-        message = string.format("Gamepass activated: %s!", gamepass.id),
-        color = Color3.new(1, 0.8, 0),
+    Bus:emit(EventNames.NOTIFICATION_PUSH, {
+        to = { kind = "player", player = player },
+        payload = Contracts.NOTIFICATION_PUSH({
+            type = "gamepass",
+            message = string.format("Gamepass activated: %s!", gamepass.id),
+            color = Color3.new(1, 0.8, 0),
+        })
     })
     
     -- Special effects for specific gamepasses
@@ -350,7 +395,7 @@ local function handleGamepassPurchase(player: Player, gamepass: Types.GamePass)
 end
 
 -- Check gamepass ownership on join
-Players.PlayerAdded:Connect(function(player)
+local function onPlayerAdded(player)
     log:debug("Player {} joined, checking gamepass ownership", player.Name)
     
     -- Wait until DataService has loaded profile (critical to avoid race)
@@ -398,9 +443,9 @@ Players.PlayerAdded:Connect(function(player)
     for gamepassId, gamepassData in pairs(gamepassIdToData) do
         -- Skip if already tracked
         if not profile.ownedGamePasses[gamepassId] then
-            local success, owns = pcall(function()
+            local success, owns = ErrorService.safecall("MarketplaceService:UserOwnsGamePassAsync", function()
                 return MarketplaceService:UserOwnsGamePassAsync(player.UserId, gamepassId)
-            end)
+            end, { uid = player.UserId, gamepassId = gamepassId })
             
             if not success then
                 log:error("Backfill verify error for gamepass {} player {}", gamepassId, player.Name)
@@ -429,24 +474,24 @@ Players.PlayerAdded:Connect(function(player)
             end
         end
     end
-end)
+end
 
 -- Clean up receipt queues when player leaves
-Players.PlayerRemoving:Connect(function(player)
+local function onPlayerRemoving(player)
     receiptQueues[player.UserId] = nil
-end)
+end
 
 -- Listen for game pass purchases (idempotent + tracked once)
-MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, gamePassId, purchased)
+local function onGamePassPurchaseFinished(player, gamePassId, purchased)
     if not purchased then return end
 
     local profile = DataService:GetPlayerData(player)
     if not profile then return end
 
     -- Verify ownership server-side
-    local ok, owns = pcall(function()
+    local ok, owns = ErrorService.safecall("MarketplaceService:UserOwnsGamePassAsync", function()
         return MarketplaceService:UserOwnsGamePassAsync(player.UserId, gamePassId)
-    end)
+    end, { uid = player.UserId, gamePassId = gamePassId })
     if not ok or not owns then
         log:error("Game pass verify failed {} for {}", gamePassId, player.Name)
         return
@@ -474,7 +519,7 @@ MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, gameP
             handleGamepassPurchase(player, gamepassData)
         end
     end
-end)
+end
 
 -- Get monetization metrics for a player
 function MonetizationService:GetMetrics(player: Player)
@@ -486,7 +531,7 @@ function MonetizationService:GetMetrics(player: Player)
     local now = getTimestamp()
     local daysSinceLastPurchase = nil
     if profile.lastPurchaseTime then
-        daysSinceLastPurchase = math.floor((now - profile.lastPurchaseTime) / 86400)
+        daysSinceLastPurchase = math.floor((now - profile.lastPurchaseTime) / GameConfig.Timing.SECONDS_PER_DAY)
     end
     
     local dev = profile.robuxSpentDevProducts or 0
@@ -494,8 +539,9 @@ function MonetizationService:GetMetrics(player: Player)
     
     return {
         robuxSpentLifetime = profile.robuxSpentLifetime or 0,
-        robuxSpentThisSession = math.max(0, 
-            (profile.robuxSpentLifetime or 0) - (profile.sessionStartRobuxSpent or 0)
+        robuxSpentThisSession = MathUtils.saturatingSub(
+            profile.robuxSpentLifetime or 0, 
+            profile.sessionStartRobuxSpent or 0
         ),
         purchasesCount = profile.purchasesCount or 0,
         firstPurchaseTime = profile.firstPurchaseTime,
@@ -547,81 +593,43 @@ function MonetizationService:PromptPurchase(player: Player, purchaseType: string
     return false
 end
 
--- Setup remote handlers
-local function setupRemotes()
-    -- Handle purchase requests
-    Remotes.RF.PurchaseProduct.OnServerInvoke = function(player: Player, purchaseType: string, purchaseId: string)
-        local success = MonetizationService:PromptPurchase(player, purchaseType, purchaseId)
-        return {success = success}
-    end
+-- Lifecycle connections
+local playerAddedConn
+local playerRemovingConn
+local gamePassPurchaseConn
+
+-- Start lifecycle - wire up all event handlers
+function MonetizationService:Start()
+    -- Set up MarketplaceService handlers
+    MarketplaceService.ProcessReceipt = processReceipt
     
-    -- Handle material purchases (with coins)
-    Remotes.RF.PurchaseMaterial.OnServerInvoke = function(player: Player, materialId: string)
-        local profile = DataService:GetPlayerData(player)
-        if not profile then
-            return {success = false, reason = "No profile"}
-        end
-        
-        -- Find material
-        local material = GameConfig.CubeMaterialsById[materialId]
-        if not material then
-            return {success = false, reason = "Unknown material"}
-        end
-        
-        -- Check if already owned
-        if profile.materialId == materialId then
-            return {success = false, reason = "Already owned"}
-        end
-        
-        -- Check cost
-        if not DataService:CanAfford(player, "coins", material.unlockCost) then
-            return {success = false, reason = "Insufficient coins"}
-        end
-        
-        -- Purchase
-        DataService:AddCurrency(player, "coins", -material.unlockCost)
-        profile.materialId = materialId
-        
-        -- Queue save
-        DataService:QueueSave(player)
-        
-        -- Notify
-        Remotes.RE.OnNotification:FireClient(player, {
-            type = "material",
-            message = string.format("Unlocked %s material!", material.name),
-            color = Color3.new(0, 1, 0),
-        })
-        
-        return {success = true}
-    end
+    -- Connect player events
+    playerAddedConn = Players.PlayerAdded:Connect(onPlayerAdded)
+    playerRemovingConn = Players.PlayerRemoving:Connect(onPlayerRemoving)
+    gamePassPurchaseConn = MarketplaceService.PromptGamePassPurchaseFinished:Connect(onGamePassPurchaseFinished)
     
-    -- Handle upgrade purchases
-    Remotes.RF.PurchaseUpgrade.OnServerInvoke = function(player: Player, upgradeType: string)
-        local profile = DataService:GetPlayerData(player)
-        if not profile then
-            return {success = false, reason = "No profile"}
-        end
-        
-        local result = UpgradeService:PurchaseUpgrade(player, profile, upgradeType)
-        
-        if result.success then
-            -- Queue save
-            DataService:QueueSave(player)
-            
-            -- Notify client
-            Remotes.RE.OnUpgradesChanged:FireClient(player, {
-                upgrades = profile.upgrades,
-                coins = profile.coins,
-            })
-        end
-        
-        return result
-    end
+    log:info("Started with event handlers")
 end
 
--- Initialize
-setupRemotes()
-
-log:info("Initialized")
+-- Stop lifecycle - disconnect all handlers
+function MonetizationService:Stop()
+    if playerAddedConn then
+        playerAddedConn:Disconnect()
+        playerAddedConn = nil
+    end
+    if playerRemovingConn then
+        playerRemovingConn:Disconnect()
+        playerRemovingConn = nil
+    end
+    if gamePassPurchaseConn then
+        gamePassPurchaseConn:Disconnect()
+        gamePassPurchaseConn = nil
+    end
+    
+    -- Clear receipt handler
+    MarketplaceService.ProcessReceipt = nil
+    
+    log:info("Stopped and disconnected handlers")
+end
 
 return MonetizationService
