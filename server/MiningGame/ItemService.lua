@@ -23,6 +23,7 @@ local ErrorService = require(script.Parent:WaitForChild("ErrorService"))
 -- Non-service modules (not part of DI)
 local SoundBroadcast = require(script.Parent.SoundBroadcast)
 local ItemAnimations = require(script.Parent.ItemAnimations)
+local DropModelFactory = require(script.Parent.Items.DropModelFactory)
 
 -- Services (injected via Init)
 local InventoryService
@@ -107,6 +108,12 @@ function ItemService:Start(container)
     -- Initialize
     setupRemotes()
     startUpdateLoop()
+    if LOOT_MAGNET_ENABLED then
+        log:info("Loot magnet enabled (start=%.2fs, range=%d->%d over %.2fs)", MAGNET_START_DELAY, MAGNET_START_RANGE, MAGNET_MAX_RANGE, MAGNET_GROWTH_SECONDS)
+    end
+    if FORCED_CLAIM_ENABLED then
+        log:info("Forced-claim safety enabled")
+    end
     
     log:info("Started with player connections and update loop")
 end
@@ -123,6 +130,18 @@ local MAX_DROPS_PER_PLAYER = GameConfig.Loot.MAX_DROPS_PER_PLAYER -- Performance
 local MAX_DROPS_PER_DIG = GameConfig.Loot.MAX_DROPS_PER_DIG -- Maximum physical drops per dig action
 local ITEM_HOVER_HEIGHT = 2
 local ITEM_ROTATION_SPEED = GameConfig.Loot.ROTATION_SPEED
+
+-- Optional feature flags (default enabled if absent)
+local LOOT_MAGNET_ENABLED = (GameConfig.Features and GameConfig.Features.LOOT_MAGNET_ENABLED)
+if LOOT_MAGNET_ENABLED == nil then LOOT_MAGNET_ENABLED = true end
+local FORCED_CLAIM_ENABLED = (GameConfig.Features and GameConfig.Features.FORCED_CLAIM_ENABLED)
+if FORCED_CLAIM_ENABLED == nil then FORCED_CLAIM_ENABLED = true end
+
+-- Owner magnet tuning (prefer config, fallback to safe defaults)
+local MAGNET_START_DELAY = GameConfig.Loot.MAGNET_START_DELAY or 0.8
+local MAGNET_START_RANGE = GameConfig.Loot.MAGNET_START_RANGE or 12
+local MAGNET_MAX_RANGE = GameConfig.Loot.MAGNET_MAX_RANGE or 35
+local MAGNET_GROWTH_SECONDS = GameConfig.Loot.MAGNET_GROWTH_SECONDS or 3
 
 -- Timing for update loops
 local AUTO_COLLECT_INTERVAL = 0.2 -- seconds (reduced from 0.5 for snappier walk-over pickup)
@@ -166,154 +185,66 @@ end
 
 -- Create item drop model (optimized with anchored parts)
 local function createItemModel(itemDef: Types.LootDrop, position: Vector3, count: number): Model
-    local model = Instance.new("Model")
-    model.Name = "ItemDrop_" .. itemDef.id
-    
-    -- Main part (visual representation)
-    local part = Instance.new("Part")
-    part.Name = "ItemPart"
-    part.Size = Vector3.new(1.5, 1.5, 1.5)
-    -- Place at top of the dug cell with small margin
-    local cellHalf = (GameConfig.Grid.CELL_SIZE_STUDS / 2)
-    local margin = 0.25
-    part.Position = position + Vector3.new(0, cellHalf - margin, 0)
-    part.Material = Enum.Material.Neon
-    part.TopSurface = Enum.SurfaceType.Smooth
-    part.BottomSurface = Enum.SurfaceType.Smooth
-    part.CanCollide = false
-    part.Anchored = true -- No physics simulation needed
-    
-    -- Color based on rarity
-    local rarityColor = LootService:GetRarityColor(itemDef.rarity)
-    part.Color = rarityColor
-    
-    -- Add glow effect
-    local pointLight = Instance.new("PointLight")
-    pointLight.Brightness = 2
-    pointLight.Range = 10
-    pointLight.Color = rarityColor
-    pointLight.Parent = part
-    
-    -- Add selection box for outline
-    local selectionBox = Instance.new("SelectionBox")
-    selectionBox.Adornee = part
-    selectionBox.Color3 = rarityColor
-    selectionBox.LineThickness = 0.1
-    selectionBox.Transparency = 0.3
-    selectionBox.Parent = part
-    
-    -- Add billboard GUI for item name
-    local billboardGui = Instance.new("BillboardGui")
-    billboardGui.Size = UDim2.new(4, 0, 1, 0)
-    billboardGui.StudsOffset = Vector3.new(0, 2, 0)
-    billboardGui.AlwaysOnTop = true
-    billboardGui.Parent = part
-    
-    local textLabel = Instance.new("TextLabel")
-    textLabel.Name = "NameLabel"  -- Named for unambiguous lookup
-    textLabel.Size = UDim2.new(1, 0, 1, 0)
-    textLabel.BackgroundTransparency = 1
-    textLabel.Text = count > 1 and (itemDef.name .. " x" .. tostring(count)) or itemDef.name
-    textLabel.TextColor3 = Color3.new(1, 1, 1)
-    textLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
-    textLabel.TextStrokeTransparency = 0
-    textLabel.TextScaled = true
-    textLabel.Font = Enum.Font.SourceSansBold
-    textLabel.Parent = billboardGui
-    
-    -- Add rarity indicator
-    local rarityLabel = Instance.new("TextLabel")
-    rarityLabel.Name = "RarityLabel"  -- Named for unambiguous lookup
-    rarityLabel.Size = UDim2.new(1, 0, 0.3, 0)
-    rarityLabel.Position = UDim2.new(0, 0, 1, 0)
-    rarityLabel.BackgroundTransparency = 1
-    rarityLabel.Text = "[" .. itemDef.rarity .. "]"
-    rarityLabel.TextColor3 = rarityColor
-    rarityLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
-    rarityLabel.TextStrokeTransparency = 0
-    rarityLabel.TextScaled = true
-    rarityLabel.Font = Enum.Font.SourceSans
-    rarityLabel.Parent = billboardGui
-    
-    -- Ambient floating particles for all items (rarity-tinted, very lightweight)
-    do
-        local ambient = Instance.new("ParticleEmitter")
-        ambient.Name = "AmbientParticles"
-        ambient.Texture = "rbxasset://textures/particles/sparkles_main.dds" -- light sparkles
-        ambient.Color = ColorSequence.new(rarityColor)
-        ambient.LightEmission = 0.4
-        ambient.Lifetime = NumberRange.new(0.6, 1.2)
-        ambient.Speed = NumberRange.new(0.2, 0.8)
-        ambient.EmissionDirection = Enum.NormalId.Top
-        ambient.SpreadAngle = Vector2.new(12, 12)
-        ambient.Size = NumberSequence.new({
-            NumberSequenceKeypoint.new(0,   0.14),
-            NumberSequenceKeypoint.new(0.6, 0.09),
-            NumberSequenceKeypoint.new(1,   0.00),
-        })
-        ambient.Transparency = NumberSequence.new({
-            NumberSequenceKeypoint.new(0, 0.15),
-            NumberSequenceKeypoint.new(1, 1),
-        })
-        -- Gentle rarity scaling (kept low for budget)
-        local rarityRate = {
-            COMMON = 3, UNCOMMON = 4, RARE = 5, EPIC = 6, LEGENDARY = 7, MYTHIC = 8
-        }
-        ambient.Rate = rarityRate[itemDef.rarity] or 4
-        ambient.Parent = part
-    end
-    
-    -- Store count as attribute
-    model:SetAttribute("Count", count)
-    model:SetAttribute("ItemId", itemDef.id)
-    
-    part.Parent = model
-    model.PrimaryPart = part
-    
-    -- Add special effects for rare items
-    if itemDef.rarity == "EPIC" or itemDef.rarity == "LEGENDARY" or itemDef.rarity == "MYTHIC" then
-        -- Add particle emitter for rare items
-        local particleEmitter = Instance.new("ParticleEmitter")
-        particleEmitter.Texture = "rbxasset://textures/particles/sparkles_main.dds"
-        particleEmitter.Rate = 20
-        particleEmitter.Lifetime = NumberRange.new(1, 2)
-        particleEmitter.VelocityInheritance = 0
-        particleEmitter.EmissionDirection = Enum.NormalId.Top
-        particleEmitter.Speed = NumberRange.new(2, 4)
-        particleEmitter.Color = ColorSequence.new(rarityColor)
-        particleEmitter.LightEmission = 1
-        particleEmitter.Parent = part
-        
-        -- Add beam effect for mythic items
-        if itemDef.rarity == "MYTHIC" then
-            local attachment1 = Instance.new("Attachment")
-            attachment1.Position = Vector3.new(0, -0.75, 0)
-            attachment1.Parent = part
-            
-            local attachment2 = Instance.new("Attachment")
-            attachment2.Position = Vector3.new(0, 10, 0)
-            attachment2.Parent = part
-            
-            local beam = Instance.new("Beam")
-            beam.Attachment0 = attachment1
-            beam.Attachment1 = attachment2
-            beam.Color = ColorSequence.new(rarityColor)
-            beam.LightEmission = 1
-            beam.Transparency = NumberSequence.new({
-                NumberSequenceKeypoint.new(0, 0.5),
-                NumberSequenceKeypoint.new(0.5, 0),
-                NumberSequenceKeypoint.new(1, 0.5)
-            })
-            beam.Width0 = 2
-            beam.Width1 = 4
-            beam.Parent = part
+    return DropModelFactory.create(itemDef, position, count)
+end
+
+-- Core spawn helper with per-dig cap and rarity prioritization
+local function spawnCapped(entries: {{itemId: string, position: Vector3}}, owner: Player?): {Model}
+    local drops = {}
+    local toInventory: {[string]: number} = {}
+    local typed = {}
+
+    -- Decorate with rarity weights for stable sorting
+    for _, e in ipairs(entries) do
+        local def = LootService:GetItemDefinition(e.itemId)
+        if def then
+            local w = (GameConfig.Loot.RARITIES[def.rarity] and GameConfig.Loot.RARITIES[def.rarity].weight) or 1e9
+            table.insert(typed, { id = e.itemId, pos = e.position, weight = w })
         end
     end
-    
-    -- Tag for easy identification
-    CollectionService:AddTag(model, "ItemDrop")
-    
-    return model
+
+    table.sort(typed, function(a, b) return a.weight < b.weight end)
+
+    local cap = GameConfig.Loot.MAX_DROPS_PER_DIG or 5
+    local spawned = 0
+    for _, t in ipairs(typed) do
+        if spawned < cap then
+            local m = ItemService:SpawnStackedDrop(t.id, 1, t.pos, owner)
+            if m then table.insert(drops, m) end
+            spawned += 1
+        else
+            toInventory[t.id] = (toInventory[t.id] or 0) + 1
+        end
+    end
+
+    if owner and next(toInventory) ~= nil then
+        InventoryService:AddItemsBulk(owner, toInventory)
+    end
+
+    return drops
+end
+
+-- Spawn loot at explicit positions (entries), enforcing cap and rarity priority
+function ItemService:SpawnLootEntriesFromDig(entries: {{itemId: string, position: Vector3}}, owner: Player?): {Model}
+    -- Optional presentation: place drops around a small jittered ring at the entries' centroid
+    if GameConfig.Loot.SPAWN_MODE == "ring" and #entries > 0 then
+        local cx, cy, cz = 0,0,0
+        for _, e in ipairs(entries) do cx += e.position.X; cy += e.position.Y; cz += e.position.Z end
+        cx /= #entries; cy /= #entries; cz /= #entries
+        local center = Vector3.new(cx, cy + (GameConfig.Loot.RING_VERTICAL_OFFSET or 0), cz)
+        local radius = GameConfig.Loot.RING_RADIUS or 6
+        local jitter = GameConfig.Loot.RING_JITTER or 1.5
+        local golden = math.pi * (3 - math.sqrt(5))
+        local ring = {}
+        for i, e in ipairs(entries) do
+            local r = radius + (math.random() * 2 - 1) * jitter
+            local a = i * golden
+            local pos = center + Vector3.new(math.cos(a) * r, 0, math.sin(a) * r)
+            table.insert(ring, { itemId = e.itemId, position = pos })
+        end
+        return spawnCapped(ring, owner)
+    end
+    return spawnCapped(entries, owner)
 end
 
 -- Spawn stacked item drop
@@ -729,67 +660,14 @@ end
 
 -- Spawn loot drops from dig (aggregated)
 function ItemService:SpawnLootFromDig(countsById: {[string]: number}, position: Vector3, owner: Player?): {Model}
-    local drops = {}
-    local dropCount = 0
-    
-    -- Log dig loot event
-    if owner then
-        local totalItems = 0
-        for _, count in pairs(countsById) do
-            totalItems = totalItems + count
-        end
-        log:event("dig_loot_spawned", {
-            uid = owner.UserId,
-            totalItems = totalItems,
-            uniqueTypes = next(countsById) and #countsById or 0,
-            position = tostring(position)
-        })
-    end
-    
-    -- Sort by rarity to prioritize rare drops if we hit the cap
-    local sortedItems = {}
+    -- Convert counts to entries at a single position
+    local entries = {}
     for itemId, count in pairs(countsById) do
-        local itemDef = LootService:GetItemDefinition(itemId)
-        if itemDef then
-            table.insert(sortedItems, {
-                itemId = itemId,
-                count = count,
-                rarity = itemDef.rarity,
-                rarityWeight = GameConfig.Loot.RARITIES[itemDef.rarity].weight
-            })
+        for i = 1, math.max(0, count) do
+            table.insert(entries, { itemId = itemId, position = position })
         end
     end
-    
-    -- Sort by rarity weight (lower = rarer = higher priority)
-    table.sort(sortedItems, function(a, b)
-        return a.rarityWeight < b.rarityWeight
-    end)
-    
-    -- Spawn drops up to the limit
-    for _, item in ipairs(sortedItems) do
-        if dropCount >= MAX_DROPS_PER_DIG then
-            -- Auto-add remaining items directly to inventory
-            if owner then
-                InventoryService:AddItem(owner, item.itemId, item.count)
-            end
-        else
-            -- No lateral jitter to avoid embedding in terrain
-            local offset = Vector3.new(0, 0, 0)
-            
-            local dropModel = self:SpawnStackedDrop(item.itemId, item.count, position + offset, owner)
-            if dropModel then
-                table.insert(drops, dropModel)
-                dropCount = dropCount + 1
-            end
-            
-            -- Stagger spawning for visual effect
-            if dropCount < #sortedItems and dropCount < MAX_DROPS_PER_DIG then
-                task.wait(0.05)
-            end
-        end
-    end
-    
-    return drops
+    return spawnCapped(entries, owner)
 end
 
 -- Check for nearby drops
@@ -850,24 +728,47 @@ local function handleAutoCollection(dt: number)
 
         local playerPos = character.PrimaryPart.Position
         local hasAuto, magnetRange = hasAutoCollect(player)
-        local range = hasAuto and (magnetRange or ITEM_MAGNET_RANGE) or ITEM_PICKUP_RANGE
-        local nearby = ItemService:GetNearbyDrops(playerPos, range)
+        local baseRange = hasAuto and (magnetRange or ITEM_MAGNET_RANGE) or ITEM_PICKUP_RANGE
+        -- Expand candidate search radius when owner magnet is enabled so we can apply per-drop ranges below
+        local candidateRange = (LOOT_MAGNET_ENABLED and MAGNET_MAX_RANGE and math.max(baseRange, MAGNET_MAX_RANGE)) or baseRange
+        local nearby = ItemService:GetNearbyDrops(playerPos, candidateRange)
 
         -- Group eligible drops by itemId for this player
         local perItem: {[string]: {Model}} = {}
         for _, dropModel in ipairs(nearby) do
             local dropData = activeDrops[dropModel]
             if dropData and not dropData.claimed then
+                local now = Time.mono()
+                local age = now - dropData.spawnTime
                 local canPickup = (not dropData.owner)
                     or (dropData.owner == player)
-                    or ((Time.mono() - dropData.spawnTime) > OWNER_GRACE_SECONDS)
-                if canPickup then
-                    local bucket = perItem[dropData.itemId]
-                    if not bucket then
-                        bucket = {}
-                        perItem[dropData.itemId] = bucket
+                    or (age > OWNER_GRACE_SECONDS)
+
+                if canPickup and dropModel.PrimaryPart then
+                    -- Compute effective range for this drop relative to this player
+                    local effectiveRange
+                    if dropData.owner == player then
+                        local ownerMagnet = 0
+                        if LOOT_MAGNET_ENABLED and age >= MAGNET_START_DELAY then
+                            local t = math.min(1, (age - MAGNET_START_DELAY) / math.max(MAGNET_GROWTH_SECONDS, 0.001))
+                            ownerMagnet = MAGNET_START_RANGE + t * (MAGNET_MAX_RANGE - MAGNET_START_RANGE)
+                        end
+                        local autoRange = hasAuto and (magnetRange or ITEM_MAGNET_RANGE) or 0
+                        effectiveRange = math.max(ITEM_PICKUP_RANGE, ownerMagnet, autoRange)
+                    else
+                        -- Non-owner respects grace and existing ranges
+                        effectiveRange = hasAuto and (magnetRange or ITEM_MAGNET_RANGE) or ITEM_PICKUP_RANGE
                     end
-                    table.insert(bucket, dropModel)
+
+                    local distance = (dropModel.PrimaryPart.Position - playerPos).Magnitude
+                    if distance <= effectiveRange then
+                        local bucket = perItem[dropData.itemId]
+                        if not bucket then
+                            bucket = {}
+                            perItem[dropData.itemId] = bucket
+                        end
+                        table.insert(bucket, dropModel)
+                    end
                 end
             end
         end
@@ -920,6 +821,41 @@ local function handleAutoCollection(dt: number)
                             end
                         end
                     end
+                end
+            end
+        end
+    end
+end
+
+-- Forced-claim safety sweep (runs at ~1 Hz)
+local forcedClaimAccumulator = 0
+local function handleForcedClaim(dt: number)
+    forcedClaimAccumulator += dt
+    if forcedClaimAccumulator < 1.0 then return end
+    forcedClaimAccumulator = 0
+
+    local now = Time.mono()
+    for dropModel, dropData in pairs(activeDrops) do
+        if dropData and not dropData.claimed then
+            local invalid = (not dropModel.Parent) or (not dropModel.PrimaryPart)
+            if invalid then
+                if dropData.owner and dropData.owner.Parent ~= nil then
+                    pcall(function()
+                        InventoryService:AddItem(dropData.owner, dropData.itemId, dropData.count)
+                    end)
+                end
+                dropData.claimed = true
+                ItemService:RemoveDrop(dropModel)
+            else
+                local age = now - dropData.spawnTime
+                if age > (ITEM_LIFETIME + DESPAWN_RETRY_DELAY) then
+                    if dropData.owner and dropData.owner.Parent ~= nil then
+                        pcall(function()
+                            InventoryService:AddItem(dropData.owner, dropData.itemId, dropData.count)
+                        end)
+                    end
+                    dropData.claimed = true
+                    ItemService:RemoveDrop(dropModel)
                 end
             end
         end
@@ -1029,6 +965,9 @@ startUpdateLoop = function()
         
         -- Timed updates for collection only (prompts disabled - walk-over pickup for all)
         handleAutoCollection(dt)
+        if FORCED_CLAIM_ENABLED then
+            handleForcedClaim(dt)
+        end
         -- handleManualPickup(dt)  -- DISABLED: All players use walk-over pickup now
     end)
 end
