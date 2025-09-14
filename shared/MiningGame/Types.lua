@@ -121,6 +121,9 @@ export type CubeState = {
     chunks: { [ChunkId]: Chunk },
     totalDug: number,
     createdAt: number,
+    -- Optional half-extents in cells for rectangular volumes (per-axis bounds)
+    -- If absent, systems fall back to global cube size bounds
+    extentsCells: Vector3?,
 }
 
 export type DigRequest = {
@@ -148,6 +151,9 @@ export type DigResult = {
     soundMaterialKey: string?,            -- "rock", etc.
     soundWorldPos: Vector3?,              -- Position for sound effect
     centerCell: CellCoord?,               -- Clamped cell the server used
+    -- Volume-aware fields (for hold-dig continuity and client previews)
+    volumeId: string?,
+    volumeOrigin: CFrame?,
 }
 
 export type LootDrop = {
@@ -216,6 +222,29 @@ export type NeighborhoodData = {
     players: {Player},
     cubes: {CubeInstance},
     maxPlayers: number,
+}
+
+-- Volume system (server-owned)
+export type VolumeKind = "cube" | "island"
+
+export type VolumePermissions = {
+    public: boolean,
+    ownerUserId: number?,
+}
+
+export type VolumeMeta = {
+    themeId: string?,
+    preset: string?,
+}
+
+export type Volume = {
+    id: string,
+    kind: VolumeKind,
+    origin: CFrame,
+    sizeStuds: Vector3,
+    permissions: VolumePermissions,
+    meta: VolumeMeta?,
+    state: CubeState,
 }
 
 export type CubeInstance = {

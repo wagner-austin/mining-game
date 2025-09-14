@@ -139,6 +139,10 @@ GameConfig.Features = {
     DEBUG_HIGH_COSMETIC_RATE = false,  -- Set to true to make cosmetics 10x more common for testing
     DEBUG_FORCE_RARITY = false, -- Set to "MYTHIC", "LEGENDARY", etc to force drops
     DEBUG_ALWAYS_ACHIEVEMENT = false,  -- Always grant achievements even if already unlocked
+
+    -- Mining volumes rollout (Phase 1)
+    ENABLE_ISLAND_MINING = true,  -- Enable volume-aware dig and island registration for QA
+    ENABLE_VOLUME_HASH = true,    -- Use spatial hash for island volume picking
 }
 
 -- Grid System Configuration
@@ -165,6 +169,12 @@ GameConfig.Digging = {
     BASE_DIG_DELAY = 1.0, -- Seconds between digs
     BASE_DIG_SIZE_CELLS = 1, -- Base size of dig cube (1 = 3x3x3 cube)
     
+    -- Volume tolerance values (for terrain overhang)
+    VOLUME_PICK_FACE_TOLERANCE = 1.10, -- Multiplier for CELL_SIZE when picking volumes
+    VOLUME_CLAMP_FACE_TOLERANCE = 0.75, -- Multiplier for CELL_SIZE when clamping positions
+    VOLUME_EDGE_TOLERANCE = 0.45, -- Multiplier for CELL_SIZE for edge tolerance
+    VOLUME_CORNER_TOLERANCE = 0.35, -- Multiplier for CELL_SIZE for corner tolerance
+    
     -- Dig shape
     DIG_SHAPE = "CUBE",
     
@@ -180,6 +190,13 @@ GameConfig.Digging = {
     -- Particle effects
     ENABLE_PARTICLES = true,
     PARTICLE_COUNT = 10,
+
+    -- Anti-cheat / request validation
+    MAX_RANGE_STUDS = 200, -- Max allowed distance from player HRP to dig target
+
+    -- Diagnostics (server-side). When true, island digs will log
+    -- volume extents, cell conversions, and voxel write regions.
+    DEBUG_ISLAND_DIAG = false,
 }
 
 -- Player Progression & Upgrades
@@ -347,6 +364,14 @@ GameConfig.Loot = {
     ROTATION_SPEED = 1,
     MAX_DROPS_PER_PLAYER = 20,
     MAX_DROPS_PER_DIG = 5,
+
+    -- Drop spawn presentation
+    -- "per_cell" = spawn at each dropped cell's world position (scattered)
+    -- "ring"     = spawn around the dig center in a small jittered ring
+    SPAWN_MODE = "per_cell",
+    RING_RADIUS = 6,            -- studs
+    RING_JITTER = 1.5,          -- random variance around ring
+    RING_VERTICAL_OFFSET = 0.0, -- offset from dig center Y
     
     -- Rarity tiers with weights and colors
     RARITIES = {
