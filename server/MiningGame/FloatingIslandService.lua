@@ -23,12 +23,14 @@ local EventContracts = require(MiningGame:WaitForChild("EventContracts"))
 local WorldGenUtils = require(MiningGame:WaitForChild("WorldGenUtils"))
 
 local log = Logger.new("FloatingIslandService")
+local CubeVolume = require(script.Parent:WaitForChild("CubeVolume"))
 local ErrorService = require(script.Parent.ErrorService)
 local Bus = EventBus.global()
 
 -- Services (injected via Init)
 local MixedMaterialService
 local GridService
+local DigService -- optional (for registering volumes)
 local _eventsRegistered = false
 
 -- Get PCG seed for deterministic island generation
@@ -101,6 +103,8 @@ FloatingIslandService._lastGeneratedCount = 0
 function FloatingIslandService:Init(container)
     GridService = ServiceValidator.get(container, "GridService") -- Required by ServiceManager
     MixedMaterialService = ServiceValidator.get(container, "MixedMaterialService") -- Required by ServiceManager
+    -- Optional: DigService for volume registration (guarded by feature flag)
+    DigService = ServiceValidator.tryGet(container, "DigService", {"RegisterVolume", "UnregisterVolume"})
     
     -- Register event listeners (only once)
     if not _eventsRegistered then
@@ -160,6 +164,7 @@ function FloatingIslandService:Init(container)
         _eventsRegistered = true
     end
     
+    self._container = container
     log:info("Initialized with dependencies and event listeners")
 end
 
@@ -223,76 +228,19 @@ function FloatingIslandService:GenerateIsland(
     cubePos = quantize(cubePos) -- Grid-aligned
     
     log:info("Creating island: Pos=%s, Size=%s", tostring(cubePos), tostring(cubeSize))
-    
-    -- Create cube model
-    local cubeModel = Instance.new("Model")
-    cubeModel.Name = "FloatingCube"
-    cubeModel.Parent = folder
-    
-    -- Get theme components and limit liquids for floating islands
-    local rawComponents = CubeThemes.GetThemeComponents(cubeThemeId)
-    if not rawComponents then
-        log:warn("Unknown theme: %s, using mixed_geology", cubeThemeId)
-        rawComponents = CubeThemes.GetThemeComponents("mixed_geology")
-    end
-    
-    -- Reduce water weight for floating islands but don't remove it entirely (tunable)
-    local components = {}
-    local waterCap = (GameConfig.FloatingIslands and GameConfig.FloatingIslands.LIQUID_WEIGHT_CAP) or 0.35
-    for _, component in ipairs(rawComponents) do
-        local comp = {
-            materialKey = component.materialKey,
-            weight = component.weight,
-            scale = component.scale
-        }
-        -- Cap water/liquid weight to prevent domination
-        local props = MaterialDefinitions.GetProperties(component.materialKey)
-        if props and props.isLiquid then
-            comp.weight = math.min(comp.weight, waterCap)
-        end
-        table.insert(components, comp)
-    end
-    
-    -- Log the components we're using
-    log:info("Using theme '%s' with %d components (filtered from %d)", cubeThemeId, #components, #rawComponents)
-    
-    local config = MixedMaterialService:ConfigFromComposition(
-        {components = components}, 
-        seed
-    )
-    
-    -- Use threshold mode for islands - simpler and more predictable
-    config.mode = "threshold"
-    -- Use max dimension to ensure full coverage
-    local regionSize = math.max(cubeSize.X, cubeSize.Y, cubeSize.Z)
-    config.patchSize = math.clamp(regionSize / 10, 6, 24)  -- ~10 patches across largest face
-    
-    -- Apply mixed materials to create the non-uniform cube
-    -- Note: MixedMaterialService needs to be updated to support Vector3 sizes
-    -- For now, we'll use FillBlock then apply materials
-    Terrain:FillBlock(CFrame.new(cubePos), cubeSize, Enum.Material.Rock)
-    
-    -- Apply mixed materials over the existing terrain
-    MixedMaterialService:ApplyMixedMaterials(
-        CFrame.new(cubePos),
-        regionSize, -- Use max dimension for full coverage
-        config,
-        true -- Preserve shape - we're modifying existing terrain
-    )
-    
-    -- Create an invisible anchor part for the model
-    local anchor = Instance.new("Part")
-    anchor.Name = "Anchor"
-    anchor.Size = cubeSize
-    anchor.Position = cubePos
-    anchor.Anchored = true
-    anchor.CastShadow = false
-    anchor.Transparency = 1
-    anchor.CanCollide = false
-    anchor.CanQuery = false
-    anchor.CanTouch = false
-    anchor.Parent = cubeModel
-    cubeModel.PrimaryPart = anchor
+
+    -- Create and register via CubeVolume
+    local volId = string.format("island:%d:%d:%d:%d", generateSeed(cubePos), math.floor(cubePos.X), math.floor(cubePos.Y), math.floor(cubePos.Z))
+    local volData = CubeVolume.create(self._container, {
+        id = volId,
+        kind = "island",
+        origin = CFrame.new(cubePos),
+        sizeStuds = cubeSize,
+        public = true,
+        themeId = cubeThemeId,
+        preset = preset,
+    })
+    local cubeModel = volData and volData.model
     
     CollectionService:AddTag(cubeModel, "FloatingIsland")
     
@@ -311,23 +259,27 @@ function FloatingIslandService:GenerateIsland(
     end
     
     if actualTreeCount > 0 then
-        for i = 1, actualTreeCount do
-            local topPos = randomTopPoint(anchor, rng)
-            -- Spawn procedural blocky trees on islands for consistency
-            local rng2 = Random.new(rng:NextInteger(1, 2^30))
-            local tree = TreeFactory.SpawnBlocky(topPos, rng2, { scale = treeScale or 1 })
-            -- Parent to BlockDecorations so TreeClimbing can detect them consistently
-            local decoFolder = WorldGenUtils.getDecorationFolder()
-            if tree and decoFolder then
-                tree.Parent = decoFolder
+        local anchor = cubeModel and (cubeModel.PrimaryPart or cubeModel:FindFirstChild("Anchor"))
+        if not anchor then
+            log:warn("Island anchor not found; skipping tree placement")
+        else
+            for i = 1, actualTreeCount do
+                local topPos = randomTopPoint(anchor, rng)
+                -- Spawn procedural blocky trees on islands for consistency
+                local rng2 = Random.new(rng:NextInteger(1, 2^30))
+                local tree = TreeFactory.SpawnBlocky(topPos, rng2, { scale = treeScale or 1 })
+                -- Parent to BlockDecorations so TreeClimbing can detect them consistently
+                local decoFolder = WorldGenUtils.getDecorationFolder()
+                if tree and decoFolder then
+                    tree.Parent = decoFolder
+                end
+                -- Tag it as island tree for tracking
+                if tree then
+                    CollectionService:AddTag(tree, "IslandTree")
+                end
             end
-            -- Tag it as island tree for tracking
-            if tree then
-                CollectionService:AddTag(tree, "IslandTree")
-            end
+            log:info("Added %d tree(s) with scale %.2f", actualTreeCount, treeScale or 1.0)
         end
-        
-        log:info("Added %d tree(s) with scale %.2f", actualTreeCount, treeScale or 1.0)
     end
     
     log:info("Generated island successfully")
@@ -483,6 +435,13 @@ function FloatingIslandService:ClearAllIslands()
                 -- Clear the terrain where the cube was
                 Terrain:FillBlock(pp.CFrame, pp.Size, Enum.Material.Air)
             end
+            -- Unregister associated volume if present
+            local vid = model:GetAttribute("VolumeId")
+            if DigService and type(vid) == "string" then
+                pcall(function()
+                    DigService:UnregisterVolume(vid)
+                end)
+            end
             model:Destroy()
             RunService.Heartbeat:Wait() -- Prevent lag when clearing many islands
         end
@@ -528,6 +487,32 @@ function FloatingIslandService:Start()
     end
     
     log:info("Starting procedural floating island generation...")
+
+    -- Register any pre-existing islands in the folder (e.g., from previous runs)
+    local folder = getIslandsFolder()
+    for _, model in ipairs(folder:GetChildren()) do
+        if model:IsA("Model") and model.Name == "FloatingCube" then
+            local pp = model.PrimaryPart or model:FindFirstChild("Anchor")
+            if pp and DigService then
+                local volId = model:GetAttribute("VolumeId")
+                if not volId then
+                    local size = pp.Size
+                    local pos = pp.Position
+                    local id = string.format("island:%d:%d:%d:%d", generateSeed(pos), math.floor(pos.X), math.floor(pos.Y), math.floor(pos.Z))
+                    local vol = DigService:RegisterVolume({
+                        id = id,
+                        kind = "island",
+                        origin = CFrame.new(pos),
+                        sizeStuds = size,
+                        permissions = { public = true },
+                        meta = { themeId = "unknown", preset = "unknown" },
+                    })
+                    model:SetAttribute("VolumeId", vol and vol.id or id)
+                    log:info("Registered existing island volume id=%s at %s size=%s", tostring(id), tostring(pos), tostring(size))
+                end
+            end
+        end
+    end
     
     -- Calculate spawn area and count
     local mapBounds = Workspace:FindFirstChild("SpawnBounds") or Workspace:FindFirstChild("Baseplate")
