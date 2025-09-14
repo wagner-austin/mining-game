@@ -33,6 +33,7 @@ local MathUtils = require(MiningGame:WaitForChild("MathUtils"))
 local Logger = require(MiningGame:WaitForChild("Logger"))
 local BlanketPreview = require(MiningGame:WaitForChild("BlanketPreview"))
 local TerrainSurfaceDetector = require(MiningGame:WaitForChild("TerrainSurfaceDetector"))
+-- ClientRF not required for baseline visual feedback; keep preview logic simple and robust
 local log = Logger.new("DigVisualFeedback")
 
 -- Types
@@ -67,9 +68,14 @@ function DigVisualFeedback.new()
     self.digCooldown = 1
     self.playerCubeOrigin = nil :: CFrame?
     self.previewSize = 1
+    -- Keep visuals independent of server volume picker for reliability
     
     -- Cursor mode tracking
     self._cursorMode = nil :: string? -- "custom" | "os"
+    
+    -- Active volume tracking (for island support)
+    self._activeOrigin = nil :: CFrame?
+    self._activeHalf = nil :: Vector3? -- sizeStuds * 0.5
     
     -- Performance optimization
     self._lastCellKey = nil :: string?
@@ -228,6 +234,29 @@ function DigVisualFeedback:SetPreviewSize(size: number)
     self.previewSize = size or 1
 end
 
+function DigVisualFeedback:SetActiveVolume(origin: CFrame, sizeStuds: Vector3)
+    self._activeOrigin = origin
+    self._activeHalf = sizeStuds * 0.5
+end
+
+function DigVisualFeedback:IsInsideActiveVolume(worldPos: Vector3): boolean
+    local origin = self._activeOrigin or self.playerCubeOrigin
+    if not origin then return false end
+    
+    local half = self._activeHalf or Vector3.new(
+        GameConfig.Grid.CUBE_SIZE_STUDS/2,
+        GameConfig.Grid.CUBE_SIZE_STUDS/2,
+        GameConfig.Grid.CUBE_SIZE_STUDS/2
+    )
+    
+    local localPos = origin:PointToObjectSpace(worldPos)
+    local tolerance = GameConfig.Client.CUBE_TOLERANCE_STUDS
+    
+    return math.abs(localPos.X) <= (half.X + tolerance) and 
+           math.abs(localPos.Y) <= (half.Y + tolerance) and 
+           math.abs(localPos.Z) <= (half.Z + tolerance)
+end
+
 -- Clean old entries from terrain cache to prevent memory leaks
 function DigVisualFeedback:_cleanTerrainCache(now: number)
     local count = 0
@@ -304,16 +333,11 @@ function DigVisualFeedback:_setCursorMode(mode: string)
 end
 
 function DigVisualFeedback:IsInsideCube(worldPos: Vector3): boolean
-    if not self.playerCubeOrigin then return false end
-    
-    local localPos = self.playerCubeOrigin:PointToObjectSpace(worldPos)
-    local half = GameConfig.Grid.CUBE_SIZE_STUDS / 2
-    local tolerance = 2.5 -- Match server tolerance for terrain mesh overhang
-    
-    return math.abs(localPos.X) <= (half + tolerance) and 
-           math.abs(localPos.Y) <= (half + tolerance) and 
-           math.abs(localPos.Z) <= (half + tolerance)
+    -- Route to active volume check for DRY
+    return self:IsInsideActiveVolume(worldPos)
 end
+
+-- (no AABB helper: visuals use player cube bounds only)
 
 function DigVisualFeedback:UpdateState(hit: RaycastResult?)
     if not self.enabled then return end
@@ -343,10 +367,10 @@ function DigVisualFeedback:UpdateState(hit: RaycastResult?)
         -- Store hit normal for preview orientation
         self._lastHitNormal = hit.Normal
         
-        -- Determine state
+        -- Determine state using active volume bounds (cube or island)
         if onCooldown then
             newState = "cooldown"
-        elseif not self:IsInsideCube(digPos) then
+        elseif not self:IsInsideActiveVolume(digPos) then
             newState = "outside_bounds"
         else
             newState = "ready"
@@ -445,12 +469,14 @@ end
 -- Enhanced terrain detection using raycasting for accurate surface detection
 -- Returns: hasTerrain, position, normal, didRaycast
 function DigVisualFeedback:_cellHasVisibleTerrain(cx: number, cy: number, cz: number, surfaceNormal: Vector3?): (boolean, Vector3?, Vector3?, boolean)
-    if not self.playerCubeOrigin then return false, nil, nil, false end
+    local origin = self.playerCubeOrigin
+    if not origin then return false, nil, nil, false end
     local CELL = GameConfig.Grid.CELL_SIZE_STUDS
-    local center = GridMath.cellToWorld(cx, cy, cz, self.playerCubeOrigin, CELL)
+    local center = GridMath.cellToWorld(cx, cy, cz, origin, CELL)
     
     -- Quick bounds check
-    if not self:IsInsideCube(center) then return false, nil, nil, false end
+    local inside = self:IsInsideCube(center)
+    if not inside then return false, nil, nil, false end
     
     -- Check cache first
     local cacheKey = string.format("%d,%d,%d", cx, cy, cz)
@@ -512,13 +538,17 @@ end
 
 
 function DigVisualFeedback:_updateHoverIndicators(worldPos: Vector3, state: DigState)
-    if not self.playerCubeOrigin then
+    local origin = self._activeOrigin or self.playerCubeOrigin
+    if not origin then
         if self._blanket then self._blanket:setEnabled(false) end
         return
     end
+    
+    -- Refill ray budget for this frame
+    self._raysRemaining = self._rayBudget
 
     -- Calculate center cell
-    local cx, cy, cz = GridMath.worldToCell(worldPos, self.playerCubeOrigin, GameConfig.Grid.CELL_SIZE_STUDS)
+    local cx, cy, cz = GridMath.worldToCell(worldPos, origin, GameConfig.Grid.CELL_SIZE_STUDS)
     local radius = MathUtils.nonNegative(tonumber(self.previewSize) or 0)
 
     -- Check terrain and get accurate surface position
@@ -537,15 +567,12 @@ function DigVisualFeedback:_updateHoverIndicators(worldPos: Vector3, state: DigS
     end
 
     -- Pick a color by state
-    local color =
-        (state == "ready") and READY_COLOR or
-        (state == "cooldown") and COOLDOWN_COLOR or
-        HOVER_COLOR
+    local color = (state == "ready") and READY_COLOR or COOLDOWN_COLOR
 
     -- Update blanket preview
     if self._blanket then
         self._blanket:setEnabled(true)
-        self._blanket:update(centerPos, centerNormal or self._lastHitNormal, self.playerCubeOrigin, radius, color)
+        self._blanket:update(centerPos, centerNormal or self._lastHitNormal, origin, radius, color)
     end
 end
 
