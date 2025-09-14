@@ -107,6 +107,9 @@ function ServiceManager.start()
     regReq(c, "SpawnService",            parent.SpawnService,            {"GridService","CubePositionService","DigService"})  -- SpawnService depends on DigService
     regReq(c, "CharacterStateManager",   parent.CharacterStateManager,   {"DataService"})
     
+    -- Cube manager (optional orchestration for spawn/despawn policies)
+    regOpt(c, "CubeManager", parent:FindFirstChild("CubeManager"), {"DigService","CubePositionService"})
+    
     -- Analytics (required)
     regReq(c, "UserMetricsService", parent.UserMetricsService, {"DataService","UpgradeService","GridService"})
 
