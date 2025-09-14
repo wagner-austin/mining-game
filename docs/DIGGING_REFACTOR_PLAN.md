@@ -284,14 +284,19 @@ This plan keeps DigService as the orchestrator, GridService as the terrain engin
 
 ## Migration Steps (Checklist)
 1) Add Types (Volume, VolumeState) to `shared/MiningGame/Types.lua`.
-2) Implement Volume registry in `DigService` with Register/Unregister/Pick.
-3) Add `snapInsideIfNearAABB` helper (copy from cube version; parametrize by `half`).
-4) Update `ProcessDigRequest` to be volume‑aware and include `volumeId`/`volumeOrigin` in result.
-5) Update hold‑dig loop to respect `volumeOrigin` for stepping.
-6) Wire `FloatingIslandService` to register/unregister volumes.
-7) Modify `GridService:ApplyDig` to clamp per axis using `state.extentsCells` if present.
-8) Add `ENABLE_ISLAND_MINING` feature flag and guard usage.
-9) Test cases (above); enable extra debug logs.
+2) Implement Volume registry in `DigService` with Register/Unregister/Pick.  [DONE]
+3) Add `snapInsideIfNearAABB` helper (copy from cube version; parametrize by `half`).  [DONE]
+4) Update `ProcessDigRequest` to be volume‑aware and include `volumeId`/`volumeOrigin` in result.  [DONE]
+5) Update hold‑dig loop to respect `volumeOrigin` for stepping.  [DONE]
+6) Wire `FloatingIslandService` to register/unregister volumes.  [DONE]
+7) Modify `GridService:ApplyDig` to clamp per axis using `state.extentsCells` if present.  [DONE]
+8) Add `ENABLE_ISLAND_MINING` feature flag and guard usage.  [DONE]
+9) Test cases (above); enable extra debug logs.  [IN PROGRESS]
+
+Additional
+- Add `QueryVolumeAt` RF for client preview.  [DONE]
+- Add anti‑cheat max range.  [DONE]
+- Add basic telemetry counters in DigService.  [DONE]
 
 ## Risks & Mitigations (Concrete)
 - Grid bounds bug → OOB writes: write assertions when `vx/vy/vz` index is outside arrays; log and early return.

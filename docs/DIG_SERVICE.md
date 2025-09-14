@@ -4,7 +4,7 @@
 
 The DigService manages all mining/digging mechanics in the game, including:
 - Processing dig requests from clients
-- Validating dig positions within player cubes
+- Validating dig positions within mineable volumes (player cubes; islands when enabled)
 - Managing dig cooldowns and rate limiting
 - Handling terrain modification through GridService
 - Distributing loot via LootService
@@ -111,6 +111,7 @@ GameConfig.Grid = {
 GameConfig.Digging = {
     BASE_DIG_DELAY = 1.0,        -- Seconds between digs
     BASE_DIG_SIZE_CELLS = 1,     -- Base dig radius
+    MAX_RANGE_STUDS = 200,       -- Anti-cheat: max click distance from HRP
 }
 ```
 
@@ -129,11 +130,23 @@ function DigService:ProcessDigRequest(player: Player, worldPos: Vector3): Types.
 ```lua
 {
     ok: boolean,
-    reason?: string,           -- Error message if not ok
-    nextAllowedAt?: number,    -- Cooldown timestamp
-    cellsDestroyed?: number,   -- Number of cells destroyed
-    loot?: {[string]: number}  -- Items received
+    reason?: string,            -- Error message if not ok ("Out of range", "Outside your cube", ...)
+    nextAllowedAt?: number,     -- Cooldown timestamp
+    cellsDug?: number,          -- Number of cells dug
+    lootCounts?: {[string]: number},
+    centerCell?: {x:number,y:number,z:number},
+    volumeId?: string,          -- Selected volume id (cube:<uid> or island:...)
+    volumeOrigin?: CFrame,      -- Volume origin used for world<->cell transforms
 }
+
+### Volume Query RF (client preview)
+
+```
+QueryVolumeAt(position: Vector3)
+  -> { ok=true, success=true, hit=false }
+  or { ok=true, success=true, hit=true, id, kind, origin, size, public }
+```
+Uses server picker for exact preview snapping.
 ```
 
 ### InitializePlayerCube
@@ -177,7 +190,13 @@ When modifying dig mechanics, test:
 
 ## Recent Updates
 
-### Boundary Fix (Latest)
+### Volume-Aware Digging (Latest)
+- Added volume registry in DigService; player cubes registered automatically; floating islands register when `Features.ENABLE_ISLAND_MINING = true`.
+- `ProcessDigRequest` now selects a volume (cube first; islands if enabled), snaps inside AABB, and clamps per-axis via `state.extentsCells`.
+- GridService clamps per-axis when `extentsCells` present; falls back to cube size otherwise.
+- Anti-cheat: range limit via `GameConfig.Digging.MAX_RANGE_STUDS`.
+
+### Boundary Fix
 - **Problem:** False rejections when clicking cube face at lowest dig level
 - **Solution:** 
   - Client: Increased offset from 1.0 to 1.8 studs (45% of cell)
