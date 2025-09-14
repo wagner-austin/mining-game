@@ -36,10 +36,13 @@ local E = {
     NEIGHBOR_LEFT = "neighbor.left",
     CUBE_UPDATE = "cube.update",
     
-    -- Island events (for breaking WorldGen ↔ FloatingIsland cycle)
+    -- Cube manager + islands
+    CUBE_SPAWN_REQUEST = "cube.spawn.request",
+    CUBE_DESPAWN_REQUEST = "cube.despawn.request",
     ISLAND_SPAWN_REQUEST = "island.spawn.request",
     ISLAND_REMOVE_REQUEST = "island.remove.request",
-    -- Tree generation events (procedural decorations)
+    
+    -- Tree generation events
     TREE_SPAWN_REQUEST = "tree.spawn.request",
     TREE_CLEAR_REQUEST = "tree.clear.request",
 
@@ -52,15 +55,11 @@ local E = {
     FIREFLY_CLEAR_REQUEST = "firefly.clear.request",
 }
 
--- Build validation table for whitelists/tests
 local VALID: {[string]: true} = {}
 for _, v in pairs(E) do
-    if type(v) == "string" then 
-        VALID[v] = true 
-    end
+    if type(v) == "string" then VALID[v] = true end
 end
 
--- Helper function to validate event names
 function E.isValid(name: string): boolean
     return VALID[name] == true
 end
@@ -76,6 +75,7 @@ export type EventName =
     "sound.play" | "terrain.poke" | "cloth.update" |
     "neighbor.joined" | "neighbor.left" | "cube.update" | "error.reported" |
     "dig.mega_request" | "dig.auto_start" | "composition.apply.request" |
+    "cube.spawn.request" | "cube.despawn.request" |
     "island.spawn.request" | "island.remove.request" |
     "tree.spawn.request" | "tree.clear.request" |
     "rock.spawn.request" | "rock.clear.request" |

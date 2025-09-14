@@ -225,4 +225,23 @@ function Contracts.FIREFLY_CLEAR_REQUEST(payload: {
     return payload or { all = true }
 end
 
+-- NOTE: return moved to end to include cube contracts below
+
+-- Cube spawn/despawn requests
+function Contracts.CUBE_SPAWN_REQUEST(payload: { player: Player?, userId: number?, all: boolean? })
+    assertType(type(payload) == "table" or payload == nil, "payload table or nil required")
+    payload = payload or { all = true }
+    if payload.player ~= nil then assertType(typeof(payload.player) == "Instance", "player must be Instance") end
+    if payload.userId ~= nil then assertType(type(payload.userId) == "number", "userId must be number") end
+    return payload
+end
+
+function Contracts.CUBE_DESPAWN_REQUEST(payload: { player: Player?, userId: number?, all: boolean? })
+    assertType(type(payload) == "table" or payload == nil, "payload table or nil required")
+    payload = payload or { all = true }
+    if payload.player ~= nil then assertType(typeof(payload.player) == "Instance", "player must be Instance") end
+    if payload.userId ~= nil then assertType(type(payload.userId) == "number", "userId must be number") end
+    return payload
+end
+
 return Contracts
