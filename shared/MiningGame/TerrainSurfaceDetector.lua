@@ -180,6 +180,9 @@ function TerrainSurfaceDetector.IsExposedAt(worldPos: Vector3, normal: Vector3, 
     local frontPos = worldPos + normal * (cellSize * SAMPLE_BIAS)
     local backPos = worldPos - normal * (cellSize * SAMPLE_BIAS)
     
+    -- Debug logging for surface detection issues (only when result is false)
+    local DEBUG_FAILURES = true
+    
     -- Grid-aware cache key includes both sample positions and normal axis
     local cacheKey = getCellKey(frontPos, cellSize) .. "|" .. 
                      getCellKey(backPos, cellSize) .. "|" .. 
@@ -196,15 +199,23 @@ function TerrainSurfaceDetector.IsExposedAt(worldPos: Vector3, normal: Vector3, 
     local frontMat, frontOcc = getVoxelAt(frontPos, cellSize)
     local backMat, backOcc = getVoxelAt(backPos, cellSize)
     
-    -- Air ahead and solid diggable terrain behind = exposed surface
+    -- For floating cubes with hollow/water interiors, only check if there's air in front
+    -- The back can be air (hollow) or water (swimmable) - we don't need solid behind
     local airAhead = (frontMat == Enum.Material.Air) or (frontOcc <= AIR_THRESHOLD)
-    -- Handle liquids with lower threshold
-    local backKey = MaterialDefinitions.KeyFromEnum[backMat]
-    local backIsLiquid = backKey and MaterialDefinitions.GetProperty(backKey, "isLiquid") == true
-    local backThreshold = backIsLiquid and math.min(0.15, SOLID_THRESHOLD) or SOLID_THRESHOLD
-    local solidBehind = (backMat ~= Enum.Material.Air) and (backOcc >= backThreshold) and isDiggable(backMat)
     
-    local isExposed = airAhead and solidBehind
+    -- We're on a surface if there's air ahead - don't require solid behind
+    -- This handles floating cubes with hollow interiors or water-filled areas
+    local isExposed = airAhead
+    
+    -- Only log failures to reduce noise
+    if DEBUG_FAILURES and not isExposed then
+        local log = require(script.Parent:WaitForChild("Logger")).new("TerrainSurfaceDetector")
+        log:debug("IsExposedAt FAILED: pos=%s, normal=%s", tostring(worldPos), tostring(normal))
+        log:debug("  Front sample: %s", tostring(frontPos))
+        log:debug("  Back sample: %s", tostring(backPos))
+        log:debug("  Front: mat=%s, occ=%.2f, airAhead=%s", tostring(frontMat), frontOcc, tostring(airAhead))
+        log:debug("  Back: mat=%s, occ=%.2f", tostring(backMat), backOcc)
+    end
     
     -- Cache result with LRU tracking
     if not cached then
@@ -425,6 +436,27 @@ function TerrainSurfaceDetector.CheckCellSurface(worldPos: Vector3, cellSize: nu
         return true, worldPos, Vector3.new(0, 1, 0), Enum.Material.Rock -- Allow all terrain when disabled
     end
     
+    -- First do a simple check: is there ANY terrain at this position?
+    -- This handles mixed composition surfaces better
+    local simpleRegion = Region3.new(
+        worldPos - Vector3.new(cellSize * 0.1, cellSize * 0.1, cellSize * 0.1),
+        worldPos + Vector3.new(cellSize * 0.1, cellSize * 0.1, cellSize * 0.1)
+    ):ExpandToGrid(cellSize)
+    
+    local simpleMats, simpleOccs = Terrain:ReadVoxels(simpleRegion, cellSize)
+    if simpleMats.Size.X > 0 and simpleMats.Size.Y > 0 and simpleMats.Size.Z > 0 then
+        local mat = simpleMats[1][1][1]
+        local occ = simpleOccs[1][1][1]
+        -- If there's terrain here (even partial), consider it valid for surface mining
+        if mat ~= Enum.Material.Air and occ > 0.1 then
+            -- Estimate normal by doing a simple raycast downward
+            local rayResult = workspace:Raycast(worldPos + Vector3.new(0, cellSize, 0), Vector3.new(0, -cellSize * 2, 0))
+            local normal = rayResult and rayResult.Normal or Vector3.new(0, 1, 0)
+            return true, worldPos, normal, mat
+        end
+    end
+    
+    -- Fall back to original detection for more complex cases
     -- Expand slightly to catch edges
     local half = cellSize * 0.75
     local region = Region3.new(
