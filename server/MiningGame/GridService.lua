@@ -94,6 +94,7 @@ local CELL_SIZE = GameConfig.Grid.CELL_SIZE_STUDS
 local VOX = GameConfig.Terrain.VOXEL_RESOLUTION
 local CHUNK_SIZE = GameConfig.Grid.CHUNK_CELLS
 local CELLS_PER_CHUNK = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE
+local FACE_PROBE_EPSILON = math.min(0.01, CELL_SIZE * 0.01)  -- Small offset for face probing
 
 -- Throttling for terrain writes (lastWriteTime already declared at top)
 local WRITE_THROTTLE = GameConfig.Performance.GRID_WRITE_THROTTLE
@@ -174,6 +175,20 @@ local function shouldThrottle(player: Player): boolean
     return false
 end
 
+-- Check if a cell position has solid terrain
+local function hasSolidTerrain(worldPos: Vector3): boolean
+    local region = Region3.new(
+        worldPos - Vector3.new(0.1, 0.1, 0.1),
+        worldPos + Vector3.new(0.1, 0.1, 0.1)
+    ):ExpandToGrid(4)
+    
+    local materials, occupancies = Terrain:ReadVoxels(region, 4)
+    local mat = materials[1][1][1]
+    local occ = occupancies[1][1][1]
+    
+    return mat ~= Enum.Material.Air and occ > 0.5
+end
+
 --[[
     Apply a dig operation to terrain, removing voxels in a cube pattern.
     Handles state updates, terrain modification, and performance tracking.
@@ -194,81 +209,11 @@ function GridService:ApplyDig(
     cellX: number,
     cellY: number,
     cellZ: number,
-    size: number
+    size: number,
+    options: {mode: string?, normal: Vector3?}?
 ): ({Cell}, SoundHint?)
-    
-    -- Throttle per-player writes
-    if shouldThrottle(player) then
-        return {}
-    end
-    
-    -- Guard input to prevent negative size
-    size = MathUtils.nonNegative(size)
-    
-    local halfCells = (GameConfig.Grid.CUBE_SIZE_STUDS / CELL_SIZE) / 2
-    local minBound, maxBound = -halfCells, halfCells - 1
-    
-    -- Create a cube centered on the target cell
-    local xMin = math.max(cellX - size, minBound)
-    local xMax = math.min(cellX + size, maxBound)
-    local yMin = math.max(cellY - size, minBound)
-    local yMax = math.min(cellY + size, maxBound)
-    local zMin = math.max(cellZ - size, minBound)
-    local zMax = math.min(cellZ + size, maxBound)
-    
-    -- Early exit if bounds are invalid
-    if xMin > xMax or yMin > yMax or zMin > zMax then
-        return {}
-    end
-    
-    -- Preallocate based on actual volume
-    local width = xMax - xMin + 1
-    local height = yMax - yMin + 1
-    local length = zMax - zMin + 1
-    local expected = width * height * length
-    
-    local prealloc = math.min(expected, 10000)
-    local dugCells = table.create(prealloc)
-    local cellsToWrite = table.create(prealloc)
-    local dugCount, writeCount = 0, 0
-    
-    -- Iterate once over unique cells (no duplicates)
-    DigPerformance.measureSection("CellIteration", function()
-        for y = yMax, yMin, -1 do
-            for x = xMin, xMax do
-                for z = zMin, zMax do
-                    if markCellDug(state, x, y, z) then
-                        dugCount = dugCount + 1
-                        writeCount = writeCount + 1
-                        local cell = {x = x, y = y, z = z}
-                        dugCells[dugCount] = cell
-                        cellsToWrite[writeCount] = cell
-                    end
-                end
-            end
-        end
-    end)
-    
-    -- Early exit if nothing was dug
-    if writeCount == 0 then
-        return {}
-    end
-    
-    -- Trim arrays to actual size (important for #cells to work correctly)
-    for i = dugCount + 1, #dugCells do
-        dugCells[i] = nil
-    end
-    for i = writeCount + 1, #cellsToWrite do
-        cellsToWrite[i] = nil
-    end
-    
-    -- Single pass terrain write
-    local soundHint
-    DigPerformance.measureSection("TerrainWrite", function()
-        soundHint = self:WriteCellsToTerrain(cubeOrigin, cellsToWrite, state.materialId)
-    end)
-    
-    return dugCells, soundHint
+    local DigEngine = require(script.Parent.Grid:WaitForChild("DigEngine"))
+    return DigEngine.ApplyDig(player, cubeOrigin, state, cellX, cellY, cellZ, size, options)
 end
 
 --[[
@@ -284,156 +229,8 @@ function GridService:WriteCellsToTerrain(
     cells: {Cell},
     materialId: string
 ): SoundHint
-    -- Guard against nil or empty cells
-    if not cells or #cells == 0 then 
-        log:debug("WriteCellsToTerrain: no cells to write, skipping")
-        return 
-    end
-    
-    -- 1) Compute cell-space AABB of the dig set
-    local minX, minY, minZ = math.huge, math.huge, math.huge
-    local maxX, maxY, maxZ = -math.huge, -math.huge, -math.huge
-    for _, c in ipairs(cells) do
-        if c.x < minX then minX = c.x end
-        if c.y < minY then minY = c.y end
-        if c.z < minZ then minZ = c.z end
-        if c.x > maxX then maxX = c.x end
-        if c.y > maxY then maxY = c.y end
-        if c.z > maxZ then maxZ = c.z end
-    end
-    
-    -- 2) Convert the cell AABB to robust world-space AABB, accounting for rotation
-    local function worldCornerForCellMinCorner(cx, cy, cz)
-        -- get min-corner of THAT cell in world space
-        local center = GridMath.cellToWorld(cx, cy, cz, cubeOrigin, CELL_SIZE)
-        return center - Vector3.new(CELL_SIZE/2, CELL_SIZE/2, CELL_SIZE/2)
-    end
-    
-    -- include the top-right-front boundary by using [min, max+1] on each axis
-    local ex = {minX, maxX + 1}
-    local ey = {minY, maxY + 1}
-    local ez = {minZ, maxZ + 1}
-    
-    local wmin = Vector3.new( math.huge,  math.huge,  math.huge)
-    local wmax = Vector3.new(-math.huge, -math.huge, -math.huge)
-    
-    for _, cx in ipairs(ex) do
-        for _, cy in ipairs(ey) do
-            for _, cz in ipairs(ez) do
-                local p = worldCornerForCellMinCorner(cx, cy, cz)
-                if p.X < wmin.X then wmin = Vector3.new(p.X, wmin.Y, wmin.Z) end
-                if p.Y < wmin.Y then wmin = Vector3.new(wmin.X, p.Y, wmin.Z) end
-                if p.Z < wmin.Z then wmin = Vector3.new(wmin.X, wmin.Y, p.Z) end
-                
-                if p.X > wmax.X then wmax = Vector3.new(p.X, wmax.Y, wmax.Z) end
-                if p.Y > wmax.Y then wmax = Vector3.new(wmax.X, p.Y, wmax.Z) end
-                if p.Z > wmax.Z then wmax = Vector3.new(wmax.X, wmax.Y, p.Z) end
-            end
-        end
-    end
-    
-    -- align to voxel grid (4 studs)
-    local function snapDown(v, s) return Vector3.new(
-        math.floor(v.X/s)*s, math.floor(v.Y/s)*s, math.floor(v.Z/s)*s) end
-    local function snapUp(v, s) return Vector3.new(
-        math.ceil(v.X/s)*s, math.ceil(v.Y/s)*s, math.ceil(v.Z/s)*s) end
-    
-    local s = VOX
-    local rmin = snapDown(wmin, s)
-    local rmax = snapUp(wmax, s)
-    
-    -- guard against degenerate region
-    local delta = rmax - rmin
-    if (delta.X <= 0) or (delta.Y <= 0) or (delta.Z <= 0) then
-        log:warn("WriteCellsToTerrain: empty region after snap (min=%s, max=%s)", tostring(rmin), tostring(rmax))
-        return
-    end
-    
-    local region = Region3.new(rmin, rmax):ExpandToGrid(s)
-    
-    -- 3) Read once with error handling
-    local ok, vox = ErrorService.safecall("Terrain:ReadVoxels", function()
-        local mats, occ = DigPerformance.measureSection("ReadVoxels", function()
-            return Terrain:ReadVoxels(region, VOX)
-        end)
-        return { materials = mats, occupancy = occ }
-    end, { region = tostring(region) })
-    
-    if not ok then
-        log:warn("WriteCellsToTerrain: ReadVoxels failed (min={}, max={}): {}", tostring(rmin), tostring(rmax), tostring(vox))
-        return
-    end
-    local materials, occupancy = vox.materials, vox.occupancy
-    local size = materials.Size  -- Vector3int16 of voxel counts
-    
-    -- 4) Mark only targeted voxels (optimized with inline calculations)
-    local regionMin = region.CFrame.Position - region.Size/2
-    local maxVX, maxVY, maxVZ = size.X, size.Y, size.Z
-    local invVoxel = 1 / VOX
-    
-    -- Track materials for sound system
-    local materialCounts = {}
-    local firstWorldPosForSound = nil
-    
-    for i = 1, #cells do
-        local c = cells[i]
-        
-        -- Inline world position calculation (saves function call overhead)
-        -- IMPORTANT: Terrain cubes are axis-aligned, don't apply rotation!
-        local localPos = Vector3.new(
-            (c.x + 0.5) * CELL_SIZE,
-            (c.y + 0.5) * CELL_SIZE,
-            (c.z + 0.5) * CELL_SIZE
-        )
-        local wCenter = cubeOrigin.Position + localPos
-        local rel = wCenter - regionMin
-        
-        -- Use integer floor operator // to avoid function call
-        local vx = (rel.X * invVoxel) // 1 + 1
-        local vy = (rel.Y * invVoxel) // 1 + 1
-        local vz = (rel.Z * invVoxel) // 1 + 1
-        
-        if vx >= 1 and vx <= maxVX and vy >= 1 and vy <= maxVY and vz >= 1 and vz <= maxVZ then
-            -- Track material before clearing (for sound system)
-            local mat = materials[vx][vy][vz]
-            if mat ~= Enum.Material.Air then
-                materialCounts[mat] = (materialCounts[mat] or 0) + 1
-                if not firstWorldPosForSound then
-                    firstWorldPosForSound = wCenter
-                end
-            end
-            
-            occupancy[vx][vy][vz] = 0
-            materials[vx][vy][vz] = Enum.Material.Air
-        end
-    end
-    
-    -- 5) Write once
-    DigPerformance.measureSection("WriteVoxels", function()
-        ErrorService.safecall("Terrain:WriteVoxels", function()
-            Terrain:WriteVoxels(region, VOX, materials, occupancy)
-        end, { region = tostring(region) })
-        -- Clear surface detection cache after terrain modification
-        ErrorService.safecall("TerrainSurfaceDetector.ClearCache", function()
-            TerrainSurfaceDetector.ClearCache()
-        end)
-    end)
-    
-    -- 6) Determine dominant material for sound
-    local dominantMaterial, maxCount = nil, 0
-    for mat, count in pairs(materialCounts) do
-        if count > maxCount then
-            dominantMaterial, maxCount = mat, count
-        end
-    end
-    
-    -- Use canonical mapping to get the terrain key
-    local soundKey = dominantMaterial and MaterialKeys.KeyFromEnum[dominantMaterial] or nil
-    
-    return {
-        materialKey = soundKey or "rock",   -- fallback only if somehow nil
-        worldPos = firstWorldPosForSound
-    }
+    local DigEngine = require(script.Parent.Grid:WaitForChild("DigEngine"))
+    return DigEngine.WriteCellsToTerrain(cubeOrigin, cells, materialId)
 end
 
 --[[
@@ -591,7 +388,8 @@ function GridService:RestoreCube(cubeOrigin: CFrame, state: Types.CubeState, ini
     
     -- Carve out dug cells
     if #cellsToCarve > 0 then
-        self:WriteCellsToTerrain(cubeOrigin, cellsToCarve, state.materialId)
+        local DigEngine = require(script.Parent.Grid:WaitForChild("DigEngine"))
+        DigEngine.WriteCellsToTerrain(cubeOrigin, cellsToCarve, state.materialId)
     end
     
     model.Name = "MiningCube_" .. tostring(state.ownerId)
