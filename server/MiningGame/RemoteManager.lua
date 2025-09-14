@@ -203,14 +203,22 @@ function RemoteManager.registerRF<T>(
         local rate = (rateLimitSec and rateLimitSec > 0) and (1 / rateLimitSec) or math.huge
         if (rate ~= math.huge) and RateLimitService and
            not RateLimitService.allow(player.UserId, "rf:" .. name, rate, 1) then
-            log:debug("Rate limited %s for %s", name, player.Name)
+            if name == "RequestDig" or name == "StartContinuousDig" then
+                log:info("RF rate-limited: %s for %s", name, player.Name)
+            else
+                log:debug("Rate limited %s for %s", name, player.Name)
+            end
             return Result.err("RATE_LIMIT", "Too many requests")
         end
         
         -- Schema validation (always required now)
         local valid: boolean, err: string? = schema(table.unpack(args, 1, args.n))
         if not valid then
-            log:debug("Schema validation failed for %s: %s", name, err or "Invalid input")
+            if name == "RequestDig" or name == "StartContinuousDig" then
+                log:info("RF invalid input: %s from %s (%s)", name, player.Name, err or "Invalid input")
+            else
+                log:debug("Schema validation failed for %s: %s", name, err or "Invalid input")
+            end
             return Result.err("INVALID_INPUT", err or "Invalid input")
         end
         
@@ -223,11 +231,17 @@ function RemoteManager.registerRF<T>(
         -- Profile loading (default true)
         if requireProfile then
             if not DataService:EnsureLoaded(player) then
+                if name == "RequestDig" or name == "StartContinuousDig" then
+                    log:info("RF no profile: %s for %s", name, player.Name)
+                end
                 return Result.err("NO_PROFILE", "Profile not loaded")
             end
             
             local profile = DataService:GetPlayerData(player)
             if not profile then
+                if name == "RequestDig" or name == "StartContinuousDig" then
+                    log:info("RF profile unavailable: %s for %s", name, player.Name)
+                end
                 return Result.err("NO_PROFILE", "Profile unavailable")
             end
             ctx.profile = profile
