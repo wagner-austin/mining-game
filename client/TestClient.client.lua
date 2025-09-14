@@ -184,19 +184,26 @@ end
 local function requestDigAt(position: Vector3)
     local t = now()
     
-    -- Client-side bounds check for better UX
-    if not insideCube(position, playerCubeOrigin) then
-        log:debug("Click outside cube bounds - ignoring")
-        return
+    -- Expanded client-side check: allow island volumes too (server authoritative)
+    -- Keep permissive: only block if far out of range to reduce noisy calls.
+    do
+        local maxRange = (GameConfig.Digging and GameConfig.Digging.MAX_RANGE_STUDS) or 0
+        if maxRange and maxRange > 0 then
+            local dist = (position - humanoidRootPart.Position).Magnitude
+            if dist > maxRange * 1.25 then -- small grace margin vs server
+                log:debug("Click way out of range - ignoring")
+                return
+            end
+        end
     end
     
     -- ✅ local cooldown guard (mirrors server; prevents fails/no-sound cases)
     if t < cooldownEndsAt then
-        log:debug("On cooldown (%.2fs left)", MathUtils.saturatingSub(cooldownEndsAt, t))
+        log:debug("Local cooldown (%.2fs left)", MathUtils.saturatingSub(cooldownEndsAt, t))
         return
     end
     
-    log:debug("Requesting dig at: %s", tostring(position))
+    log:info("[DEBUG] REQUESTING DIG AT: %s", tostring(position))
     
     -- ✅ ask the server FIRST
     local result, err = ClientRF.call("RequestDig", position)
@@ -407,8 +414,6 @@ local continuousDigLoop = nil
 
 -- Helper function to get dig position from mouse
 local function getDigPositionFromMouse(): Vector3?
-    if not playerCubeOrigin then return nil end -- Guard against missing cube origin
-    
     local cam = workspace.CurrentCamera
     if not cam then return nil end
     
@@ -418,20 +423,62 @@ local function getDigPositionFromMouse(): Vector3?
     -- Use pre-created params for efficiency
     local hit = workspace:Raycast(ray.Origin, ray.Direction * GameConfig.Client.CONTINUOUS_DIG_RAY_LENGTH, terrainRayParams)
     
-    if not hit then return nil end
+    if not hit then
+        log:debug("Raycast miss (no Terrain under cursor)")
+        return nil
+    end
     
-    -- Tiny nudge onto the surface, then snap to the exact cell center the server uses
-    local aim = hit.Position - (hit.Normal * 0.01)
+    -- DEBUG: Log exact hit details
+    log:info("[DEBUG] CLIENT HIT:")
+    log:info("  Hit Position: %s", tostring(hit.Position))
+    log:info("  Hit Normal: %s", tostring(hit.Normal))
+    log:info("  Hit Material: %s", tostring(hit.Material))
     
-    -- Snap to cell center for perfect alignment with server
-    local cx, cy, cz = GridMath.worldToCell(aim, playerCubeOrigin, CELL_SIZE)
-    return GridMath.cellToWorld(cx, cy, cz, playerCubeOrigin, CELL_SIZE)
+    -- Keep the actual surface position for external faces
+    local surfacePos = hit.Position
+    
+    -- Ask server which volume we're over
+    local vol, _ = ClientRF.call("QueryVolumeAt", surfacePos)
+    local origin: CFrame? = nil
+    if vol and vol.ok and vol.success and vol.hit then
+        origin = vol.origin
+        log:info("[DEBUG] VOLUME HIT:")
+        log:info("  Volume ID: %s", tostring(vol.id))
+        log:info("  Volume Kind: %s", tostring(vol.kind))
+        log:info("  Volume Origin: %s", tostring(vol.origin.Position))
+        log:info("  Volume Size: %s", tostring(vol.size))
+        -- Update visual feedback with the active volume
+        if _G.MiningGameVisualFeedback then
+            _G.MiningGameVisualFeedback:SetActiveVolume(vol.origin, vol.size)
+        end
+    else
+        log:debug("QueryVolumeAt: no hit at %s", tostring(surfacePos))
+        origin = playerCubeOrigin -- fallback for early boot
+        -- Update visual feedback to use player cube
+        if _G.MiningGameVisualFeedback and playerCubeOrigin then
+            local s = GameConfig.Grid.CUBE_SIZE_STUDS
+            _G.MiningGameVisualFeedback:SetActiveVolume(playerCubeOrigin, Vector3.new(s, s, s))
+        end
+    end
+    if not origin then return surfacePos end
+
+    -- For external surfaces, use the actual hit position
+    -- The server will validate if this is a valid exposed surface
+    log:info("[DEBUG] SENDING TO SERVER: %s", tostring(surfacePos))
+    return surfacePos
 end
 
 -- Mouse down: start continuous digging at cursor position
 mouse.Button1Down:Connect(function()
     ClientError.try("MouseDown", function()
         isMouseDown = true
+        log:debug("MouseDown")
+        local pos = getDigPositionFromMouse()
+        if pos then
+            requestDigAt(pos)
+        else
+            log:debug("MouseDown: no dig position available")
+        end
         
         -- Start a loop that digs wherever the mouse is pointing
         continuousDigLoop = task.spawn(function()
