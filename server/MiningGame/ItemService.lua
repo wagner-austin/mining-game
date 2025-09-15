@@ -188,6 +188,18 @@ local function createItemModel(itemDef: Types.LootDrop, position: Vector3, count
     return DropModelFactory.create(itemDef, position, count)
 end
 
+-- Helper: schedule a final hard-despawn for public orphaned drops
+local function scheduleFinalHardDespawn(model: Model)
+    local thisModel = model
+    task.delay(FINAL_DESPAWN_AFTER, function()
+        local d = activeDrops[thisModel]
+        if d and not d.claimed and d.owner == nil then
+            ItemService:RemoveDrop(thisModel)
+            log:debug("Hard-despawned orphaned drop: %s", d.itemId)
+        end
+    end)
+end
+
 -- Core spawn helper with per-dig cap and rarity prioritization
 local function spawnCapped(entries: {{itemId: string, position: Vector3}}, owner: Player?): {Model}
     local drops = {}
@@ -349,14 +361,7 @@ function ItemService:SpawnStackedDrop(itemId: string, count: number, position: V
                                 log:debug("Drop made public after failed collection: %s", data.itemId)
                                 
                                 -- Schedule final hard-despawn for orphaned drops
-                                local thisModel = model
-                                task.delay(FINAL_DESPAWN_AFTER, function()
-                                    local d = activeDrops[thisModel]
-                                    if d and not d.claimed and d.owner == nil then
-                                        self:RemoveDrop(thisModel)
-                                        log:debug("Hard-despawned orphaned drop: %s", d.itemId)
-                                    end
-                                end)
+                                scheduleFinalHardDespawn(model)
                             end
                         end)
                     end
@@ -369,14 +374,7 @@ function ItemService:SpawnStackedDrop(itemId: string, count: number, position: V
                     log:debug("Drop made public - owner disconnected: %s", data.itemId)
                     
                     -- Schedule final hard-despawn for orphaned drops
-                    local thisModel = model
-                    task.delay(FINAL_DESPAWN_AFTER, function()
-                        local d = activeDrops[thisModel]
-                        if d and not d.claimed and d.owner == nil then
-                            self:RemoveDrop(thisModel)
-                            log:debug("Hard-despawned orphaned drop: %s", d.itemId)
-                        end
-                    end)
+                    scheduleFinalHardDespawn(model)
                 end
             else
                 -- Already claimed, just remove
@@ -482,14 +480,7 @@ function ItemService:AutoCollectDrop(dropModel: Model, collector: Player): boole
             log:debug("Stack-capped item made public: %s", dropData.itemId)
             
             -- Schedule final hard-despawn
-            local thisModel = dropModel
-            task.delay(FINAL_DESPAWN_AFTER, function()
-                local d = activeDrops[thisModel]
-                if d and not d.claimed and d.owner == nil then
-                    ItemService:RemoveDrop(thisModel)
-                    log:debug("Hard-despawned orphaned drop: %s", d.itemId)
-                end
-            end)
+            scheduleFinalHardDespawn(dropModel)
         end
         
         dropData.claimed = false
@@ -829,6 +820,16 @@ end
 
 -- Forced-claim safety sweep (runs at ~1 Hz)
 local forcedClaimAccumulator = 0
+local function grantOwnerIfPresent(dropData: DropData)
+    if dropData.owner and dropData.owner.Parent ~= nil then
+        pcall(function()
+            InventoryService:AddItem(dropData.owner, dropData.itemId, dropData.count)
+        end)
+        return true
+    end
+    return false
+end
+
 local function handleForcedClaim(dt: number)
     forcedClaimAccumulator += dt
     if forcedClaimAccumulator < 1.0 then return end
@@ -839,21 +840,13 @@ local function handleForcedClaim(dt: number)
         if dropData and not dropData.claimed then
             local invalid = (not dropModel.Parent) or (not dropModel.PrimaryPart)
             if invalid then
-                if dropData.owner and dropData.owner.Parent ~= nil then
-                    pcall(function()
-                        InventoryService:AddItem(dropData.owner, dropData.itemId, dropData.count)
-                    end)
-                end
+                grantOwnerIfPresent(dropData)
                 dropData.claimed = true
                 ItemService:RemoveDrop(dropModel)
             else
                 local age = now - dropData.spawnTime
                 if age > (ITEM_LIFETIME + DESPAWN_RETRY_DELAY) then
-                    if dropData.owner and dropData.owner.Parent ~= nil then
-                        pcall(function()
-                            InventoryService:AddItem(dropData.owner, dropData.itemId, dropData.count)
-                        end)
-                    end
+                    grantOwnerIfPresent(dropData)
                     dropData.claimed = true
                     ItemService:RemoveDrop(dropModel)
                 end
