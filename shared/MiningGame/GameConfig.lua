@@ -120,11 +120,21 @@ GameConfig.Features = {
     -- Enable/disable the upgrade system
     ENABLE_UPGRADES = true,  -- Set to false to completely disable upgrades
     SHOW_UPGRADE_TAB = true,  -- Whether to show the Upgrades tab in settings
+    SHOW_SHOP_TAB = true,     -- Whether to show the Cash Shop Cosmetics tab
     
     -- NEW COSMETICS SYSTEM
     COSMETICS_ENABLED = true,        -- Master switch for cosmetic drops and equipment
     COSMETICS_IN_LOOT = true,        -- Include cosmetics in loot drops
     COSMETIC_WEIGHT_MULT = 0.1,      -- Multiplier for cosmetic drop rates (0.1 = 10x rarer)
+    
+    -- SHOP / ENHANCED COSMETICS (release-day flags)
+    SHOP_ENABLED = true,             -- Server RF gate for Cash Shop (dev default on; UI toggled separately)
+    SHOW_LEFT_NAV = true,            -- UI gate for left-side nav (Shop/Inventory/Index)
+    SHOW_SHOP_TAB = false,           -- UI gate for Cash Shop (enabled when Shop RF is live)
+    SHOW_ITEM_INDEX = true,          -- UI gate for Item Index panel
+    SHOP_ENABLED = true,             -- Server gate for Shop RFs
+    ENHANCED_COSMETICS_ENABLED = true, -- Include enhanced cosmetics in catalogs
+    ENHANCED_PERKS_ENABLED = true,     -- Apply movement perks granted by enhanced cosmetics
     
     -- ACHIEVEMENT SYSTEM
     ACHIEVEMENTS_ENABLED = true,      -- Enable/disable achievement system
@@ -143,6 +153,10 @@ GameConfig.Features = {
     -- Mining volumes rollout (Phase 1)
     ENABLE_ISLAND_MINING = true,  -- Enable volume-aware dig and island registration for QA
     ENABLE_VOLUME_HASH = true,    -- Use spatial hash for island volume picking
+
+    -- Drops reliability (W4)
+    LOOT_MAGNET_ENABLED = true,      -- Enable owner magnet pickup behavior
+    FORCED_CLAIM_ENABLED = true,     -- Enable safety sweep to grant/clean invalid or expired drops
 }
 
 -- Grid System Configuration
@@ -361,6 +375,11 @@ GameConfig.Loot = {
     -- Pickup/visual tunables for ItemService
     PICKUP_RANGE = 12,
     AUTO_COLLECT_RANGE = 50,
+    -- Owner magnet tuning (W4)
+    MAGNET_START_DELAY = 0.8,     -- Seconds after spawn before magnet begins
+    MAGNET_START_RANGE = 12,      -- Initial magnet radius for owner (studs)
+    MAGNET_MAX_RANGE = 35,        -- Max magnet radius (studs)
+    MAGNET_GROWTH_SECONDS = 3,    -- Time from start to reach max (seconds)
     ROTATION_SPEED = 1,
     MAX_DROPS_PER_PLAYER = 20,
     MAX_DROPS_PER_DIG = 5,
