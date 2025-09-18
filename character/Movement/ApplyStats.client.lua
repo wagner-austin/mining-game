@@ -13,6 +13,7 @@ local humanoid: Humanoid = character:WaitForChild("Humanoid")
 
 humanoid.UseJumpPower = false
 
+
 local function recalc(): ()
     local speed = Config.BASE_SPEED
     local jump = Config.BASE_JUMP_HEIGHT
@@ -25,6 +26,7 @@ local function recalc(): ()
     local speedMult, speedAdd, jumpMult, jumpAdd = CharacterStateClient.getMovementMods()
     speed = speed * speedMult + speedAdd
     jump = jump * jumpMult + jumpAdd
+
     
     -- Clamp to limits
     speed = math.clamp(speed, Config.LIMITS.speedMin, Config.LIMITS.speedMax)

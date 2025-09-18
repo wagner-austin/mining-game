@@ -2,12 +2,14 @@
 -- Robust double jump, tuned by shared/Movement/Config.lua
 
 local RS         = game:GetService("ReplicatedStorage")
+local Players    = game:GetService("Players")
 local UIS        = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 
 local MiningGame = RS:WaitForChild("MiningGame")
 local MathUtils = require(MiningGame:WaitForChild("MathUtils"))
 local Time = require(MiningGame:WaitForChild("Time"))
+local CharacterStateClient = require(MiningGame:WaitForChild("Character"):WaitForChild("CharacterStateClient"))
 
 local movementFolder = script.Parent          -- "Movement"
 local character      = movementFolder.Parent
@@ -26,7 +28,28 @@ end
 -- Removed unused DoubleJumpFired BindableEvent
 -- If server authority is needed, use EventBus/RemoteEventBridge instead
 
-local MAX_JUMPS     = DJ.maxJumps or 2
+local player        = Players.LocalPlayer
+
+local MAX_JUMPS_BASE = DJ.maxJumps or 2
+local function computeMaxJumps(): number
+    local effects = CharacterStateClient.getEffects()
+    local base = MAX_JUMPS_BASE
+    local extra = 0
+    if effects then
+        -- Count stacked +1 jump entries (supports suffixed IDs like ...#1)
+        local count = 0
+        for k in pairs(effects) do
+            local s = tostring(k)
+            if string.find(s, "^cosmetic_extra_jumps_1") then
+                count += 1
+            end
+        end
+        extra = math.max(extra, count)
+    end
+    return base + extra
+end
+
+local MAX_JUMPS     = computeMaxJumps()
 local DOUBLE_SCALE  = DJ.scale or 1.0
 local IMPULSE_SCALE = DJ.impulseScale or 0.7
 local COYOTE_TIME   = DJ.coyoteTime or 0.12
@@ -69,6 +92,14 @@ RunService.Heartbeat:Connect(function()
         setCharges(charges)
     end
     isGrounded = g
+end)
+
+-- React to server-authored triple jump changes (effects snapshot)
+CharacterStateClient.changed():Connect(function()
+    local prev = MAX_JUMPS
+    MAX_JUMPS = computeMaxJumps()
+    charges = math.min(charges, MathUtils.saturatingSub(MAX_JUMPS, 1))
+    setCharges(charges)
 end)
 
 UIS.JumpRequest:Connect(function()
