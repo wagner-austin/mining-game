@@ -84,6 +84,9 @@ UIConstants.Spacing = {
     GRID_GAP = 8,
 }
 
+-- Derived sizes (keep near Spacing so dependencies are available)
+UIConstants.Size.LIST_ROW_HEIGHT = UIConstants.Size.ROW_SECTION + UIConstants.Spacing.MD
+
 -- ============================================
 -- VISUAL TOKENS
 -- ============================================

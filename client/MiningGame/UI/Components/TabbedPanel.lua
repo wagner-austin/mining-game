@@ -29,6 +29,8 @@ export type Props = {
     scrim: boolean?,
     closeOnEsc: boolean?,
     onClose: (() -> ())?,
+    onShown: (() -> ())?,
+    onHidden: (() -> ())?,
     onTabChange: ((newTab: string, oldTab: string?) -> ())?,
 }
 
@@ -40,6 +42,9 @@ export type TabbedPanelT = {
     _tabContainer: any,
     new: (props: Props) -> TabbedPanelT,
     getTabContent: (self: TabbedPanelT, tabName: string) -> Frame?,
+    -- Expose BasePanel's content layer for overlay UI that should
+    -- participate in BasePanel animations/reveals (e.g., sticky bars)
+    getContentLayer: (self: TabbedPanelT) -> Frame?,
     switchTab: (self: TabbedPanelT, tabName: string) -> (),
     getCurrentTab: (self: TabbedPanelT) -> string?,
     setTabEnabled: (self: TabbedPanelT, tabName: string, enabled: boolean) -> (),
@@ -63,6 +68,8 @@ function TabbedPanel.new(props: Props): TabbedPanelT
         scrim = props.scrim ~= nil and props.scrim or true,
         closeOnEsc = props.closeOnEsc ~= nil and props.closeOnEsc or true,
         onClose = props.onClose,
+        onShown = props.onShown,
+        onHidden = props.onHidden,
     })
     self._base = base
     self.container = base.container -- expose for callers if needed
@@ -72,7 +79,8 @@ function TabbedPanel.new(props: Props): TabbedPanelT
     popover.Name = "PopoverLayer"
     popover.BackgroundTransparency = 1
     popover.Size = UDim2.fromScale(1, 1)
-    popover.ZIndex = Theme.z.Modal + 5
+    -- Ensure dropdown popovers render above all content (and other panels)
+    popover.ZIndex = Theme.z.Modal + 100
     popover.Parent = base.container
     self.popoverLayer = popover
 
@@ -91,6 +99,10 @@ end
 -- Convenience passthroughs
 function TabbedPanel:getTabContent(tabName: string): Frame?
     return self._tabContainer:getTabContent(tabName)
+end
+
+function TabbedPanel:getContentLayer(): Frame?
+    return self._base and self._base.contentLayer or nil
 end
 
 function TabbedPanel:switchTab(tabName: string)

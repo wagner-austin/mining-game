@@ -17,6 +17,14 @@ if okPPG then PlayerProfileGuard = ppg end
 
 local UIUtils = {}
 
+-- Tween helper: create+play a tween for simple property animations
+function UIUtils.tweenProps(inst: Instance, goals: {[string]: any}, info: TweenInfo?)
+    local tweenInfo = info or Theme.animations.Quick
+    local tween = TweenService:Create(inst, tweenInfo, goals)
+    tween:Play()
+    return tween
+end
+
 -- Registry of frosted backgrounds for live theme refreshing
 local _frosted = setmetatable({}, { __mode = "k" }) :: {[Frame]: { gradient: UIGradient?, noise: ImageLabel? }}
 
@@ -159,6 +167,7 @@ function UIUtils.createLayeredButton(props: {
     container.AnchorPoint = Vector2.new(0.5, 0.5)
     container.Position = UDim2.fromScale(0.5, 0.5)
     container.BackgroundTransparency = 1
+    container.Selectable = false
     container.Parent = props.parent
 
     -- Background (this is what scales)
@@ -228,6 +237,7 @@ function UIUtils.createLayeredButton(props: {
     content.AnchorPoint = Vector2.new(0.5, 0.5)
     content.Position = UDim2.fromScale(0.5, 0.5)
     content.BackgroundTransparency = 1
+    content.Selectable = false
     content.ZIndex = 2
     content.Parent = container
 
@@ -315,6 +325,28 @@ function UIUtils.pulseLayered(container: Frame, scaleUp: number?)
 
     up:Play()
     up.Completed:Connect(function() down:Play() end)
+end
+
+-- Convert programmer identifiers to human-readable strings
+function UIUtils.humanize(s: string): string
+    local str = tostring(s or "")
+    -- Replace underscores and hyphens with spaces
+    str = str:gsub("_", " ")
+    str = str:gsub("%-", " ")
+    -- Collapse whitespace and trim
+    str = str:gsub("%s+", " ")
+    str = str:gsub("^%s+", "")
+    str = str:gsub("%s+$", "")
+    return str
+end
+
+-- Optional TitleCase utility (not applied automatically)
+function UIUtils.toTitleCase(s: string): string
+    local str = UIUtils.humanize(s)
+    str = string.gsub(str, "(%a)([%w_]*)", function(first, rest)
+        return string.upper(first) .. string.lower(rest)
+    end)
+    return str
 end
 
 return UIUtils

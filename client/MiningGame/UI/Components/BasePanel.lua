@@ -12,6 +12,7 @@ local UIFolder = MiningGame:WaitForChild("UI")
 local Theme = require(UIFolder:WaitForChild("Theme"))
 local UIx = require(UIFolder:WaitForChild("UIConstants"))
 local Logger = require(MiningGame:WaitForChild("Logger"))
+local Time = require(MiningGame:WaitForChild("Time"))
 
 local log = Logger.new(Logger.CAT.Panel)
 local UIUtils = require(ReplicatedStorage:WaitForChild("MiningGame"):WaitForChild("UI"):WaitForChild("UIUtils"))
@@ -19,6 +20,30 @@ local ThemeRefresher = require(ReplicatedStorage:WaitForChild("MiningGame"):Wait
 
 local BasePanel = {}
 BasePanel.__index = BasePanel
+
+-- Centralized Visual Feedback pausing to avoid per-panel ad hoc calls
+local _vfRefCount = 0
+local function _pauseVisualFeedback()
+    local vf = _G and _G.MiningGameVisualFeedback
+    if vf and vf.Pause then
+        if _vfRefCount == 0 then
+            pcall(function() vf:Pause() end)
+        end
+        _vfRefCount += 1
+    end
+end
+
+local function _resumeVisualFeedback()
+    local vf = _G and _G.MiningGameVisualFeedback
+    if vf and vf.Resume then
+        if _vfRefCount > 0 then
+            _vfRefCount -= 1
+            if _vfRefCount == 0 then
+                pcall(function() vf:Resume() end)
+            end
+        end
+    end
+end
 
 type Props = {
     parent: GuiObject,
@@ -29,7 +54,9 @@ type Props = {
     transition: ("left" | "down" | "scale")?,
     scrim: boolean?,
     closeOnEsc: boolean?,
-    onClose: (() -> ())?
+    onClose: (() -> ())?,
+    onShown: (() -> ())?,
+    onHidden: (() -> ())?,
 }
 
 function BasePanel.new(props: Props)
@@ -48,6 +75,8 @@ function BasePanel.new(props: Props)
     
     -- Timer management
     self._timers = {} :: {thread}
+    self.onShown = props.onShown
+    self.onHidden = props.onHidden
     
     -- Responsive sizing based on viewport
     local camera = workspace.CurrentCamera
@@ -78,6 +107,12 @@ function BasePanel.new(props: Props)
                input.UserInputType == Enum.UserInputType.Touch then
                 -- Only check if panel is open and visible
                 if self.isOpen and self.container and self.container.Visible then
+                    -- Guard against immediate click-through after opening
+                    local now = Time.mono()
+                    if (now - (self._openedAt or 0)) < 0.18 then
+                        log:debug("[outside-click] Ignored due to open guard (dt=%.3f)", now - (self._openedAt or 0))
+                        return
+                    end
                     local clickPos = input.Position
                     local panel = self.container
                     local absPos = panel.AbsolutePosition
@@ -258,6 +293,14 @@ function BasePanel.new(props: Props)
     contentContainer.ScrollingDirection = Enum.ScrollingDirection.Y
     contentContainer.ElasticBehavior = Enum.ElasticBehavior.Always  -- Bouncy scrolling
     contentContainer.Parent = contentLayer
+
+    -- Popover layer (for dropdown portals) — ensure it renders above content
+    local popover = Instance.new("Frame")
+    popover.Name = "PopoverLayer"
+    popover.BackgroundTransparency = 1
+    popover.Size = UDim2.fromScale(1, 1)
+    popover.ZIndex = (Theme.z and Theme.z.Modal or 50) + 100
+    popover.Parent = container
     
     -- Add padding to prevent content from going under scrollbar (avoid duplicates)
     local contentPadding = contentContainer:FindFirstChildOfClass("UIPadding")
@@ -283,6 +326,7 @@ function BasePanel.new(props: Props)
     self.backgroundLayer = backgroundLayer
     self.contentLayer = contentLayer
     self.content = contentContainer
+    self.popoverLayer = popover
     self.scale = scale
     self.title = title
     self.divider = divider
@@ -293,6 +337,7 @@ function BasePanel.new(props: Props)
     self._textReveal = nil  -- Track gradient reveal state
     self._closing = false
     self._revealBaseline = {}  -- Persistent baseline for element transparencies
+    self._openedAt = 0  -- timestamp guard for click-through
     
     -- Bind to theme refresher for automatic updates
     ThemeRefresher.Bind(backgroundLayer, { BackgroundColor3 = "Surface" })
@@ -585,6 +630,8 @@ function BasePanel:_startTextReveal(duration, delay, bandPx)
 end
 
 function BasePanel:show()
+    -- Centralized: pause global visual feedback while a modal panel is open
+    _pauseVisualFeedback()
     log:debug("[show] isOpen=%s closing=%s", tostring(self.isOpen), tostring(self._closing))
     
     -- If currently closing, abort that and reset
@@ -599,6 +646,7 @@ function BasePanel:show()
         return 
     end
     self.isOpen = true
+    self._openedAt = Time.mono()
     log:debug("[show] Setting isOpen = true")
     
     -- No scrim to show anymore (allows camera controls)
@@ -640,6 +688,13 @@ function BasePanel:show()
     log:debug("[show] Starting text reveal")
     task.spawn(function()
         self:_startTextReveal(0.42, 0.08, nil)  -- Faster duration, quicker start, adaptive band
+    end)
+    -- Fire onShown after the standard animation completes
+    local shownDelay = (Theme.animations and Theme.animations.Standard and Theme.animations.Standard.Time) or 0.2
+    self:_setTimeout(shownDelay, function()
+        if self.isOpen and self.onShown then
+            pcall(self.onShown)
+        end
     end)
 end
 
@@ -747,6 +802,12 @@ function BasePanel:hide()
     log:debug("[hide] Waiting for animations to complete")
     task.wait(Theme.animations.Standard.Time or 0.2)
     finishHide()
+    -- Centralized: resume visual feedback after the panel has fully closed
+    _resumeVisualFeedback()
+    -- Fire onHidden callback after hide completes
+    if self.onHidden then
+        pcall(self.onHidden)
+    end
 end
 
 function BasePanel:setTitle(newTitle: string)

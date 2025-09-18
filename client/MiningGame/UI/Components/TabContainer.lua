@@ -73,11 +73,12 @@ function TabContainer.new(props: Props): TabContainerT
     self.container = container
     
     local tabHeight = props.tabHeight or Theme.tabs.height
+    local singleTab = (type(props.tabs) == "table" and #props.tabs <= 1)
     
     -- Tab bar
     local tabBar = Instance.new("Frame")
     tabBar.Name = "TabBar"
-    tabBar.Size = UDim2.new(1, 0, 0, tabHeight)
+    tabBar.Size = UDim2.new(1, 0, 0, singleTab and 0 or tabHeight)
     tabBar.BackgroundTransparency = 1
     tabBar.Parent = (props.barParent or container)
     self.tabBar = tabBar
@@ -91,8 +92,15 @@ function TabContainer.new(props: Props): TabContainerT
     -- Content container
     local contentContainer = Instance.new("Frame")
     contentContainer.Name = "ContentContainer"
-    contentContainer.Size = UDim2.new(1, 0, 1, -(tabHeight + Theme.tabs.spacing))
-    contentContainer.Position = UDim2.new(0, 0, 0, tabHeight + Theme.tabs.spacing)
+    if singleTab then
+        contentContainer.Size = UDim2.new(1, 0, 1, 0)
+        contentContainer.Position = UDim2.new(0, 0, 0, 0)
+        tabBar.Visible = false
+    else
+        contentContainer.Size = UDim2.new(1, 0, 1, -(tabHeight + Theme.tabs.spacing))
+        contentContainer.Position = UDim2.new(0, 0, 0, tabHeight + Theme.tabs.spacing)
+        tabBar.Visible = true
+    end
     contentContainer.BackgroundTransparency = 1
     contentContainer.Parent = (props.contentParent or container)
     self.contentContainer = contentContainer
@@ -114,7 +122,12 @@ function TabContainer.new(props: Props): TabContainerT
         tabButton.TextScaled = true
         tabButton.Font = Theme.fonts.Primary
         tabButton.AutoButtonColor = false
+        tabButton.Selectable = false
         tabButton.Parent = tabBar
+        if singleTab then
+            tabButton.Visible = false
+            tabButton.Active = false
+        end
         
         local corner = Instance.new("UICorner")
         corner.CornerRadius = UDim.new(0, Theme.sizes.CornerRadius)

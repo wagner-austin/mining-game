@@ -14,8 +14,6 @@ local TabbedPanel = require(script.Parent.Parent:WaitForChild("Components"):Wait
 local MaterialsTab = require(script.Parent.Parent:WaitForChild("Components"):WaitForChild("MaterialsTab"))
 local AccountTab = require(script.Parent.Parent:WaitForChild("Components"):WaitForChild("AccountTab"))
 local ThemeTab = require(script.Parent.Parent:WaitForChild("Components"):WaitForChild("ThemeTab"))
-local UpgradeTab = require(script.Parent.Parent:WaitForChild("Components"):WaitForChild("UpgradeTab"))
-local InventoryTab = require(script.Parent.Parent:WaitForChild("Components"):WaitForChild("InventoryTab"))
 
 -- Only load MetricsTab and DebugTab in Studio for testing
 local MetricsTab, DebugTab
@@ -75,15 +73,8 @@ function SettingsPanel:init(manager)
     local tabs = {
         { name = "Materials" },
         { name = "Theme" },
+        { name = "Account" },
     }
-    
-    -- Check feature flag for upgrades
-    if GameConfig.Features.SHOW_UPGRADE_TAB then
-        table.insert(tabs, { name = "Upgrades" })
-    end
-    
-    table.insert(tabs, { name = "Inventory" })
-    table.insert(tabs, { name = "Account" })
     
     -- Add Metrics and Debug tabs in Studio only
     if RunService:IsStudio() then
@@ -108,14 +99,12 @@ function SettingsPanel:init(manager)
         onClose = function()
             manager:hideScene("SettingsPanel")
         end,
+        onShown = function() end,
+        onHidden = function() end,
         tabs = tabs,
         defaultTab = self.lastTab or "Materials",
         onTabChange = function(newTab)
             self.lastTab = newTab
-            -- Activate/deactivate Inventory tab to avoid background rebuilds
-            if self.inventoryTab and self.inventoryTab.setActive then
-                self.inventoryTab:setActive(newTab == "Inventory")
-            end
         end,
     })
     
@@ -140,30 +129,7 @@ function SettingsPanel:init(manager)
     })
     table.insert(self._widgets, self.themeTab)
     
-    -- Mount Upgrades tab (if enabled)
-    if GameConfig.Features.SHOW_UPGRADE_TAB then
-        local upgradesRoot = self.panel:getTabContent("Upgrades") :: Frame
-        self.upgradesTab = UpgradeTab.new({
-            parent = upgradesRoot,
-            -- Let the tab auto-size based on content
-            dataProvider = self._providers and self._providers.accountDataProvider,
-        })
-        table.insert(self._widgets, self.upgradesTab)
-    end
-    
-    -- Mount Inventory tab
-    local inventoryRoot = self.panel:getTabContent("Inventory") :: Frame
-    self.inventoryTab = InventoryTab.new({
-        parent = inventoryRoot,
-        -- Let the tab auto-size based on content
-        dataProvider = self._providers and self._providers.accountDataProvider,
-    })
-    table.insert(self._widgets, self.inventoryTab)
-    -- Set initial active state based on current tab
-    local currentTab = self.panel:getCurrentTab()
-    if self.inventoryTab and self.inventoryTab.setActive then
-        self.inventoryTab:setActive(currentTab == "Inventory")
-    end
+    -- Upgrades and Inventory tabs removed from Settings
     
     -- Mount Account tab
     local accountRoot = self.panel:getTabContent("Account") :: Frame
@@ -206,41 +172,14 @@ end
 
 function SettingsPanel:show()
     if not self.panel then return end
-    
-    -- Pause visual feedback BEFORE showing panel to avoid flicker
-    local vf = _G.MiningGameVisualFeedback
-    if vf and vf.Pause then 
-        pcall(function() vf:Pause() end) 
-    end
-    
     local SoundManager = require(ReplicatedStorage.MiningGame:WaitForChild("SoundManager"))
     SoundManager.PlayUI("openmenu")
     self.panel:show()
-    
-    -- Refresh inventory display after BasePanel's hide made everything transparent
-    if self.inventoryTab and self.inventoryTab.refresh then
-        self.inventoryTab:refresh()
-        -- Ensure active state reflects visible tab
-        if self.inventoryTab.setActive then
-            local currentTab = self.panel:getCurrentTab()
-            self.inventoryTab:setActive(currentTab == "Inventory")
-        end
-    end
 end
 
 function SettingsPanel:hide()
     if not self.panel then return end
     self.panel:hide()
-    
-    -- Resume visual feedback after hiding panel
-    local vf = _G.MiningGameVisualFeedback
-    if vf and vf.Resume then 
-        pcall(function() vf:Resume() end) 
-    end
-    -- Deactivate inventory while hidden
-    if self.inventoryTab and self.inventoryTab.setActive then
-        self.inventoryTab:setActive(false)
-    end
 end
 
 function SettingsPanel:cleanup()

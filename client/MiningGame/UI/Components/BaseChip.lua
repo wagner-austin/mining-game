@@ -22,6 +22,10 @@ export type ChipProps = {
     -- Content configuration
     icon: string?,
     iconSize: number?,
+    iconPaddingLeft: number?,
+    iconPaddingRight: number?,
+    iconPaddingTop: number?,
+    iconPaddingBottom: number?,
     text: string?,
     value: (string | number)?,
     
@@ -29,6 +33,10 @@ export type ChipProps = {
     backgroundColor: Color3?,
     backgroundTransparency: number?,
     textColor: Color3?,
+    align: ("left" | "center")?,
+    innerPadding: number?,
+    textPaddingLeft: number?,
+    textPaddingRight: number?,
     
     -- Behavior
     onClick: (() -> ())?,
@@ -72,8 +80,9 @@ function BaseChip.new(props: ChipProps)
         })
     end
 
-    -- Make container block click-through
+    -- Make container clickable without Roblox selection highlighting
     container.Active = true
+    container.Selectable = false
     
     -- Apply position if provided
     if props.position then
@@ -83,9 +92,9 @@ function BaseChip.new(props: ChipProps)
     -- Create content layout
     local layout = Instance.new("UIListLayout")
     layout.FillDirection = Enum.FillDirection.Horizontal
-    layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    layout.HorizontalAlignment = (props.align == "left") and Enum.HorizontalAlignment.Left or Enum.HorizontalAlignment.Center
     layout.VerticalAlignment = Enum.VerticalAlignment.Center
-    layout.Padding = UDim.new(0, UIx.Spacing.CHIP_INNER)
+    layout.Padding = UDim.new(0, props.innerPadding or UIx.Spacing.CHIP_INNER)
     layout.Parent = content
     
     -- Icon (optional)
@@ -98,6 +107,8 @@ function BaseChip.new(props: ChipProps)
         iconLabel.Text = props.icon
         iconLabel.TextColor3 = props.textColor or colors.Text
         iconLabel.TextScaled = true
+        iconLabel.TextXAlignment = Enum.TextXAlignment.Center
+        iconLabel.TextYAlignment = Enum.TextYAlignment.Center
         iconLabel.Font = Theme.fonts.Primary
         iconLabel.LayoutOrder = 1
         iconLabel.Parent = content
@@ -110,9 +121,21 @@ function BaseChip.new(props: ChipProps)
         end
         
         local iconConstraint = Instance.new("UITextSizeConstraint")
-        iconConstraint.MinTextSize = Theme.textSizes.Medium.Min
-        iconConstraint.MaxTextSize = Theme.textSizes.Medium.Max
+        local maxIconPx = props.iconSize or chipConfig.iconSize
+        local inset = 2 -- slight inset to prevent bottom clipping on tall glyphs (e.g., 🚀)
+        iconConstraint.MinTextSize = math.min(Theme.textSizes.Medium.Min, maxIconPx - inset)
+        iconConstraint.MaxTextSize = math.max(1, maxIconPx - inset)
         iconConstraint.Parent = iconLabel
+
+        -- Optional icon-specific padding (visual spacing without magic numbers)
+        if props.iconPaddingLeft or props.iconPaddingRight or props.iconPaddingTop or props.iconPaddingBottom then
+            local ip = Instance.new("UIPadding")
+            ip.PaddingLeft = UDim.new(0, props.iconPaddingLeft or 0)
+            ip.PaddingRight = UDim.new(0, props.iconPaddingRight or 0)
+            ip.PaddingTop = UDim.new(0, props.iconPaddingTop or 0)
+            ip.PaddingBottom = UDim.new(0, props.iconPaddingBottom or 0)
+            ip.Parent = iconLabel
+        end
     end
     
     -- Text/Value label (optional)
@@ -133,7 +156,7 @@ function BaseChip.new(props: ChipProps)
         textLabel.TextColor3 = props.textColor or colors.Text
         textLabel.TextScaled = true
         textLabel.Font = Theme.fonts.Primary
-        textLabel.TextXAlignment = Enum.TextXAlignment.Center
+        textLabel.TextXAlignment = (props.align == "left") and Enum.TextXAlignment.Left or Enum.TextXAlignment.Center
         textLabel.LayoutOrder = 2
         textLabel.Parent = content
         
@@ -151,8 +174,9 @@ function BaseChip.new(props: ChipProps)
         
         -- Add padding for text
         local padding = Instance.new("UIPadding")
-        padding.PaddingLeft = UDim.new(0, UIx.Spacing.TINY)
-        padding.PaddingRight = UDim.new(0, UIx.Spacing.SM)
+        local defaultLeft = (props.align == "left") and UIx.Spacing.SM or UIx.Spacing.TINY
+        padding.PaddingLeft = UDim.new(0, props.textPaddingLeft ~= nil and props.textPaddingLeft or defaultLeft)
+        padding.PaddingRight = UDim.new(0, props.textPaddingRight ~= nil and props.textPaddingRight or UIx.Spacing.SM)
         padding.Parent = textLabel
     end
     
@@ -171,12 +195,15 @@ function BaseChip.new(props: ChipProps)
     end
     
     if props.onClick then
-        container.InputBegan:Connect(function(input)
+        container.InputEnded:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or
                input.UserInputType == Enum.UserInputType.Touch then
                 local SoundManager = require(ReplicatedStorage.MiningGame:WaitForChild("SoundManager"))
                 SoundManager.PlayUI("buttonclick")
-                props.onClick()
+                -- Slight delay so the squish press is visible before scene changes hide the chip
+                task.delay(0.08, function()
+                    if props.onClick then props.onClick() end
+                end)
             end
         end)
     end

@@ -13,6 +13,8 @@ local UIx = require(UI:WaitForChild("UIConstants"))
 local CurrencyChip = require(script.Parent:WaitForChild("Components"):WaitForChild("CurrencyChip"))
 local HomeButton = require(script.Parent:WaitForChild("Components"):WaitForChild("HomeButton"))
 local SettingsButton = require(script.Parent:WaitForChild("Components"):WaitForChild("SettingsButton"))
+local GameConfig = require(MiningGame:WaitForChild("GameConfig"))
+local BaseChip = require(script.Parent:WaitForChild("Components"):WaitForChild("BaseChip"))
 local ClientRF = require(MiningGame:WaitForChild("ClientRF"))
 
 local MainHUD = {}
@@ -207,6 +209,127 @@ function MainHUD:init(manager)
 
     -- Extraction bar removed - no longer needed
 
+    -- === LEFT NAV (feature-gated) ===
+    if GameConfig.Features and GameConfig.Features.SHOW_LEFT_NAV == true then
+        local chipConfig = Theme.currencyChip
+        local navWidth = math.max(chipConfig.width or 120, (Theme.sizes and Theme.sizes.LeftNavChipWidth) or 140)
+        local leftNav = Instance.new("Frame")
+        leftNav.Name = "LeftNav"
+        leftNav.BackgroundTransparency = 1
+        leftNav.AnchorPoint = Vector2.new(0, 0.5)
+        leftNav.Position = UDim2.new(0, UIx.Spacing.LG, 0.5, 0)
+        leftNav.Size = UDim2.new(0, navWidth, 0, 0)
+        leftNav.AutomaticSize = Enum.AutomaticSize.Y
+        leftNav.Parent = root
+        self.leftNavGroup = leftNav
+
+        local vLayout = Instance.new("UIListLayout")
+        vLayout.FillDirection = Enum.FillDirection.Vertical
+        vLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+        vLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+        vLayout.Padding = UDim.new(0, UIx.Spacing.MD)
+        vLayout.Parent = leftNav
+
+        local function isPhone(): boolean
+            local cam = workspace.CurrentCamera
+            if not cam then return false end
+            return cam.ViewportSize.X < Theme.breakpoints.medium
+        end
+
+        local function chipIconText(kind: string): (string?, string?)
+            local phone = isPhone()
+            if kind == "inventory" then
+                -- Emoji + label for clarity; on phone, show emoji+short label
+                return nil, phone and "🎒" or "🎒 Inventory"
+            elseif kind == "shop" then
+                local icon = (Theme.icons and Theme.icons.currency and Theme.icons.currency.coins) or "$"
+                return phone and icon or icon, phone and nil or "Shop"
+            elseif kind == "index" then
+                return nil, phone and "📖" or "📖 Index"
+            end
+            return nil, nil
+        end
+
+        self._leftNavChips = {}
+
+        local function styleChip(kind: string, chip)
+            -- Keep all nav chips visually identical (no active highlight)
+            chip:setBackgroundColor(Theme.colors.Surface)
+            chip:setTextColor(Theme.colors.Text)
+        end
+
+        local function makeNavChip(kind: string, onClick: () -> ())
+            local icon, text = chipIconText(kind)
+            if kind == "upgrades" then
+                icon = icon or "💪"
+            end
+            -- Normalize: left-aligned, icon + label with consistent spacing
+            -- Provide fallback icons if Theme lacks them
+            local fallbackIcons = { inventory = "🎒", shop = (Theme.icons and Theme.icons.currency and Theme.icons.currency.coins) or "🛒", index = "📇" }
+            icon = icon or fallbackIcons[kind]
+            local labelMap = { inventory = "Inventory", shop = "Shop", index = "Index", upgrades = "Upgrades" }
+            text = labelMap[kind] or text
+            local chip = BaseChip.new({
+                parent = leftNav,
+                size = UDim2.new(0, navWidth, 0, chipConfig.height),
+                icon = icon,
+                text = text,
+                align = "left",
+                onClick = function()
+                    self._leftNavActive = kind
+                    for k, c in pairs(self._leftNavChips) do
+                        styleChip(k, c)
+                    end
+                    onClick()
+                end,
+                squishIntensity = 0.92,
+            })
+            self._leftNavChips[kind] = chip
+            styleChip(kind, chip)
+            return chip
+        end
+
+        -- Inventory chip (always available)
+        makeNavChip("inventory", function()
+            if self.manager then
+                task.defer(function()
+                    self.manager:showScene("InventoryPanel")
+                end)
+            end
+        end)
+
+        -- Shop chip (only if flag enabled)
+        if GameConfig.Features.SHOW_SHOP_TAB == true then
+            makeNavChip("shop", function()
+                if self.manager then
+                    task.defer(function()
+                        self.manager:showScene("CashShopPanel")
+                    end)
+                end
+            end)
+        end
+
+        -- Item Index chip (flag)
+        if GameConfig.Features.SHOW_ITEM_INDEX == true then
+            makeNavChip("index", function()
+                if self.manager then
+                    task.defer(function()
+                        self.manager:showScene("ItemIndexPanel")
+                    end)
+                end
+            end)
+        end
+        
+        -- Upgrades chip (dedicated panel)
+        makeNavChip("upgrades", function()
+            if self.manager then
+                task.defer(function()
+                    self.manager:showScene("UpgradesPanel")
+                end)
+            end
+        end)
+    end
+
     -- === Public updaters ===
     function self:SetCurrencies(c: number, g: number)
         c = c or 0
@@ -396,6 +519,9 @@ function MainHUD:fadeOutChips()
     if self.centerTopGroup then
         self:_tweenTransparency(self.centerTopGroup, true)
     end
+    if self.leftNavGroup then
+        self:_tweenTransparency(self.leftNavGroup, true)
+    end
 end
 
 function MainHUD:fadeInChips()
@@ -404,6 +530,9 @@ function MainHUD:fadeInChips()
     end
     if self.centerTopGroup then
         self:_tweenTransparency(self.centerTopGroup, false)
+    end
+    if self.leftNavGroup then
+        self:_tweenTransparency(self.leftNavGroup, false)
     end
 end
 
@@ -484,3 +613,4 @@ function MainHUD:cleanup()
 end
 
 return MainHUD
+

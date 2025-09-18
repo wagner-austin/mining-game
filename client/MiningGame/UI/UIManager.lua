@@ -1272,4 +1272,39 @@ function UIManager:enableDebugLogging()
 end
 --]]
 
+-- Mini popup API (optional helper)
+do
+    local MiniPopup = require(script.Parent:WaitForChild("Components"):WaitForChild("MiniPopup"))
+    function UIManager:showMiniPopup(message: string, iconText: string?, position: UDim2?)
+        self:_ensureRootsExist()
+        local parent = self.fullBleedContainer or self.container or self.screenGui
+        if not parent then return end
+        -- Ensure only one mini popup at a time
+        if self._miniPopup then
+            pcall(function()
+                if self._miniPopup.fadeOut then
+                    self._miniPopup.fadeOut()
+                else
+                    if self._miniPopup.chip then self._miniPopup.chip:destroy() end
+                    if self._miniPopup.anchor then self._miniPopup.anchor:Destroy() end
+                end
+            end)
+            self._miniPopup = nil
+        end
+        self._miniPopup = MiniPopup.show(parent, message, iconText, { position = position })
+    end
+
+    function UIManager:hideMiniPopup()
+        if not self._miniPopup then return end
+        local p = self._miniPopup
+        self._miniPopup = nil
+        pcall(function()
+            if p.fadeOut then p.fadeOut() else
+                if p.chip then p.chip:destroy() end
+                if p.anchor then p.anchor:Destroy() end
+            end
+        end)
+    end
+end
+
 return UIManager

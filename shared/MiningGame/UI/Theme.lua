@@ -78,6 +78,10 @@ Theme.icons = {
     settings = "⚙",  -- Gear icon for settings
 }
 
+-- Boost/status icons registry (now handled by BoostDefs.lua for single source of truth)
+-- Theme.icons.boost can be set to override BoostDefs defaults if needed
+Theme.icons.boost = Theme.icons.boost or {}
+
 -- Settings button configuration (matching chip sizes)
 Theme.settingsButton = {
     width = 36,

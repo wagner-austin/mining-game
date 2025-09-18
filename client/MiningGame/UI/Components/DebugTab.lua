@@ -94,8 +94,7 @@ function DebugTab.new(config: Config): DebugTabT
         self:_createIslandsSection()
     end
     
-    -- Client Errors section (Studio only)
-    self:_createClientErrorsSection()
+    -- Client Errors section removed (was Studio-only)
     
     -- Setup hotkeys for SimAgents
     self:_setupHotkeys()
@@ -212,7 +211,16 @@ function DebugTab:_createStatsSection()
         local data, err = ClientRF.call("DebugResetStats")
         rfStatus(self, "Stats reset successfully!")(data, err)
     end, { layoutOrder = 1 })
+
+    -- Reset Inventory (moved here; wipes items and equipped)
+    self:createButton(card, "Reset Inventory (Wipes Items)", function()
+        local data, err = ClientRF.call("DebugResetInventory")
+        rfStatus(self, function(d) return (d and d.message) or "Inventory reset" end)(data, err)
+    end, { variant = "danger", layoutOrder = 2 })
 end
+
+-- Inventory & Index Section
+-- Inventory & Index section removed; Reset Inventory moved under Player Stats
 
 -- SimAgents Section (Studio Only)
 function DebugTab:_createSimAgentsSection()
@@ -399,79 +407,7 @@ function DebugTab:_createIslandsSection()
     end, { layoutOrder = 2 })
 end
 
-function DebugTab:_createClientErrorsSection()
-    if not RunService:IsStudio() then return end
-
-    local card = self:createSectionCard(self.container, { layoutOrder = 999 })
-    card.Name = "ClientErrors"
-
-    local lastN = (GameConfig.Client and GameConfig.Client.CLIENT_ERROR_RING_SIZE) or 20
-    self:createLabel(card, ("Client Errors (last %d)"):format(lastN), {
-        isDim = true,
-        size = UDim2.new(1, 0, 0, UIx.Size.ROW_STANDARD),
-        alignment = Enum.TextXAlignment.Left,
-    })
-
-    -- controls row
-    local row = self:createRow(card, UIx.Size.BUTTON_SMALL_HEIGHT)
-    row.LayoutOrder = 1
-
-    local list = nil -- Forward declare for closure
-
-    self:createButton(row, "Refresh", function()
-        self:_refreshClientErrors(list)
-    end, { width = 100 })
-
-    local autoToggle = Instance.new("TextButton")
-    autoToggle.Text = "Auto"
-    autoToggle.Size = UDim2.fromOffset(60, UIx.Size.BUTTON_SMALL_HEIGHT)
-    autoToggle.BackgroundColor3 = self._theme.colors.Surface
-    autoToggle.Parent = row
-
-    -- list
-    list = Instance.new("TextLabel")
-    list.Name = "ErrorsList"
-    list.Size = UDim2.new(1, 0, 0, UIx.Size.CARD_LARGE)
-    list.BackgroundTransparency = 0.2
-    list.BackgroundColor3 = self._theme.colors.Surface
-    list.LayoutOrder = 2
-    list.TextXAlignment = Enum.TextXAlignment.Left
-    list.TextYAlignment = Enum.TextYAlignment.Top
-    list.TextColor3 = self._theme.colors.Text
-    list.Font = self._theme.fonts.Mono or Enum.Font.Code
-    list.TextSize = 14
-    list.TextWrapped = true
-    list.Text = "(no client errors)"
-    list.Parent = card
-
-    -- helpers
-    function self:_refreshClientErrors(target)
-        local recent = ClientError.recent()
-        if #recent == 0 then
-            target.Text = "(no client errors)"
-            return
-        end
-        local lines = {}
-        for i = math.max(1, #recent - 19), #recent do
-            local e = recent[i]
-            table.insert(lines, string.format("[%s] %s", e.tag, e.err))
-        end
-        target.Text = table.concat(lines, "\n")
-    end
-
-    -- auto refresh
-    local auto = true
-    autoToggle.Text = "Auto: ON"
-    autoToggle.Activated:Connect(function()
-        auto = not auto
-        autoToggle.Text = auto and "Auto: ON" or "Auto: OFF"
-    end)
-
-    -- polling task
-    self._clientErrorsConn = RunService.RenderStepped:Connect(function()
-        if auto then self:_refreshClientErrors(list) end
-    end)
-end
+-- Client Errors section removed
 
 -- Setup hotkeys for SimAgents control
 function DebugTab:_setupHotkeys()

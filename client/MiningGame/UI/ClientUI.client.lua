@@ -25,6 +25,11 @@ local UIManager = require(script.Parent:WaitForChild("UIManager"))
 local MainHUD = require(script.Parent:WaitForChild("MainHUD"))
 local UIUtils = require(ReplicatedStorage:WaitForChild("MiningGame"):WaitForChild("UI"):WaitForChild("UIUtils"))
 local SettingsPanel = require(script.Parent:WaitForChild("Panels"):WaitForChild("SettingsPanel"))
+local InventoryPanel = require(script.Parent:WaitForChild("Panels"):WaitForChild("InventoryPanel"))
+local CashShopPanel = require(script.Parent:WaitForChild("Panels"):WaitForChild("CashShopPanel"))
+local ItemIndexPanel = require(script.Parent:WaitForChild("Panels"):WaitForChild("ItemIndexPanel"))
+local UpgradesPanel = require(script.Parent:WaitForChild("Panels"):WaitForChild("UpgradesPanel"))
+local BoostBar = require(script.Parent:WaitForChild("Components"):WaitForChild("BoostBar"))
 
 print("[ClientUI] Initializing UI system...")
 
@@ -47,12 +52,35 @@ local hud = MainHUD.new()
 manager:registerScene(hud)
 manager:showScene("MainHUD")
 
+-- Mount BoostBar in bottom-right on main HUD container
+task.defer(function()
+    if manager and manager.container then
+        BoostBar.mount(manager.container)
+    end
+end)
+
 -- Create data providers (now safe to make API calls)
 local accountDataProvider = AccountDataProvider.new(Remotes, UIUtils)
 
 -- Create and register Settings Panel with provider
 local settingsPanel = SettingsPanel.new({ accountDataProvider = accountDataProvider })
 manager:registerScene(settingsPanel)
+
+-- Create and register Inventory panel (W2)
+local inventoryPanel = InventoryPanel.new({ accountDataProvider = accountDataProvider })
+manager:registerScene(inventoryPanel)
+
+-- Create and register Upgrades panel (dedicated panel mounting existing UpgradeTab)
+local upgradesPanel = UpgradesPanel.new({ accountDataProvider = accountDataProvider })
+manager:registerScene(upgradesPanel)
+
+
+-- Create and register Cash Shop + Item Index panels (W5)
+local cashShopPanel = CashShopPanel.new({ accountDataProvider = accountDataProvider })
+manager:registerScene(cashShopPanel)
+
+local itemIndexPanel = ItemIndexPanel.new({ accountDataProvider = accountDataProvider })
+manager:registerScene(itemIndexPanel)
 
 -- Track currency values locally to avoid re-fetching
 local lastCoins = 0

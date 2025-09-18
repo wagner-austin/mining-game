@@ -72,7 +72,13 @@ function Dropdown.new(config: DropdownConfig): DropdownT
     self.optionConns = {} -- Track per-option connections for cleanup
     self.currentIndex = config.initialIndex or 0
     self.portalParent = config.portalParent
-    self.zIndexBase = (config.zIndexBase or Theme.z.Modal) + 10
+    -- Derive zIndexBase from portalParent if provided to ensure overlay
+    local base = (config.zIndexBase or Theme.z.Modal) + 10
+    if self.portalParent and self.portalParent.ZIndex ~= nil then
+        local parentZ = tonumber(self.portalParent.ZIndex) or base
+        base = math.max(base, parentZ + 1)
+    end
+    self.zIndexBase = base
     self.maxHeight = config.maxHeight or Theme.dropdown.listMaxHeight
     
     -- Main button container

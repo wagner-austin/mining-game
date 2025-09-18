@@ -13,6 +13,7 @@ local UIx = require(UIFolder:WaitForChild("UIConstants"))
 local GameConfig = require(MiningGame:WaitForChild("GameConfig"))
 local Logger = require(MiningGame:WaitForChild("Logger"))
 local ClientRF = require(MiningGame:WaitForChild("ClientRF"))
+local BoostDefs = require(MiningGame:WaitForChild("BoostDefs"))
 
 -- Type definitions for RF responses
 type UpgradeResponse = {success: boolean, reason: string?, newLevel: number?}
@@ -131,7 +132,7 @@ end
 function UpgradeTab:_createSpeedUpgradeSection()
     self:_createUpgradeSection("speed", {
         title = "Dig Speed",
-        icon = "⚡",
+        icon = BoostDefs.icons().speed,
         description = "Reduce delay between digs",
         getValueText = function(level: number): string
             local def = self:_getLevelDef("speed", level)
