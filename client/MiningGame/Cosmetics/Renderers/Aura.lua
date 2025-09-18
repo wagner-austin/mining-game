@@ -25,14 +25,111 @@ function Aura.apply(character: Model, def: any, ctx: any)
     emitter.Name = "AuraEmitter"
     emitter.Parent = attachment
     
-    -- Base configuration
+    -- Helpers to coerce optional overrides
+    local function nr(val, fallbackMin, fallbackMax)
+        if typeof(val) == "NumberRange" then return val end
+        if type(val) == "table" and #val >= 2 then
+            return NumberRange.new(tonumber(val[1]) or fallbackMin, tonumber(val[2]) or fallbackMax)
+        end
+        if type(val) == "number" then
+            return NumberRange.new(val, val)
+        end
+        return NumberRange.new(fallbackMin, fallbackMax)
+    end
+    local function v2(val, fx, fy)
+        if typeof(val) == "Vector2" then return val end
+        if type(val) == "table" and #val >= 2 then
+            return Vector2.new(tonumber(val[1]) or fx, tonumber(val[2]) or fy)
+        end
+        return Vector2.new(fx, fy)
+    end
+
+    local function toNumberSequence(val): NumberSequence?
+        if typeof(val) == "NumberSequence" then return val end
+        if typeof(val) == "NumberRange" then
+            local nr: NumberRange = val
+            return NumberSequence.new({
+                NumberSequenceKeypoint.new(0, nr.Min),
+                NumberSequenceKeypoint.new(1, nr.Max),
+            })
+        end
+        if type(val) == "table" then
+            local keys = {}
+            if #val > 0 then
+                if type(val[1]) == "number" then
+                    local n = #val
+                    for i, v in ipairs(val) do
+                        local t = (n > 1) and ((i-1)/(n-1)) or 0
+                        table.insert(keys, NumberSequenceKeypoint.new(math.clamp(t, 0, 1), tonumber(v) or 0))
+                    end
+                elseif type(val[1]) == "table" then
+                    for _, kp in ipairs(val) do
+                        local t = tonumber(kp.t or kp.time or kp.key or kp[1])
+                        local v = tonumber(kp.value or kp.v or kp[2])
+                        if t ~= nil and v ~= nil then
+                            table.insert(keys, NumberSequenceKeypoint.new(math.clamp(t, 0, 1), v))
+                        end
+                    end
+                end
+            else
+                for k, v in pairs(val) do
+                    local t = tonumber(k)
+                    if t ~= nil then
+                        table.insert(keys, NumberSequenceKeypoint.new(math.clamp(t, 0, 1), tonumber(v) or 0))
+                    end
+                end
+            end
+            table.sort(keys, function(a, b) return a.Time < b.Time end)
+            if #keys >= 2 then return NumberSequence.new(keys) end
+        end
+        if type(val) == "number" then
+            return NumberSequence.new(val)
+        end
+        return nil
+    end
+
+    local function toColorSequence(val): ColorSequence?
+        if typeof(val) == "ColorSequence" then return val end
+        if type(val) == "table" then
+            local keys = {}
+            if #val > 0 then
+                if typeof(val[1]) == "Color3" then
+                    local n = #val
+                    for i, c in ipairs(val) do
+                        local t = (n > 1) and ((i-1)/(n-1)) or 0
+                        table.insert(keys, ColorSequenceKeypoint.new(math.clamp(t, 0, 1), c))
+                    end
+                elseif type(val[1]) == "table" then
+                    for _, kp in ipairs(val) do
+                        local t = tonumber(kp.t or kp.time or kp.key or kp[1])
+                        local c = kp.color or kp.c or kp[2]
+                        if t ~= nil and typeof(c) == "Color3" then
+                            table.insert(keys, ColorSequenceKeypoint.new(math.clamp(t, 0, 1), c))
+                        end
+                    end
+                end
+            else
+                for k, c in pairs(val) do
+                    local t = tonumber(k)
+                    if t ~= nil and typeof(c) == "Color3" then
+                        table.insert(keys, ColorSequenceKeypoint.new(math.clamp(t, 0, 1), c))
+                    end
+                end
+            end
+            table.sort(keys, function(a, b) return a.Time < b.Time end)
+            if #keys >= 2 then return ColorSequence.new(keys) end
+        end
+        return nil
+    end
+
+    -- Base configuration (sensible defaults, overridable via def)
     emitter.Texture = def.particleTexture or "rbxasset://textures/particles/sparkles_main.dds"
     emitter.Rate = def.emissionRate or 50
-    emitter.Lifetime = NumberRange.new(1, 2)
-    emitter.Speed = NumberRange.new(2, 4)
-    emitter.SpreadAngle = Vector2.new(360, 360)
-    emitter.LightEmission = def.lightEmission or 0.5
-    emitter.LightInfluence = 0.2
+    emitter.Lifetime = nr(def.lifetime or def.lifetimeRange, 1, 2)
+    emitter.Speed = nr(def.speed or def.speedRange, 2, 4)
+    emitter.SpreadAngle = v2(def.spreadAngle, 360, 360)
+    emitter.LightEmission = (def.lightEmission ~= nil) and def.lightEmission or 0.5
+    emitter.LightInfluence = (def.lightInfluence ~= nil) and def.lightInfluence or 0.2
     
     -- Light host: welded, invisible part
     local lightPart = character:FindFirstChild("AuraLightPart") :: Part?
@@ -60,8 +157,8 @@ function Aura.apply(character: Model, def: any, ctx: any)
     local light = lightPart:FindFirstChildOfClass("PointLight") or Instance.new("PointLight")
     light.Name = "AuraLight"
     light.Shadows = false
-    light.Brightness = 2
-    light.Range = 20
+    light.Brightness = tonumber(def.lightBrightness) or 2
+    light.Range = tonumber(def.lightRange) or 20
     light.Enabled = true
     light.Parent = lightPart
     
@@ -148,8 +245,10 @@ function Aura.apply(character: Model, def: any, ctx: any)
             NumberSequenceKeypoint.new(0.9, 0.5),
             NumberSequenceKeypoint.new(1, 0),
         })
-        emitter.RotSpeed = NumberRange.new(-180, 180)
-        emitter.VelocityInheritance = 0.5
+        emitter.RotSpeed = (typeof(def.rotSpeed) == "NumberRange") and def.rotSpeed
+            or (type(def.rotSpeed) == "number" and NumberRange.new(-def.rotSpeed, def.rotSpeed))
+            or NumberRange.new(-180, 180)
+        emitter.VelocityInheritance = (type(def.velInheritance) == "number") and def.velInheritance or 0.5
         -- Cosmic: Bright white/purple starlight
         setLight(Color3.fromRGB(200, 150, 255), 4, 30)
     elseif def.effect == "energy" then
@@ -158,7 +257,45 @@ function Aura.apply(character: Model, def: any, ctx: any)
         emitter.Color = ColorSequence.new(energyColor)
         setLight(energyColor, 2.5, 22)
     end
-    
+
+    -- Final explicit overrides (highest precedence)
+    if typeof(def.lifetime) == "NumberRange" or type(def.lifetimeRange) == "table" or type(def.lifetime) == "number" then
+        emitter.Lifetime = nr(def.lifetime or def.lifetimeRange, 1, 2)
+    end
+    if typeof(def.speed) == "NumberRange" or type(def.speedRange) == "table" or type(def.speed) == "number" then
+        emitter.Speed = nr(def.speed or def.speedRange, 2, 4)
+    end
+    if def.spreadAngle then
+        emitter.SpreadAngle = v2(def.spreadAngle, 360, 360)
+    end
+    if typeof(def.acceleration) == "Vector3" then
+        emitter.Acceleration = def.acceleration
+    end
+    if def.rotSpeed then
+        emitter.RotSpeed = (typeof(def.rotSpeed) == "NumberRange") and def.rotSpeed
+            or (type(def.rotSpeed) == "number" and NumberRange.new(-def.rotSpeed, def.rotSpeed))
+            or emitter.RotSpeed
+    end
+    if type(def.velInheritance) == "number" then
+        emitter.VelocityInheritance = def.velInheritance
+    end
+    if typeof(def.color) == "Color3" then
+        emitter.Color = ColorSequence.new(def.color)
+        setLight(def.color, def.lightBrightness, def.lightRange)
+    end
+    if def.colorSequence then
+        local cs = toColorSequence(def.colorSequence)
+        if cs then emitter.Color = cs end
+    end
+    if def.sizeSequence then
+        local ss = toNumberSequence(def.sizeSequence)
+        if ss then emitter.Size = ss end
+    end
+    if def.transparencySequence then
+        local ts = toNumberSequence(def.transparencySequence)
+        if ts then emitter.Transparency = ts end
+    end
+
     return {instances = {attachment, emitter, lightPart, light}, connections = connections}
 end
 

@@ -362,41 +362,13 @@ function CosmeticController:init()
         if not p then return end
         
         -- If a model swap changed, rebuild layering from scratch for that player
-        local needsRelayer = (payload.slot == "modelSwap")
+        local needsRelayer = false -- modelSwap removed
         
         if payload.itemId then
-            if needsRelayer then
-                -- Fetch full map, apply in priority order
-                local equipped = nil
-                if p == Players.LocalPlayer then
-                    equipped, _ = Calls.GetEquippedItems()
-                else
-                    local all, _ = Calls.GetAllEquipped()
-                    equipped = all and all[p.UserId]
-                end
-                if equipped then
-                    self:_applyCosmetics(p, equipped)
-                end
-            else
-                -- Only (re)apply this slot
-                self:_applySingleSlot(p, payload.slot, payload.itemId)
-            end
+            -- Only (re)apply this slot
+            self:_applySingleSlot(p, payload.slot, payload.itemId)
         else
-            if needsRelayer then
-                -- Removing a modelSwap: rebuild others
-                local equipped = nil
-                if p == Players.LocalPlayer then
-                    equipped, _ = Calls.GetEquippedItems()
-                else
-                    local all, _ = Calls.GetAllEquipped()
-                    equipped = all and all[p.UserId]
-                end
-                if equipped then
-                    self:_applyCosmetics(p, equipped)
-                end
-            else
-                self:_removeSlot(p, payload.slot)
-            end
+            self:_removeSlot(p, payload.slot)
         end
     end)
     table.insert(self._connections, offEquip)
