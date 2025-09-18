@@ -562,6 +562,26 @@ function Logger.preset(name)
 		Logger.showAll()
 		Logger.setLevel(LogLevel.DEBUG)
 		print("[Logger] Preset: Verbose (all messages)")
+	elseif name == "cosmetics" then
+		-- Focus only on cosmetics-related categories for debugging
+		Logger.hideAll()
+		Logger.setLevel("DEBUG")
+		-- Categories we care about
+		local cats = {
+			"CosmeticController",
+			"CosmeticHead",
+			"RendererRegistry",
+			"DevAutoEquip",
+			"BackpackLogger",
+		}
+		for _, c in ipairs(cats) do
+			Logger.enable(c)
+			Logger.setCategoryLevel(c, "DEBUG")
+		end
+		-- Keep core errors visible
+		Logger.enable("ErrorService")
+		Logger.setCategoryLevel("ErrorService", "ERROR")
+		print("[Logger] Preset: Cosmetics (focused DEBUG for cosmetic categories)")
 	else
 		print("[Logger] Unknown preset. Use: quiet, normal, or verbose")
 	end

@@ -466,9 +466,10 @@ function PostProcessingManager:_transitionToComposite(duration: number, easing: 
 				tween:Play()
 				self.activeTweens[className] = tween
 				
-				-- Disable after transition if clearing
+				-- Disable after transition if clearing (ignore cancelled tweens)
 				if allClear and className ~= "Atmosphere" then
-					tween.Completed:Connect(function()
+					tween.Completed:Connect(function(playbackState)
+						if playbackState == Enum.PlaybackState.Cancelled then return end
 						instance.Enabled = false
 						-- Reset to neutral
 						for prop, value in pairs(NEUTRAL_VALUES[className]) do
@@ -492,7 +493,7 @@ function PostProcessingManager:_transitionToComposite(duration: number, easing: 
 				end)
 			end
 			
-			-- Disable and neutralize if clear
+			-- Disable and neutralize if clear; otherwise ensure enabled for immediate apply
 			if allClear and className ~= "Atmosphere" then
 				for prop, value in pairs(NEUTRAL_VALUES[className]) do
 					pcall(function()
@@ -500,6 +501,8 @@ function PostProcessingManager:_transitionToComposite(duration: number, easing: 
 					end)
 				end
 				instance.Enabled = false
+			elseif className ~= "Atmosphere" then
+				instance.Enabled = true
 			end
 		end
 	end

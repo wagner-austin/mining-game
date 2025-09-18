@@ -9,6 +9,7 @@ return table.freeze({
         CosmeticClient  = 1.0,  -- Client cosmetic assets
         ServiceInit     = 5.0,  -- Service initialization
         RemoteCall      = 10.0, -- Remote function calls
+        SpawnFinalize   = 5.0,  -- Wait for client streaming + ready handshake
     },
     
     RETRY = {

@@ -219,8 +219,10 @@ local function requestDigAt(position: Vector3)
         -- Prefer the server's material if provided; fallback to local probe
         local matKey = (result.soundMaterialKey :: string?) or getMaterialAtPosition(position) or "rock"
         local sfxPos = result.soundWorldPos or position
-        log:debug("Playing local sound for material: %s at position: %s", matKey, tostring(sfxPos))
-        SoundManager.PlayMining(matKey, "hit", sfxPos)
+        log:debug("Playing local sound for material: %s subtype: %s at position: %s (2D fixed volume)", matKey, tostring(result.soundSubtype or "hit"), tostring(sfxPos))
+        -- Play local dig sound as 2D (fixed volume) regardless of camera distance
+        -- Use GameConfig.Digging.HIT_VOLUME for tunable loudness
+        SoundManager.PlayMining(matKey, result.soundSubtype, sfxPos, { force2D = true, volume = GameConfig.Digging.HIT_VOLUME })
         
         if result.effectiveStats then
             digCooldown = result.effectiveStats.delay
