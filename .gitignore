@@ -5,6 +5,9 @@
 # Rojo sync
 /*.rbxlx
 /*.rbxl
+# Root-only model files (preserve tracked assets/*.rbxmx if needed)
+/*.rbxmx
+/*.rbxm
 /rojo.json
 
 # OS files
@@ -16,3 +19,8 @@ Thumbs.db
 /out/
 # Claude Code settings
 .claude/
+
+# Local scratch files
+*.bak
+temp_*.txt
+nul
