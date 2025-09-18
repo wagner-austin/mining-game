@@ -105,6 +105,18 @@ GameConfig.Sound = {
     MAX_SOUND_DISTANCE = 150, -- Maximum 3D sound range
     MIN_SOUND_DISTANCE = 10,  -- Minimum distance for full volume
     SOUND_COOLDOWN = 0.5,     -- Cooldown between same sound plays (seconds)
+    -- Volume for item pickup/collect ping (0..1)
+    PICKUP_VOLUME = 0.3,
+    -- Volume for mining hit broadcasts (others' digs) (0..1)
+    MINING_HIT_VOLUME = 0.6, -- matches Mining category default unless changed
+}
+
+-- Spawn Orchestration (feature-gated)
+GameConfig.Spawn = {
+    ORCHESTRATED = true,        -- Enable server/client spawn handshake
+    CLIENT_STREAM_RADIUS = 128, -- Fallback stream radius if Workspace target radius not available
+    SAFETY_PAD_DURATION = 12,   -- Seconds to keep temporary safety pad on timeout
+    SPAWN_AT_MAP_ON_FIRST_JOIN = false, -- If true, first finalize uses map spawn bounds instead of cube
 }
 
 -- Feature Flags (for testing and rollout)
@@ -120,21 +132,26 @@ GameConfig.Features = {
     -- Enable/disable the upgrade system
     ENABLE_UPGRADES = true,  -- Set to false to completely disable upgrades
     SHOW_UPGRADE_TAB = true,  -- Whether to show the Upgrades tab in settings
-    SHOW_SHOP_TAB = true,     -- Whether to show the Cash Shop Cosmetics tab
     
     -- NEW COSMETICS SYSTEM
     COSMETICS_ENABLED = true,        -- Master switch for cosmetic drops and equipment
     COSMETICS_IN_LOOT = true,        -- Include cosmetics in loot drops
-    COSMETIC_WEIGHT_MULT = 0.1,      -- Multiplier for cosmetic drop rates (0.1 = 10x rarer)
+    COSMETIC_WEIGHT_MULT = 0.01,     -- Multiplier for cosmetic drop rates (0.01 = 100x rarer)
     
     -- SHOP / ENHANCED COSMETICS (release-day flags)
     SHOP_ENABLED = true,             -- Server RF gate for Cash Shop (dev default on; UI toggled separately)
     SHOW_LEFT_NAV = true,            -- UI gate for left-side nav (Shop/Inventory/Index)
-    SHOW_SHOP_TAB = false,           -- UI gate for Cash Shop (enabled when Shop RF is live)
+    SHOW_SHOP_TAB = true,            -- UI gate for Cash Shop (enabled when Shop RF is live)
     SHOW_ITEM_INDEX = true,          -- UI gate for Item Index panel
-    SHOP_ENABLED = true,             -- Server gate for Shop RFs
     ENHANCED_COSMETICS_ENABLED = true, -- Include enhanced cosmetics in catalogs
     ENHANCED_PERKS_ENABLED = true,     -- Apply movement perks granted by enhanced cosmetics
+
+    -- MOVEMENT BOOSTS (speed potion / movement-only)
+    SPEED_POTION_MOVEMENT_ONLY = true, -- If true, speed potions affect movement (not dig speed)
+    
+    -- ITEM DROPS RELIABILITY (QA toggles)
+    LOOT_MAGNET_ENABLED = true,        -- Enable owner magnet behavior for drops
+    FORCED_CLAIM_ENABLED = true,       -- Enable forced-claim safety for lingering drops
     
     -- ACHIEVEMENT SYSTEM
     ACHIEVEMENTS_ENABLED = true,      -- Enable/disable achievement system
@@ -154,9 +171,7 @@ GameConfig.Features = {
     ENABLE_ISLAND_MINING = true,  -- Enable volume-aware dig and island registration for QA
     ENABLE_VOLUME_HASH = true,    -- Use spatial hash for island volume picking
 
-    -- Drops reliability (W4)
-    LOOT_MAGNET_ENABLED = true,      -- Enable owner magnet pickup behavior
-    FORCED_CLAIM_ENABLED = true,     -- Enable safety sweep to grant/clean invalid or expired drops
+    -- (deduplicated flags moved above)
 }
 
 -- Grid System Configuration
@@ -197,8 +212,7 @@ GameConfig.Digging = {
     CAMERA_SHAKE_INTENSITY = 0.1,
     CAMERA_SHAKE_DURATION = 0.15,
     
-    -- Sound settings
-    DIG_SOUND_ID = "rbxassetid://0", -- Replace with actual sound ID
+    -- Sound settings (per-material mining sounds are configured in SoundConfig)
     HIT_VOLUME = 0.5,
     
     -- Particle effects
@@ -361,10 +375,24 @@ GameConfig.Monetization = {
     },
 }
 
+-- Movement boosts (single source of truth)
+GameConfig.MovementBoosts = {
+    SpeedPotion = {
+        STACK_MAX = 4,
+        DURATION_SEC = 300,
+        TIER_MULTS = {1.10, 1.20, 1.30, 1.40},
+    },
+    SpeedCharm = {
+        DEFAULT_MULT = 1.10,
+    }
+}
+
 -- Loot Tables and Items
 GameConfig.Loot = {
     -- Base drop chance per cell dug
-    BASE_DROP_CHANCE = 0.15, -- 15% chance per cell
+    -- Per-cell base drop chance. 0.02 ≈ 0.54 items/dig at size=1, luck=1.0.
+    -- Upper cap note: 0.05 felt too frequent during testing; avoid going above ~0.04–0.05.
+    BASE_DROP_CHANCE = 0.02,
     
     -- Item drop behavior
     ITEM_LIFETIME = 300,           -- 5 minutes before despawn attempt
@@ -391,6 +419,18 @@ GameConfig.Loot = {
     RING_RADIUS = 6,            -- studs
     RING_JITTER = 1.5,          -- random variance around ring
     RING_VERTICAL_OFFSET = 0.0, -- offset from dig center Y
+
+    -- Drop visuals (gate extra VFX here; defaults favor simpler look)
+    VISUALS = {
+        USE_RARITY_TINT = true,      -- Color part/label by rarity
+        USE_NEON = false,            -- Neon material vs smooth plastic
+        USE_SELECTION_BOX = false,   -- Outline box
+        USE_POINT_LIGHT = false,     -- Glow point light
+        USE_PARTICLES = false,       -- Ambient particle sparkle
+        USE_MYTHIC_BEAM = false,     -- Beam on MYTHIC
+        USE_HOVER_BOB = false,       -- Hovering up/down tween
+        USE_FLY_TRAIL = false,       -- Short trail during fly-to-player
+    },
     
     -- Rarity tiers with weights and colors
     RARITIES = {
@@ -431,17 +471,7 @@ GameConfig.Loot = {
         {id = "rainbow_gem", name = "Rainbow Gem", rarity = "LEGENDARY", value = 3000, type = "resource", exclusive = true},
         {id = "chromatic_ore", name = "Chromatic Ore", rarity = "EPIC", value = 500, type = "resource", exclusive = true},
         
-        -- Pickaxes (equipment)
-        {id = "iron_pickaxe", name = "Iron Pickaxe", rarity = "UNCOMMON", type = "pickaxe", 
-         stats = {speed = 1.1, size = 1, luck = 1.0}},
-        {id = "gold_pickaxe", name = "Golden Pickaxe", rarity = "RARE", type = "pickaxe", 
-         stats = {speed = 1.3, size = 1, luck = 1.1}},
-        {id = "diamond_pickaxe", name = "Diamond Pickaxe", rarity = "EPIC", type = "pickaxe", 
-         stats = {speed = 1.5, size = 2, luck = 1.2}},
-        {id = "obsidian_pickaxe", name = "Obsidian Pickaxe", rarity = "LEGENDARY", type = "pickaxe", 
-         stats = {speed = 2.0, size = 3, luck = 1.5}},
-        {id = "void_pickaxe", name = "Void Pickaxe", rarity = "MYTHIC", type = "pickaxe", 
-         stats = {speed = 3.0, size = 2.0, luck = 2.0}},
+        -- Equipment pickaxes removed; visuals handled by hand cosmetics
         
         -- Cosmetics removed - now defined in CosmeticDefinitions.lua to avoid duplicates
         
@@ -454,6 +484,14 @@ GameConfig.Loot = {
          effect = "luck", multiplier = 1.5, duration = 600},
         {id = "mega_potion", name = "Mega Potion", rarity = "LEGENDARY", type = "consumable", 
          effect = "all", speed_mult = 0.7, size_bonus = 3, luck_mult = 2.0, duration = 900},
+    },
+
+    -- Optional type multipliers to adjust selection share without changing total drop volume
+    -- 1.0 = baseline; <1.0 reduces frequency; >1.0 increases
+        TYPE_MULTIPLIER = {
+        resource = 0.6,
+        consumable = 0.45,
+        cosmetic = 1.0,
     },
 }
 
