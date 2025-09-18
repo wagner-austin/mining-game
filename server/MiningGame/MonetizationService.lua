@@ -23,6 +23,7 @@ local InventoryService
 local UpgradeService
 local CurrencyService
 local UserMetricsService  -- Optional dependency
+local CharacterStateManager -- Optional dependency for runtime effect sync
 
 -- Use EventBus for events
 local EventBus = require(Shared:WaitForChild("EventBus"))
@@ -43,6 +44,7 @@ function MonetizationService:Init(container)
     UpgradeService = ServiceValidator.get(container, "UpgradeService", {"GetPlayerGamepasses"})
     CurrencyService = ServiceValidator.get(container, "CurrencyService", {"add"})
     UserMetricsService = ServiceValidator.tryGet(container, "UserMetricsService", {"Invalidate"})  -- Optional
+    CharacterStateManager = ServiceValidator.tryGet(container, "CharacterStateManager", {"SyncProfileBoosts"}) -- Optional
     log:info("Initialized with dependencies")
 end
 
@@ -211,8 +213,10 @@ local function handleProductPurchase(player: Player, product: Types.Product)
     
     -- Apply product effects
     if product.effect == "speed" then
-        -- Apply speed boost
-        profile.boosts.speed = Time.unix() + (product.duration or GameConfig.Timing.ONE_HOUR)
+        -- Apply movement speed potion-style boost (tier 1) for duration
+        local duration = product.duration or GameConfig.Timing.ONE_HOUR
+        local now = Time.unix()
+        profile.boosts["potion_speed_tier_1"] = now + duration
         Bus:emit(EventNames.BOOSTS_CHANGED, {
             to = { kind = "player", player = player },
             payload = Contracts.BOOSTS_CHANGED(profile.boosts)
@@ -275,6 +279,11 @@ local function handleProductPurchase(player: Player, product: Types.Product)
                 meta = { source = "purchase" },
             })
         })
+    end
+    
+    -- If boosts were modified above (speed/size/luck), sync runtime effects snapshot now
+    if CharacterStateManager and (product.effect == "speed" or product.effect == "size" or product.effect == "luck") then
+        CharacterStateManager:SyncProfileBoosts(player)
     end
     
     -- Queue save

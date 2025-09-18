@@ -35,8 +35,7 @@ type Stats = {
 -- Table-driven effect application to prevent double-application and typos
 local EFFECT_MODIFIERS: {[string]: (Stats) -> ()} = {
     -- Delay modifiers (lower is faster)
-    speed = function(s) s.delay = s.delay * 0.8 end,           -- 20% faster
-    haste = function(s) s.delay = s.delay * 0.9 end,           -- 10% faster
+    -- dynamic dig_speed@mult handled below
     
     -- Size modifiers (bigger dig area)
     size = function(s) s.size = s.size + 1 end,                -- +1 radius
@@ -73,9 +72,23 @@ function StatsResolver:Get(player: Player): Stats?
         local now = Time.unix()
         for effectId, expiry in pairs(st.effects) do
             if type(expiry) == "number" and expiry > now then
-                local modifier = EFFECT_MODIFIERS[effectId]
+                local idStr = tostring(effectId)
+                local baseId = idStr:gsub("#%d+$", "")
+                local multStr = baseId:match("@([0-9%.]+)")
+                local simpleBase = baseId:gsub("@([0-9%.]+)", "")
+                local modifier = EFFECT_MODIFIERS[simpleBase]
                 if modifier then
                     modifier(base)
+                else
+                    -- Dynamic dig speed and luck multipliers
+                    local m = multStr and tonumber(multStr) or nil
+                    if m then
+                        if simpleBase == "dig_speed" then
+                            base.delay = base.delay * m
+                        elseif simpleBase == "cosmetic_luck" then
+                            base.luck = base.luck * m
+                        end
+                    end
                 end
             end
         end

@@ -45,6 +45,7 @@ local DataService
 local CharacterStateManager = {} :: ManagerApi & {
     _initPlayer: (self: any, p: Player) -> (),
     _seedFromProfileBoosts: (self: any, p: Player) -> (),
+    SyncProfileBoosts: (self: any, p: Player) -> (),
     Has: (self: any, p: Player, effectId: EffectId) -> boolean,
     Remaining: (self: any, p: Player, effectId: EffectId) -> number,
     changed: () -> RBXScriptSignal,
@@ -218,6 +219,29 @@ function CharacterStateManager:_seedFromProfileBoosts(p: Player): ()
             st.effects[effectId] = expiry
         end
     end
+end
+
+-- Public: re-sync the runtime effects snapshot from profile boosts (speed/size/luck)
+function CharacterStateManager:SyncProfileBoosts(p: Player): ()
+    local st = stateByPlayer[p]
+    if not st then return end
+    
+    -- Remove existing persisted boost entries so we can refresh cleanly
+    local persisted = { speed = true, size = true, luck = true }
+    for id, _ in pairs(st.effects) do
+        if persisted[(id :: any)] then
+            st.effects[(id :: any)] = nil
+        end
+    end
+
+    -- Seed again from profile
+    self:_seedFromProfileBoosts(p)
+
+    -- Broadcast to client immediately
+    Bus:emit(EventNames.RUNTIME_EFFECTS_CHANGED, {
+        to = { kind = "player", player = p },
+        payload = st.effects
+    })
 end
 
 -- Removed _expireAndBroadcast - now handled by heartbeat
