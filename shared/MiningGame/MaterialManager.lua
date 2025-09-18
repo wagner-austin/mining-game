@@ -209,6 +209,8 @@ end
 
 -- Apply palette to glow bars
 local function applyGlowBars(palette: Palette)
+    local VIS = GameConfig.Visuals
+    local batch = (VIS and VIS.GLOWBAR_APPLY_BATCH) or 512
     applyToTaggedChunked("GlowBar", function(inst)
         if inst:IsA("BasePart") then
             -- Always use Neon for glow bars
@@ -239,7 +241,7 @@ local function applyGlowBars(palette: Palette)
                 downLight.Enabled = true
             end
         end
-    end)
+    end, batch)
 end
 
 -- Apply palette to scene lights

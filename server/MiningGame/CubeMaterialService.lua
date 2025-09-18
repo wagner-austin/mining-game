@@ -289,6 +289,73 @@ function Service.ApplyFloorMaterial(player: Player, key: string)
     return true
 end
 
+-- Extend the floor around the player's cube within a rectangular area, excluding the cube footprint.
+-- Uses the same voxel snapping + material replacement patterns as existing helpers.
+function Service.ExtendFloorAroundCube(player: Player, cubeOrigin: CFrame, rectCenter: Vector3, rectSize: Vector3)
+    local prefs = DataService:GetMaterialPrefs(player)
+    local floorMat = Enum.Material.Concrete
+    if prefs and prefs.floorMaterial then
+        floorMat = getTerrainMaterial(prefs.floorMaterial)
+    end
+
+    local cubeSize = GameConfig.Grid.CUBE_SIZE_STUDS
+    local half = cubeSize * 0.5
+    local originPos = cubeOrigin.Position
+    local bottomY = originPos.Y - half
+
+    -- Compute cube AABB (exclude this from modification)
+    local cubeMin = Vector3.new(originPos.X - half, bottomY, originPos.Z - half)
+    local cubeMax = Vector3.new(originPos.X + half, bottomY, originPos.Z + half)
+
+    -- Compute base rect bounds
+    local rHalfX, rHalfZ = rectSize.X * 0.5, rectSize.Z * 0.5
+    local baseMin = Vector3.new(rectCenter.X - rHalfX, bottomY, rectCenter.Z - rHalfZ)
+    local baseMax = Vector3.new(rectCenter.X + rHalfX, bottomY, rectCenter.Z + rHalfZ)
+
+    -- Helper to carve above and fill a thin slab up to bottomY for a given 2D rectangle
+    local RES = VOX
+    local floorDepth = RES * 2   -- thin slab
+    local carveHeight = RES * 6  -- clear above
+
+    local function carveAndFill2D(x0, z0, x1, z1)
+        -- Carve a small band above the floor plane to remove grass/overburden
+        do
+            local carveCenter = Vector3.new((x0 + x1) * 0.5, bottomY + carveHeight * 0.5, (z0 + z1) * 0.5)
+            local carveSize = Vector3.new(math.max(RES, x1 - x0), carveHeight, math.max(RES, z1 - z0))
+            Terrain:FillBlock(CFrame.new(carveCenter), carveSize, Enum.Material.Air)
+        end
+
+        -- Replace any terrain materials in a thin slab up to bottomY with the preferred floor material
+        do
+            local region = Region3.new(
+                Vector3.new(x0, bottomY - floorDepth, z0),
+                Vector3.new(x1, bottomY, z1)
+            ):ExpandToGrid(RES)
+            for _, src in ipairs(ALL_TERRAIN_ENUMS) do
+                Terrain:ReplaceMaterial(region, RES, src, floorMat)
+            end
+        end
+    end
+
+    -- Split base rect into 4 strips around cube AABB
+    local bx0, bz0, bx1, bz1 = baseMin.X, baseMin.Z, baseMax.X, baseMax.Z
+    local cx0, cz0, cx1, cz1 = cubeMin.X, cubeMin.Z, cubeMax.X, cubeMax.Z
+
+    -- Back strip (behind cube)
+    if bz0 < cz0 then carveAndFill2D(bx0, bz0, bx1, cz0) end
+    -- Front strip
+    if bz1 > cz1 then carveAndFill2D(bx0, cz1, bx1, bz1) end
+    -- Left strip
+    if bx0 < cx0 then carveAndFill2D(bx0, cz0, cx0, cz1) end
+    -- Right strip
+    if bx1 > cx1 then carveAndFill2D(cx1, cz0, bx1, cz1) end
+
+    -- Clear caches after terrain changes
+    ErrorService.safecall("TerrainSurfaceDetector.ClearCache", function()
+        TerrainSurfaceDetector.ClearCache()
+    end)
+end
+
 -- Handle material preference requests
 function Service.GetMaterialPreferences(player: Player)
     return DataService:GetMaterialPrefs(player)

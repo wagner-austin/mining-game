@@ -63,6 +63,11 @@ function CurrencyService.add(player: Player, currency: Currency, amount: number)
             payload = profile
         })
 
+        -- Update highestCoins (high score) on gains
+        if after > (profile :: any).highestCoins then
+            (profile :: any).highestCoins = after
+        end
+
     elseif currency == "gems" then
         local before = profile.gems
         local after = MathUtils.saturatingAdd(before, amount)

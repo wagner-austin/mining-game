@@ -159,6 +159,7 @@ end
 local function createDefaultProfile(userId: number): Types.PlayerStats
     return {
         coins = 0,
+        highestCoins = 0,
         gems = 0,
         materialId = "tier1",  -- Use tier ID from GameConfig.CubeMaterials
         cubeSeed = userId % 1000000, -- Deterministic seed based on user ID
@@ -390,6 +391,10 @@ function DataService:LoadPlayerAsync(player: Player): Types.PlayerStats?
              profile.totalGemsEarned = profile.totalGemsEarned or (profile.gems or 0)
              profile.totalGemsSpent = profile.totalGemsSpent or 0
              profile.lastLoginTime = profile.lastLoginTime or DateTime.now().UnixTimestamp
+             -- Migrate high score if missing
+             if (profile :: any).highestCoins == nil then
+                 (profile :: any).highestCoins = profile.coins or 0
+             end
              -- New/returning tracking migration
              profile.firstPlayTime = profile.firstPlayTime or profile.lastLoginTime or DateTime.now().UnixTimestamp
              if (profile.firstDigTime == nil) and ((profile.totalBlocksDug or 0) > 0) then

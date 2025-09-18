@@ -110,6 +110,12 @@ function ServiceManager.start()
     regReq(c, "CubeMaterialService",  parent.CubeMaterialService,  {"GridService","DataService"})
     regReq(c, "CompositionService",   parent.CompositionService,   {"MixedMaterialService","CubePositionService","DataService","CurrencyService"})
 
+    -- Visual helpers
+    regReq(c, "GlowBarService", parent.GlowBarService, {})
+
+    -- Player base visuals (optional, safe fallback if absent)
+    regOpt(c, "PlayerBaseService", parent:FindFirstChild("PlayerBaseService"), {})
+
     -- Gameplay (required)
     regReq(c, "DigService",              parent.DigService,              {"GridService","DataService","InventoryService","UpgradeService","LootService","AchievementService","ItemService","CubePositionService"})
     regReq(c, "SpawnService",            parent.SpawnService,            {"GridService","CubePositionService","DigService"})  -- SpawnService depends on DigService

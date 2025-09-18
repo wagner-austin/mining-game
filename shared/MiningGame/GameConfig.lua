@@ -766,11 +766,16 @@ GameConfig.Visuals = {
     CUBE_GLOW_TRANSPARENCY = 0.7, -- Semi-transparent overlay
     
     -- Additional visual constants
+    BASE_GLOW_LIFT = 3,           -- studs added to floor glow height for base perimeter (legacy; unified by standard offset when using GlowBarService)
+    GLOW_BAR_OFFSET_FROM_BOTTOM = 12, -- Standard height of glow bars above cube bottom face (studs)
+    GLOW_CORNER_OVERLAP_FACTOR = 0.22, -- Fraction of bar width added to length for clean corner overlap
     FLOOR_DEPTH_MULT = 3,        -- Voxel layers for floor cleanout (VOX * 3)
     EDGE_TRANSPARENCY = 0.3,     -- Selection/edge transparency
     BAR_EXTRA_LENGTH = 2,        -- Extra length beyond edge
     SELECTION_PAD = 1,           -- Selection bounds pad (studs)
     MARGIN_PERCENT = 0.10,       -- 10% margin for glow bar calc
+    GLOWBAR_APPLY_BATCH = 512,   -- Batch size for initial client application to reduce visible delay
+    BASE_GLOW_WIDTH = 5,         -- Base perimeter glow visual width (studs); cube uses FLOOR_GLOW_WIDTH
 }
 
 return GameConfig

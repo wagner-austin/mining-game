@@ -53,6 +53,9 @@ local E = {
     -- Firefly generation events
     FIREFLY_SPAWN_REQUEST = "firefly.spawn.request",
     FIREFLY_CLEAR_REQUEST = "firefly.clear.request",
+
+    -- World generation lifecycle
+    WORLDGEN_DONE = "worldgen.done",
 }
 
 local VALID: {[string]: true} = {}
@@ -79,6 +82,7 @@ export type EventName =
     "island.spawn.request" | "island.remove.request" |
     "tree.spawn.request" | "tree.clear.request" |
     "rock.spawn.request" | "rock.clear.request" |
-    "firefly.spawn.request" | "firefly.clear.request"
+    "firefly.spawn.request" | "firefly.clear.request" |
+    "worldgen.done"
 
 return E

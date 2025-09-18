@@ -246,6 +246,16 @@ function DigService:InitializePlayerCube(player: Player)
         to = { kind = "player", player = player },
         payload = { origin = cubeOrigin }
     })
+
+    -- Ensure player base floor (ring) AFTER cube is restored (we will pass the cubeOrigin directly)
+    do
+        local PBS = ServiceValidator.tryGet(self._container, "PlayerBaseService", {"Ensure"})
+        if PBS then
+            pcall(function()
+                PBS:Ensure(player, cubeOrigin)
+            end)
+        end
+    end
     
     -- Set streaming mode for owner (already applied in CubeVolume, but harmless to reinforce)
     local model = volData and volData.model

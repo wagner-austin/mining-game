@@ -11,6 +11,9 @@ local CollectionService = game:GetService("CollectionService")
 local Shared = ReplicatedStorage:WaitForChild("MiningGame")
 local Logger = require(Shared:WaitForChild("Logger"))
 local log = Logger.new("WorldGenerationService")
+local EventBus = require(Shared:WaitForChild("EventBus"))
+local EventNames = require(Shared:WaitForChild("EventNames"))
+local Bus = EventBus.global()
 local Time = require(Shared:WaitForChild("Time"))
 local WorldTime = require(Shared:WaitForChild("WorldTime"))
 local GameConfig = require(Shared:WaitForChild("GameConfig"))
@@ -407,6 +410,8 @@ function WorldGenerationService.SpawnDecorations()
     end
     
     log:info("World Generation Complete: %d trees, %d rocks, %d firefly groups", treesSpawned, rocksSpawned, fliesSpawned)
+    -- Notify systems that worldgen is finished so dependent visuals can run safely after
+    Bus:emit(EventNames.WORLDGEN_DONE, { to = { kind = "server" } })
 end
 
 local spawning = false
