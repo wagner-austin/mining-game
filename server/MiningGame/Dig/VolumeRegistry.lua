@@ -77,7 +77,9 @@ end
 
 function VolumeRegistry.Register(container, init: { id: string?, kind: string, origin: CFrame, sizeStuds: Vector3, permissions: { public: boolean, ownerUserId: number? }?, meta: any?, state: Types.CubeState? }): Volume
     local GridService = ServiceValidator.get(container, "GridService")
-    local id = init.id or (init.kind .. ":" .. tostring(os.clock()):gsub("%.", "") .. ":" .. tostring(math.random(1, 1e9)))
+local Shared = game:GetService("ReplicatedStorage"):WaitForChild("MiningGame")
+local Time = require(Shared:WaitForChild("Time"))
+local id = init.id or (init.kind .. ":" .. tostring(Time.mono()):gsub("%.", "") .. ":" .. tostring(math.random(1, 1e9)))
     local perms = init.permissions or { public = false, ownerUserId = nil }
     local state = init.state or GridService:CreateCubeState(perms.ownerUserId or 0, "tier1")
     -- Only set extentsCells if not already set (CubeVolume sets it for islands after terrain snapping)

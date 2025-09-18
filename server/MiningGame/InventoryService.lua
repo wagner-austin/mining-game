@@ -33,6 +33,8 @@ local CurrencyService
 local CompositionService  -- Optional for terrain theme equipment
 local ErrorService = require(script.Parent.ErrorService)  -- Foundation service
 local Schema = require(script.Parent.SchemaValidators)  -- Not a service
+local CharacterStateManager -- Injected via container
+local PerkService -- Orchestrator
 
 -- Shared remotes accessor
 local Remotes = require(ReplicatedStorage.MiningGame.Remotes)
@@ -47,6 +49,10 @@ local InventoryService = {}
 
 -- Player debounce tracking (moved before Start method to avoid forward reference)
 local paletteDebounce: {[Player]: number} = {}
+-- Per-player lock to serialize consumable use and avoid double-consume
+local useConsumableBusy: {[Player]: boolean} = {}
+-- Short per-item rate limit (server-side) to coalesce accidental double taps
+local lastUseAt: {[Player]: {[string]: number}} = {}
 
 -- Initialize with dependency injection
 function InventoryService:Init(container)
@@ -58,6 +64,12 @@ function InventoryService:Init(container)
     
     -- Optional dependency for terrain theme equipment
     CompositionService = ServiceValidator.tryGet(container, "CompositionService", {"ApplyComposition"})
+
+    -- Character state manager for server-authored movement effects
+    -- Use tryGet here because CharacterStateManager is registered later in ServiceManager
+    CharacterStateManager = ServiceValidator.tryGet(container, "CharacterStateManager", {"ApplyTimedEffect", "RemoveEffect", "SyncProfileBoosts"})
+    -- Perk orchestrator (registered after CharacterStateManager)
+    PerkService = ServiceValidator.tryGet(container, "PerkService", {"Recompute"})
     
     -- Register callback with AchievementService now that deps are wired
     AchievementService.SetRewardItemCallback(function(player: Player, itemId: string, count: number)
@@ -74,7 +86,33 @@ function InventoryService:Start(container)
         paletteDebounce[player] = nil
     end)
     
+    -- Resolve CharacterStateManager now that all services are built
+    CharacterStateManager = CharacterStateManager or ServiceValidator.tryGet(container, "CharacterStateManager", {"ApplyTimedEffect", "RemoveEffect", "SyncProfileBoosts"})
+    PerkService = PerkService or ServiceValidator.tryGet(container, "PerkService", {"Recompute"})
+
     log:info("Started with player connections")
+
+    -- Helper that waits for DataService profile and CharacterStateManager state, then recomputes perks
+    local function initPerksFor(player: Player)
+        task.defer(function()
+            if PerkService and PerkService.Recompute then
+                PerkService:Recompute(player)
+            else
+                log:warn("PerkService not available; perks not applied for %s", player.Name)
+            end
+            if CharacterStateManager and CharacterStateManager.SyncProfileBoosts then
+                CharacterStateManager:SyncProfileBoosts(player)
+            end
+        end)
+    end
+
+    -- Initialize cosmetic perk effects when players join (after services and profile/state are ready)
+    Players.PlayerAdded:Connect(initPerksFor)
+
+    -- Also initialize for any players already present (Studio safety / mid-session reloads)
+    for _, p in ipairs(Players:GetPlayers()) do
+        initPerksFor(p)
+    end
 end
 
 -- Helper to preserve : method syntax with Guard wrappers
@@ -115,6 +153,7 @@ local MAX_STACK_SIZE = {
     cosmetic = 99,  -- Make cosmetics stackable (for duplicates/trading)
 }
 
+
 --[[
     Add an item to the player's inventory with stack limit checking.
     
@@ -151,6 +190,11 @@ function InventoryService:AddItem(player: Player, itemId: string, count: number)
     -- Add to inventory
     local newCount = currentCount + addable
     profile.inventory[itemId] = newCount
+    -- Record first obtained timestamp
+    local obtainedAt = (profile :: any).inventoryObtainedAt
+    if obtainedAt and not obtainedAt[itemId] then
+        obtainedAt[itemId] = DateTime.now().UnixTimestamp
+    end
     
     -- Queue save
     DataService:QueueSave(player)
@@ -187,6 +231,11 @@ function InventoryService:AddItemsBulk(player: Player, countsById: {[string]: nu
 
             if addable > 0 then
                 profile.inventory[itemId] = currentCount + addable
+                -- Record first obtained in bulk path
+                local obtainedAt = (profile :: any).inventoryObtainedAt
+                if obtainedAt and not obtainedAt[itemId] then
+                    obtainedAt[itemId] = DateTime.now().UnixTimestamp
+                end
                 actuallyAdded[itemId] = addable
                 needsSave = true
 
@@ -352,6 +401,9 @@ InventoryService.EquipItem = asMethod(Guard.args(
         slot = "pickaxe"
     elseif itemDef.type == "cosmetic" then
         slot = itemDef.slot
+        if slot == "modelSwap" then
+            return {success = false, reason = "Model swaps are not available"}
+        end
     else
         return {success = false, reason = "Item cannot be equipped"}
     end
@@ -448,7 +500,10 @@ InventoryService.EquipItem = asMethod(Guard.args(
             itemId = itemId,
         })
     })
-    
+
+    -- Recompute cosmetic perks via orchestrator
+    if PerkService and PerkService.Recompute then PerkService:Recompute(player) end
+
     return {success = true}
     end
 ))
@@ -486,7 +541,10 @@ InventoryService.UnequipItem = asMethod(Guard.args(
             itemId = nil,  -- nil = unequipped
         })
     })
-    
+
+    -- Recompute cosmetic perks via orchestrator
+    if PerkService and PerkService.Recompute then PerkService:Recompute(player) end
+
     return {success = true}
     end
 ))
@@ -495,39 +553,82 @@ InventoryService.UnequipItem = asMethod(Guard.args(
 InventoryService.UseConsumable = asMethod(Guard.args(
     { Schema.Table, Schema.InstanceIsA("Player"), Schema.String },
     function(self, player: Player, itemId: string): {success: boolean, reason: string?}
+    -- Serialize per-player to prevent concurrent double-consume (race on profile.boosts)
+    if useConsumableBusy[player] then
+        return {success = true, reason = "DEDUPED_BUSY"}
+    end
+    useConsumableBusy[player] = true
+    local function clearBusy()
+        useConsumableBusy[player] = nil
+    end
+    
+    -- Lightweight per-item debounce (server-authoritative)
+    local nowMono = Time.mono()
+    lastUseAt[player] = lastUseAt[player] or {}
+    local last = lastUseAt[player][itemId] or 0
+    if (nowMono - last) < 0.25 then
+        clearBusy()
+        return {success = true, reason = "DEDUPED_RATELIMIT"}
+    end
+    lastUseAt[player][itemId] = nowMono
+
     local profile = DataService:GetPlayerData(player)
     if not profile then
+        clearBusy()
         return {success = false, reason = "No profile"}
     end
     
     -- Check if player has the item
     if not self:HasItem(player, itemId, 1) then
+        clearBusy()
         return {success = false, reason = "Item not owned"}
     end
     
     -- Get item definition
     local itemDef = LootService:GetItemDefinition(itemId)
     if not itemDef or itemDef.type ~= "consumable" then
+        clearBusy()
         return {success = false, reason = "Not a consumable"}
     end
     
-    -- Remove item
-    self:RemoveItem(player, itemId, 1)
-    
-    -- Apply effect
+    -- Apply effect then remove item (after effect computation) to reduce risk of consuming without effect in edge cases
     if itemDef.effect == "speed" then
-        profile.boosts.speed = Time.unix() + (itemDef.duration or 300)
+        -- Movement-only speed potion (stacking)
+        local MB = GameConfig.MovementBoosts and GameConfig.MovementBoosts.SpeedPotion
+        local stackMax = (MB and MB.STACK_MAX) or 3
+        local duration = itemDef.duration or (MB and MB.DURATION_SEC) or 300
+        -- Read existing tier
+        local now = Time.unix()
+        local currentTier = 0
+        -- Find any existing potion_speed_tier_* and clear them
+        for key, exp in pairs(profile.boosts) do
+            local n = tostring(key):match("^potion_speed_tier_(%d+)$")
+            if n then
+                local tier = tonumber(n) or 0
+                if type(exp) == "number" and exp > now and tier > currentTier then
+                    currentTier = tier
+                end
+                profile.boosts[key] = nil
+            end
+        end
+        local newTier = currentTier + 1
+        local newKey = "potion_speed_tier_"..tostring(newTier)
+        profile.boosts[newKey] = now + duration
     elseif itemDef.effect == "size" then
         profile.boosts.size = Time.unix() + (itemDef.duration or 300)
     elseif itemDef.effect == "luck" then
         profile.boosts.luck = Time.unix() + (itemDef.duration or 300)
     elseif itemDef.effect == "all" then
-        -- Mega potion affects multiple stats
+        -- Mega potion affects multiple stats (movement speed as tier-1 stack)
         local duration = itemDef.duration or 900
-        profile.boosts.speed = Time.unix() + duration
-        profile.boosts.size = Time.unix() + duration
-        profile.boosts.luck = Time.unix() + duration
+        local now = Time.unix()
+        profile.boosts["potion_speed_tier_1"] = now + duration
+        profile.boosts.size = now + duration
+        profile.boosts.luck = now + duration
     end
+    
+    -- Remove item (consume exactly once per accepted call)
+    self:RemoveItem(player, itemId, 1)
     
     -- Queue save
     DataService:QueueSave(player)
@@ -538,6 +639,11 @@ InventoryService.UseConsumable = asMethod(Guard.args(
         payload = Contracts.BOOSTS_CHANGED(profile.boosts)
     })
     
+    -- Update runtime effects snapshot immediately so movement/stats update without relog
+    if CharacterStateManager and CharacterStateManager.SyncProfileBoosts then
+        CharacterStateManager:SyncProfileBoosts(player)
+    end
+    
     Bus:emit(EventNames.NOTIFICATION_PUSH, {
         to = { kind = "player", player = player },
         payload = Contracts.NOTIFICATION_PUSH({
@@ -547,6 +653,7 @@ InventoryService.UseConsumable = asMethod(Guard.args(
         })
     })
     
+    clearBusy()
     return {success = true}
     end
 ))
@@ -581,3 +688,4 @@ end
 log:info("Initialized")
 
 return InventoryService
+

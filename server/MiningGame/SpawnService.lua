@@ -23,6 +23,9 @@ local ServiceValidator = require(MiningGame:WaitForChild("ServiceValidator"))
 local EventBus = require(MiningGame:WaitForChild("EventBus"))
 local EventNames = require(MiningGame:WaitForChild("EventNames"))
 local Time = require(MiningGame:WaitForChild("Time"))
+local WorldGenUtils = require(MiningGame:WaitForChild("WorldGenUtils"))
+local SpawnOrchestrator = require(script.Parent:WaitForChild("SpawnOrchestrator"))
+local ErrorService = require(script.Parent:WaitForChild("ErrorService"))
 local Bus = EventBus.global()
 
 -- Services (injected via Init)
@@ -42,6 +45,8 @@ local lastRespawnAt: {[Player]: number} = {}
 local lastCommittedSpawnAt: {[Player]: number} = {}
 local lastCommittedOrigin: {[Player]: CFrame} = {}
 local DEBUG_SPAWN_LOGS = false
+
+-- Orchestration handled by SpawnOrchestrator
 local function canRespawn(player: Player): boolean
     local now = Time.mono()
     if lastRespawnAt[player] and now - lastRespawnAt[player] < 1.0 then 
@@ -81,6 +86,7 @@ function SpawnService:Start(container)
         lastRespawnAt[player] = nil
         lastCommittedSpawnAt[player] = nil
         lastCommittedOrigin[player] = nil
+        SpawnOrchestrator.Cleanup(player)
     end)
     
     -- Reposition when DigService announces the origin
@@ -96,6 +102,7 @@ function SpawnService:Start(container)
         local currentOrigin = CubePositionService:GetOrigin(player)
         if currentOrigin and origin and (currentOrigin.Position - origin.Position).Magnitude < 1 then
             log:debug("Already at correct origin, skipping respawn")
+            SpawnOrchestrator.IncDuplicateSkipped()
             return
         end
         
@@ -103,7 +110,7 @@ function SpawnService:Start(container)
             log:debug("Spawn throttled for %s", player.Name)
             return 
         end
-        
+
         SpawnService:Respawn(player, "CUBE_ORIGIN_CHANGED")
     end)
     
@@ -126,31 +133,11 @@ local GROUND_RAY_DOWN = 1000                                -- ray down distance
     @return number - The Y coordinate of the ground
 ]]
 local function groundAtOrDefault(pos: Vector3): number
-    -- raycast straight down from above pos
-    local origin = pos + Vector3.new(0, GROUND_RAY_UP, 0)
-    local dir    = Vector3.new(0, -GROUND_RAY_DOWN, 0)
-
-    -- Build exclude list without nils
-    local excludes = {}
-    local folderNames = {"SimAgents", "ItemDrops", "ProceduralResources", "PCG_Deco", "PCG_Resources"}
-    for _, name in ipairs(folderNames) do
-        local folder = Workspace:FindFirstChild(name)
-        if folder then
-            table.insert(excludes, folder)
-        end
-    end
-
-    local params = RaycastParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-    params.FilterDescendantsInstances = excludes
-    params.IgnoreWater = true -- Ignore water to find solid ground
-
-    local hit = Workspace:Raycast(origin, dir, params)
-    if hit then
-        -- add a little clearance so feet aren't clipping
-        return hit.Position.Y + 3
-    end
-    -- fallback if nothing hit
+    -- Prefer shared utility to stay DRY with other systems
+    local yPos = WorldGenUtils.findGroundPosition(pos.X, pos.Z, { allowWater = false })
+    if yPos then return (yPos :: Vector3).Y end
+    local center, _, _ = WorldGenUtils.getSpawnBounds()
+    if center then return center.Y end
     return 5
 end
 
@@ -169,6 +156,8 @@ local function computeSpawnCFrame(cubeOrigin: CFrame): CFrame
     -- place player (half cube + padding) away from cube center, on ground
     local spawnFlat = target + frontDir * (HALF_STUDS + FRONT_PADDING)
     local y = groundAtOrDefault(spawnFlat)
+    -- Add a small clearance above ground to avoid clipping
+    y += 15
     local spawnPos = Vector3.new(spawnFlat.X, y, spawnFlat.Z)
 
     -- face the cube horizontally (keep player upright)
@@ -179,6 +168,14 @@ local function computeSpawnCFrame(cubeOrigin: CFrame): CFrame
         lookAt.X, lookAt.Y, lookAt.Z)
     
     return cf
+end
+
+-- Internal: finalize spawn if all conditions are met (or by timeout)
+-- Finalization handled by SpawnOrchestrator
+
+-- Public: mark a player as client-ready (handshake from client)
+function SpawnService:MarkClientReady(player: Player)
+    SpawnOrchestrator.MarkClientReady(player)
 end
 
 --[[
@@ -215,10 +212,7 @@ function SpawnService:Respawn(player: Player, source: string?)
     -- SpawnService is the sole owner of cube creation timing
     DigService:InitializePlayerCube(player)
 
-    -- request streaming around the spawn (helps with streaming-enabled worlds)
-    task.spawn(function()
-        pcall(function() Workspace:RequestStreamAroundAsync(cubeOrigin.Position, 64) end)
-    end)
+    -- Client handles streaming via SpawnGuard; server does not request streaming
 
     local cf = computeSpawnCFrame(cubeOrigin)
 
@@ -242,6 +236,12 @@ function SpawnService:Respawn(player: Player, source: string?)
             tostring(originChanged)
         )
     end
+    if SpawnOrchestrator.IsEnabled() and SpawnOrchestrator.IsActive(player) then
+        -- Defer final placement until client signals ready (or timeout)
+        SpawnOrchestrator.OnOriginReady(player, cf)
+        return
+    end
+
     hrp.CFrame = cf
 
     -- small nudge to settle
@@ -274,6 +274,11 @@ onCharacterAdded = function(char: Model)
     end
     
     
+    -- Initialize orchestration state and anchor
+    if SpawnOrchestrator.IsEnabled() then
+        SpawnOrchestrator.StartForCharacter(plr, hrp)
+    end
+
     -- If we already know an origin (e.g., cube finished first), snap now.
     local origin = CubePositionService and CubePositionService:GetOrigin(plr)
     if origin and canRespawn(plr) then
@@ -292,12 +297,7 @@ function SpawnService:RespawnCharacterAtOrigin(character: Model, cubeOrigin: CFr
     local hrp = character:FindFirstChild("HumanoidRootPart") :: BasePart?
     if not hrp then return end
 
-    -- Only request streaming if not skipped (prevents thrashing when spawning many SimAgents)
-    if not skipStream then
-        task.spawn(function()
-            pcall(function() Workspace:RequestStreamAroundAsync(cubeOrigin.Position, 64) end)
-        end)
-    end
+    -- Client handles streaming; skip server-side RequestStreamAroundAsync
 
     local cf = computeSpawnCFrame(cubeOrigin)
     hrp.CFrame = cf

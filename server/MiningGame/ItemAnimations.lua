@@ -175,4 +175,13 @@ function ItemAnimations.pulsePartialPickup(part: BasePart): ()
     end)
 end
 
+-- Keep rotation tick co-located with animations for clarity
+function ItemAnimations.updateRotations(activeDrops: {[Model]: any}, dt: number, rotationSpeed: number)
+    for dropModel, dropData in pairs(activeDrops) do
+        if dropModel.Parent and dropModel.PrimaryPart and not dropData.claimed then
+            dropModel.PrimaryPart.CFrame = dropModel.PrimaryPart.CFrame * CFrame.Angles(0, rotationSpeed * dt, 0)
+        end
+    end
+end
+
 return ItemAnimations

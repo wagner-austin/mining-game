@@ -12,6 +12,7 @@ local Logger = require(MiningGame:WaitForChild("Logger"))
 local log = Logger.new(Logger.CAT.UserMetrics or "UserMetricsService")
 local MathUtils = require(MiningGame:WaitForChild("MathUtils"))
 local ServiceValidator = require(MiningGame:WaitForChild("ServiceValidator"))
+local SpawnOrchestrator = require(script.Parent:WaitForChild("SpawnOrchestrator"))
 
 -- Services (injected via Init)
 local DataService
@@ -293,6 +294,13 @@ function UserMetricsService:GetServerMetrics()
         totalPlaytimeHours = totalPlaytime / 3600,
         serverUptimeSec = workspace.DistributedGameTime,
     }
+    -- Include spawn orchestration metrics snapshot
+    local ok, spawnMetrics = pcall(function() return SpawnOrchestrator.GetMetrics() end)
+    if ok and type(spawnMetrics) == "table" then
+        serverMetrics.spawn = spawnMetrics
+    else
+        serverMetrics.spawn = { enabled = false }
+    end
     
     log:perf("UserMetricsService:GetServerMetrics", t0)
     log:metric("server_active_players", totalPlayers)

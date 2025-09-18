@@ -74,6 +74,10 @@ end
 
 -- Add base items from GameConfig
 for _, def in ipairs(baseItems) do
+    -- Allow per-item override via dropWeight on the definition
+    if def.dropWeight and type(def.dropWeight) == "number" then
+        def._adjustedWeight = def.dropWeight
+    end
     addItemDef(def)
 end
 
@@ -85,9 +89,14 @@ if GameConfig.Features.COSMETICS_ENABLED and GameConfig.Features.COSMETICS_IN_LO
     for id, def in pairs(CosmeticDefinitions.ITEMS) do
         def.id = def.id or id
         def.type = def.type or "cosmetic"
-        -- Apply weight reduction for cosmetics
-        if def.rarity and rarityWeights[def.rarity] then
-            def._adjustedWeight = rarityWeights[def.rarity].weight * COSMETIC_WEIGHT_MULT
+        -- Per-item override takes precedence when present
+        if def.dropWeight and type(def.dropWeight) == "number" then
+            def._adjustedWeight = def.dropWeight
+        else
+            -- Apply weight reduction for cosmetics
+            if def.rarity and rarityWeights[def.rarity] then
+                def._adjustedWeight = rarityWeights[def.rarity].weight * COSMETIC_WEIGHT_MULT
+            end
         end
         addItemDef(def)
     end
@@ -109,6 +118,7 @@ end
 -- Build weighted loot table
 local function buildWeightedTable(rarityBoost: number): {number}
     local weights = {}
+    local typeMult = (GameConfig and GameConfig.Loot and GameConfig.Loot.TYPE_MULTIPLIER) or {}
     
     for i, item in ipairs(itemDefinitions) do
         local rarity = item.rarity
@@ -134,7 +144,10 @@ local function buildWeightedTable(rarityBoost: number): {number}
             end
         end
         
-        weights[i] = math.max(0.0001, adjustedWeight)
+        -- Apply optional type multiplier to adjust overall share per type
+        local t = tostring(item.type or "")
+        local tm = typeMult[t] or 1.0
+        weights[i] = math.max(0.0001, adjustedWeight * tm)
     end
     
     return weights

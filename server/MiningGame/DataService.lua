@@ -170,8 +170,8 @@ local function createDefaultProfile(userId: number): Types.PlayerStats
         pets = {}, -- pet instance id -> pet data
         inventory = {}, -- item id -> count
         equipped = {
-            pickaxe = nil,
-            pickaxeSkin = nil,      -- visual overlay for pickaxe
+            pickaxe = nil,          -- equipment pickaxe (non-cosmetic)
+            hand = nil,             -- right-hand cosmetic (sword/pickaxe/warhammer)
             head = nil,
             back = nil,
             aura = nil,
@@ -257,7 +257,7 @@ local function ensureRequiredFields(profile: Types.PlayerStats)
     if not profile.equipped then
         profile.equipped = {
             pickaxe = nil,
-            pickaxeSkin = nil,
+            hand = nil,
             head = nil,
             back = nil,
             aura = nil,
@@ -270,6 +270,11 @@ local function ensureRequiredFields(profile: Types.PlayerStats)
     -- Ensure inventory exists
     if not profile.inventory then
         profile.inventory = {}
+    end
+
+    -- Ensure inventory obtained-at map exists (first acquisition timestamps)
+    if not (profile :: any).inventoryObtainedAt then
+        (profile :: any).inventoryObtainedAt = {} -- itemId -> unix timestamp
     end
     
     -- Ensure upgrades exist

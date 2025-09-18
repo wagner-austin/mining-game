@@ -7,6 +7,7 @@ local Workspace = game:GetService("Workspace")
 local Terrain = Workspace.Terrain
 
 local Shared = ReplicatedStorage:WaitForChild("MiningGame")
+local Time = require(Shared:WaitForChild("Time"))
 local Logger = require(Shared:WaitForChild("Logger"))
 local GameConfig = require(Shared:WaitForChild("GameConfig"))
 local ServiceValidator = require(Shared:WaitForChild("ServiceValidator"))
@@ -84,7 +85,7 @@ function CubeVolume.create(container, spec: CreateSpec)
     local origin = CFrame.new(qpos)
     local sizeStuds = Vector3.new(qCell(spec.sizeStuds.X), qCell(spec.sizeStuds.Y), qCell(spec.sizeStuds.Z))
 
-    local volId = spec.id or (kind .. ":" .. tostring(os.clock()):gsub("%.", "") .. ":" .. tostring(math.random(1, 1e9)))
+    local volId = spec.id or (kind .. ":" .. tostring(Time.mono()):gsub("%.", "") .. ":" .. tostring(math.random(1, 1e9)))
     local perms = { public = (spec.public == true), ownerUserId = spec.ownerUserId }
 
     -- Prepare state with per-axis half-extents in cells

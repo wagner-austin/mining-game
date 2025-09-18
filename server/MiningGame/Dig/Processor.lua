@@ -10,6 +10,8 @@ local GridMath = require(Shared:WaitForChild("Utils"):WaitForChild("GridMath"))
 local Time = require(Shared:WaitForChild("Time"))
 local MathUtils = require(Shared:WaitForChild("MathUtils"))
 local MaterialKeys = require(Shared:WaitForChild("MaterialKeys"))
+local MaterialDefinitions = require(Shared:WaitForChild("MaterialDefinitions"))
+local SoundCategories = require(Shared:WaitForChild("SoundCategories"))
 local Snapper = require(script.Parent:WaitForChild("Snapper"))
 local Picker = require(script.Parent:WaitForChild("Picker"))
 local VolumeRegistry = require(script.Parent:WaitForChild("VolumeRegistry"))
@@ -197,8 +199,32 @@ function Processor.Process(service, player: Player, worldPos: Vector3)
     -- Success; update times and compose result
     lastDigTime[userId] = now
     local materialKey = (soundHint and soundHint.materialKey) or "rock"
-    -- Anchor SFX at the center of the dig for consistency with click
+    -- Anchor SFX at the center of the dig
     local soundPos = cellCenterWorld
+
+    -- Choose a mining subtype server-side so all clients hear the same variant
+    local chosenSubtype = "hit"
+    do
+        local def = MaterialDefinitions.Materials[materialKey]
+        local category = (def and def.properties and def.properties.soundCategory) or "rock"
+        local events = SoundCategories.GetMiningEvents(category)
+        local r = (Random.new() :: Random):NextNumber()
+        if #events >= 3 then
+            if r < 0.7 then chosenSubtype = events[1]
+            elseif r < 0.9 then chosenSubtype = events[2]
+            else chosenSubtype = events[3] end
+        elseif #events == 2 then
+            chosenSubtype = (r < 0.75) and events[1] or events[2]
+        elseif #events == 1 then
+            chosenSubtype = events[1]
+        end
+    end
+
+    -- Broadcast mining sound to nearby players as local (2D) audio (no position in payload)
+    pcall(function()
+        local SoundBroadcast = require(script.Parent.Parent.SoundBroadcast)
+        SoundBroadcast.MiningLocal(player, soundPos, materialKey, chosenSubtype)
+    end)
     Telemetry.success()
     return {
         ok = true,
@@ -209,6 +235,7 @@ function Processor.Process(service, player: Player, worldPos: Vector3)
         effectiveStats = effectiveStats,
         soundMaterialKey = materialKey,
         soundWorldPos = soundPos,
+        soundSubtype = chosenSubtype,
         centerCell = centerCell,
         volumeId = pickedVol and pickedVol.id or ("cube:" .. tostring(player.UserId)),
         volumeOrigin = volOrigin,

@@ -12,6 +12,7 @@ local Result = require(Shared:WaitForChild("Result"))
 local GameConfig = require(Shared:WaitForChild("GameConfig"))
 local EventBus = require(Shared:WaitForChild("EventBus"))
 local EventNames = require(Shared:WaitForChild("EventNames"))
+local Contracts = require(Shared:WaitForChild("EventContracts"))
 local Bus = EventBus.global()
 
 -- Return a factory function that accepts the DI container
@@ -175,6 +176,44 @@ return function(container)
             }
         end,
         opts = { requireProfile = true, rateLimitSec = 1.0, debugOnly = true },
+    },
+
+    {
+        name = "DebugResetInventory",
+        handler = function(ctx)
+            if not isDev(ctx.player) then
+                return {
+                    ok = false,
+                    success = false,
+                    err = "FORBIDDEN",
+                    reason = "Not authorized"
+                }
+            end
+
+            -- Reset only inventory and equipped to defaults
+            local ok = DataService:ResetProfileToDefaults(ctx.player, {
+                upgrades = false,
+                currencies = false,
+                boosts = false,
+                inventory = true,
+            })
+            if ok then
+                -- Emit events for UI update
+                local profile = DataService:GetPlayerData(ctx.player)
+                local inv = (profile and profile.inventory) or {}
+                Bus:emit(EventNames.INVENTORY_CHANGED, {
+                    to = { kind = "player", player = ctx.player },
+                    payload = Contracts.INVENTORY_CHANGED(inv),
+                })
+                Bus:emit(EventNames.PROFILE_UPDATED, {
+                    to = { kind = "player", player = ctx.player },
+                    payload = profile,
+                })
+                return { ok = true, success = true, message = "Inventory reset" }
+            end
+            return { ok = false, success = false, err = "RESET_FAILED", reason = "Failed to reset inventory" }
+        end,
+        opts = { requireProfile = true, rateLimitSec = 0.5, debugOnly = true },
     },
     
     {

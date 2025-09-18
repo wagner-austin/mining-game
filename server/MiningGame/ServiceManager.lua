@@ -99,6 +99,14 @@ function ServiceManager.start()
     -- Customization (required)
     regReq(c, "ThemeSettingsService", parent.ThemeSettingsService, {"DataService"})
     regReq(c, "CubePositionService",  parent.CubePositionService,  {"GridService"})
+
+    -- Move world generation earlier so the terrain baseplate exists before cubes spawn
+    regOpt(c, "WorldGenerationService", parent:FindFirstChild("WorldGenerationService"), {"GridService", "CubePositionService"})
+    regOpt(c, "TreeGenerationService", parent:FindFirstChild("TreeGenerationService"), {"CubePositionService"})
+    regOpt(c, "RockGenerationService", parent:FindFirstChild("RockGenerationService"), {"CubePositionService"})
+    regOpt(c, "FireflyGenerationService", parent:FindFirstChild("FireflyGenerationService"), {"CubePositionService"})
+    regOpt(c, "FloatingIslandService", parent:FindFirstChild("FloatingIslandService"), {"GridService", "MixedMaterialService"})
+
     regReq(c, "CubeMaterialService",  parent.CubeMaterialService,  {"GridService","DataService"})
     regReq(c, "CompositionService",   parent.CompositionService,   {"MixedMaterialService","CubePositionService","DataService","CurrencyService"})
 
@@ -106,6 +114,9 @@ function ServiceManager.start()
     regReq(c, "DigService",              parent.DigService,              {"GridService","DataService","InventoryService","UpgradeService","LootService","AchievementService","ItemService","CubePositionService"})
     regReq(c, "SpawnService",            parent.SpawnService,            {"GridService","CubePositionService","DigService"})  -- SpawnService depends on DigService
     regReq(c, "CharacterStateManager",   parent.CharacterStateManager,   {"DataService"})
+
+    -- Perk orchestrator (depends on CharacterStateManager)
+    regReq(c, "PerkService", parent.PerkService, {"DataService","LootService","CharacterStateManager"})
     
     -- Cube manager (optional orchestration for spawn/despawn policies)
     regOpt(c, "CubeManager", parent:FindFirstChild("CubeManager"), {"DigService","CubePositionService"})
@@ -118,12 +129,6 @@ function ServiceManager.start()
     if RunService:IsStudio() then
         regOpt(c, "SimAgents", parent:FindFirstChild("SimAgents"), {"DigService","GridService"})
     end
-
-    regOpt(c, "WorldGenerationService", parent:FindFirstChild("WorldGenerationService"), {"GridService", "CubePositionService"})
-    regOpt(c, "TreeGenerationService", parent:FindFirstChild("TreeGenerationService"), {"CubePositionService"})
-    regOpt(c, "RockGenerationService", parent:FindFirstChild("RockGenerationService"), {"CubePositionService"})
-    regOpt(c, "FireflyGenerationService", parent:FindFirstChild("FireflyGenerationService"), {"CubePositionService"})
-    regOpt(c, "FloatingIslandService", parent:FindFirstChild("FloatingIslandService"), {"GridService", "MixedMaterialService"})
     
     regOpt(c, "RateLimitService", parent:FindFirstChild("RateLimitService"), {})
 

@@ -90,13 +90,12 @@ end
 -- Validate equipment slot names
 function SchemaValidators.EquipmentSlot(input: any): (boolean, string?)
     local validSlots = {
-        pickaxe = true,
-        pickaxeSkin = true,
         head = true,
         back = true,
         aura = true,
         trail = true,
-        modelSwap = true,
+        hand = true,       -- right-hand cosmetic items (sword/pickaxe/warhammer)
+        -- modelSwap removed
         terrainTheme = true,
     }
     
