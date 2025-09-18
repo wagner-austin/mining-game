@@ -5,70 +5,6 @@
 
 ## Currently Implemented Features
 
-### ✅ Working Systems:
-- Basic cube mining (click to remove voxels)
-- Multiplayer cube positioning
-- Material customization system
-- Basic UI components (currency display, settings)
-- Sound system infrastructure (but no sound IDs)
-- Loot service (basic implementation, different from plans)
-
-## Planning Documents Status
-
-### 🔴 CURRENT_IMPLEMENTATION_PLAN.md
-**Status: NOT IMPLEMENTED - Contains unbuilt features**
-- ❌ Extraction quota system - NOT BUILT
-- ❌ HP and damage tracking - NOT BUILT
-- ❌ Visual feedback system - NOT BUILT
-- ❌ Tier progression - NOT BUILT
-- ⚠️ Many proposed features don't exist in codebase
-
-### 🔴 EXTRACTION_QUOTA_SYSTEM.md
-**Status: NOT IMPLEMENTED - Design only**
-- ❌ No quota system exists
-- ❌ No tier progression (T1-T4)
-- ❌ No HP calculation
-- ❌ Current system uses simple cell removal
-
-### 🔴 DROP_TABLE_SYSTEM.md
-**Status: PARTIALLY IMPLEMENTED - Different design**
-- ✅ Basic loot system exists
-- ❌ No AFK system
-- ❌ No unified drop table as described
-- ❌ No welcome back screen
-- ⚠️ Current implementation differs significantly
-
-### 🟡 MASTER_IMPLEMENTATION_ROADMAP.md
-**Status: OUTDATED - August 2024 plan mostly incomplete**
-- ✅ Phase 6 (Sound) partially complete
-- ❌ Most other phases not implemented
-- ⚠️ Timeline severely outdated (was "2.5 weeks to launch")
-
-### 🔴 MAP_SYSTEM_DESIGN.md
-**Status: NOT IMPLEMENTED**
-- ❌ No plot system
-- ❌ No map configurations
-- ❌ No VIP areas
-- ✅ Basic cube positioning only
-
-## UI/UX Plans
-
-### 🟡 UI_LAYOUT_DESIGN.md
-**Status: TO BE REVIEWED**
-- May contain designs not matching current UI
-
-### 🟡 UI_AFK_REWARDS_DESIGN.md
-**Status: NOT IMPLEMENTED**
-- No AFK system exists
-
-### 🟡 UI_COMPLETE_DESIGN.md
-**Status: TO BE REVIEWED**
-
-## Future/Concept Documents
-
-### 🔮 SPAWN_AND_DECORATION_PLAN.md
-**Status: CONCEPT - Not planned for immediate implementation**
-
 ## Reference Documents
 
 ### 📚 API_DOCUMENTATION.md
@@ -94,3 +30,7 @@
 
 ---
 ⚠️ **WARNING: Most features described in these documents do not exist in the codebase**
+
+### WorldGen � WORLDGEN_ORCHESTRATION_AND_CLEARANCE.md
+Status: Authoritative, supersedes older plans (SPAWN_AND_DECORATION_PLAN.md, ISLAND_TREE_CLEARANCE_PLAN.md).
+

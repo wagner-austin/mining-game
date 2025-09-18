@@ -176,7 +176,8 @@ Water category (1 material): water
 1. **Server Side** (server/MiningGame/DigService.lua):
    - Player digs → gets material key from terrain
    - Returns `soundMaterialKey` and `soundWorldPos` to client
-   - Calls `SoundBroadcast.Mining(player, position, materialKey, "hit")`
+   - Calls `SoundBroadcast.MiningLocal(player, position, materialKey, subtype)`
+   - MiningLocal culls by distance server-side and plays 2D/local on recipients
    
 2. **Broadcast** (server/MiningGame/SoundBroadcast.lua):
    - Rate limits sounds per player

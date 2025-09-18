@@ -203,6 +203,24 @@ end
 return BaseButton
 ```
 
+### Rendering Item Tiles
+
+- Use the shared item tile renderer for any item grids/lists to keep visuals and behavior consistent across tabs.
+- Renderer docs: `client/MiningGame/UI/Components/README_ItemTileRenderer.md`
+- Data source: always load items via `shared/MiningGame/ItemDefinitions.lua` (do not read `GameConfig.Loot.ITEMS` or `CosmeticDefinitions` directly in UI).
+
+Example (grid cell):
+```lua
+local ItemDefinitions = require(ReplicatedStorage.MiningGame:WaitForChild("ItemDefinitions"))
+local Renderer = require(script.Parent:WaitForChild("ItemTileRenderer"))
+
+local item = ItemDefinitions.get("gold")
+local tile = Renderer.create({ item = item, sizeMode = "grid", rarityEffects = true })
+tile.helpers.addSymbol(item)
+tile.helpers.addNameLabel(item.name, { useRarityColor = true, item = item })
+tile.button.Parent = someGrid
+```
+
 ### Creating a Panel Component
 
 ```lua
