@@ -92,22 +92,7 @@ function UpgradeService:ComputeEffectiveStats(
         size = size + 3 -- +3 size
     end
     
-    -- Apply equipped pickaxe stats
-    if profile.equipped.pickaxe then
-        local pickaxeDef = nil
-        for _, item in ipairs(GameConfig.Loot.ITEMS) do
-            if item.id == profile.equipped.pickaxe and item.type == "pickaxe" then
-                pickaxeDef = item
-                break
-            end
-        end
-        
-        if pickaxeDef and pickaxeDef.stats then
-            delay = delay / (pickaxeDef.stats.speed or 1.0)
-            size = math.floor(size + (pickaxeDef.stats.size or 0))  -- Add pickaxe size bonus
-            luck = luck * (pickaxeDef.stats.luck or 1.0)
-        end
-    end
+    -- Cosmetic perks are mapped to runtime effects in PerkService and applied by StatsResolver.
     
     -- Apply pet bonuses
     if activePets then
