@@ -198,7 +198,10 @@ end
 
 -- Utility functions for common sound types
 
-function SoundBroadcast.Mining(
+-- Removed legacy 3D mining broadcast in favor of MiningLocal (2D-on-recipients)
+
+-- Mining sound that is culled by distance but plays as local (2D) on recipients
+function SoundBroadcast.MiningLocal(
     player: Player,
     position: Vector3,
     materialKey: string,
@@ -206,12 +209,30 @@ function SoundBroadcast.Mining(
 )
     -- Rate limit: ~33 hits per second max
     if not checkRateLimit(player.UserId, "mining", 0.03) then return end
-    
-    SoundBroadcast.BroadcastNear(player, position, {
+
+    local r = 40
+    local payloadBase = sanitizePayload({
         category = "mining",
         materialKey = materialKey,
         subtype = subtype,
-    }, 120)
+    })
+    if player then payloadBase.originUserId = player.UserId end
+
+    -- Send to nearby players; include position so clients play spatial (3D) audio at dig location
+    for _, plr in ipairs(Players:GetPlayers()) do
+        local character = plr.Character
+        if not character then continue end
+        local hrp = character:FindFirstChild("HumanoidRootPart")
+        if not hrp then continue end
+        if position and (hrp.Position - position).Magnitude > r then continue end
+
+        local payload = table.clone(payloadBase)
+        payload.position = position
+        Bus:emit(EventNames.SOUND_PLAY, {
+            to = { kind = "player", player = plr },
+            payload = payload
+        })
+    end
 end
 
 function SoundBroadcast.Footstep(
@@ -286,13 +307,16 @@ function SoundBroadcast.Collect(
     
     -- Get configured sound ID
     local soundId = SoundConfig.SoundIDs.rewards[soundType] or SoundConfig.SoundIDs.rewards.item
+    local pickupVolume = (GameConfig.Sound and tonumber(GameConfig.Sound.PICKUP_VOLUME)) or 0.3
+    pickupVolume = math.clamp(pickupVolume, 0, 1)
     
     -- Use EventBus for sound playback
     Bus:emit(EventNames.SOUND_PLAY, {
         to = { kind = "player", player = player },
         payload = {
             soundId = soundId,
-            volume = 0.8, -- Slightly louder for pickup feedback
+            -- Tunable pickup/collect volume
+            volume = pickupVolume,
             position = position,
             category = "collect",
             rarity = rarity,

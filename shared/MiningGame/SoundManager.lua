@@ -10,7 +10,9 @@ local RunService = game:GetService("RunService")
 
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
 local SoundConfig = require(MiningGame:WaitForChild("SoundConfig"))
+local SoundCategories = require(MiningGame:WaitForChild("SoundCategories"))
 local SoundTheme = require(MiningGame:WaitForChild("SoundThemeManager"))
+local SoundDefs = require(MiningGame:WaitForChild("SoundDefs"))
 local MaterialDefinitions = require(MiningGame:WaitForChild("MaterialDefinitions"))
 local Logger = require(MiningGame:WaitForChild("Logger"))
 local MathUtils = require(MiningGame:WaitForChild("MathUtils"))
@@ -24,6 +26,9 @@ type PlayOpts = {
     subtype: string?,
     volume: number?,
     pitch: number?,
+    looped: boolean?,
+    -- If true, force 2D playback regardless of provided position
+    force2D: boolean?,
 }
 
 local SoundManager = {}
@@ -192,9 +197,34 @@ end
 
 function SoundManager.PlayMining(materialKey: string, subtype: string?, position: Vector3?, opts: PlayOpts?)
     local k = string.lower(materialKey or "rock")
-    log:debug("PlayMining called - material: %s, subtype: %s", tostring(k), subtype or "hit")
-    
-    local id = SoundTheme.GetId({"mining", k, subtype or "hit"}) or SoundTheme.GetId({"mining", k, "hit"})
+    local chosenSubtype = subtype
+
+    -- Lightweight randomization across category events when subtype is not specified
+    -- If a subtype is explicitly provided (even 'hit'), honor it as-is.
+    if chosenSubtype == nil then
+        local def = MaterialDefinitions.Materials[k]
+        local category = (def and def.properties and def.properties.soundCategory) or "rock"
+        local events = SoundCategories.GetMiningEvents(category)
+        -- Default weights: hit=0.7, second=0.2, third=0.1
+        local r = (Random.new() :: Random):NextNumber()
+        if #events >= 3 then
+            if r < 0.7 then
+                chosenSubtype = events[1]
+            elseif r < 0.9 then
+                chosenSubtype = events[2]
+            else
+                chosenSubtype = events[3]
+            end
+        elseif #events == 2 then
+            chosenSubtype = (r < 0.75) and events[1] or events[2]
+        else
+            chosenSubtype = events[1] or "hit"
+        end
+    end
+
+    log:debug("PlayMining called - material: %s, subtype: %s", tostring(k), tostring(chosenSubtype or "hit"))
+
+    local id = SoundTheme.GetId({"mining", k, chosenSubtype or "hit"}) or SoundTheme.GetId({"mining", k, "hit"})
     log:debug("Sound ID for %s: %s", tostring(k), tostring(id))
     
     if not safeId(id) then 
@@ -205,8 +235,18 @@ function SoundManager.PlayMining(materialKey: string, subtype: string?, position
     opts = opts or {}
     opts.category = "Mining"
     opts.subtype = subtype
-    opts.position = position
-    log:debug("Playing mining sound at position: (%.0f,%.0f,%.0f)", position.X, position.Y, position.Z)
+    -- Allow callers to force 2D playback (fixed volume)
+    if opts.force2D then
+        opts.position = nil
+        log:debug("Playing mining sound (2D, fixed volume)")
+    else
+        opts.position = position
+        if position then
+            log:debug("Playing mining sound at position: (%.0f,%.0f,%.0f)", position.X, position.Y, position.Z)
+        else
+            log:debug("Playing mining sound (2D, no position)")
+        end
+    end
     return SoundManager.PlayId(id, opts)
 end
 
@@ -264,6 +304,15 @@ function SoundManager.PlayId(id: string, opts: PlayOpts?)
     local s = getSound(id, groupName)
     s.Parent = parent
     applyCategoryDefaults(s, catTitle)
+    if opts.looped ~= nil then
+        s.Looped = opts.looped
+    else
+        -- Metadata-driven loop behavior if defined
+        local meta = SoundDefs.getById(s.SoundId)
+        if meta and meta.looped ~= nil then
+            s.Looped = meta.looped
+        end
+    end
     
     if opts.volume then s.Volume = opts.volume end
     if opts.pitch then s.PlaybackSpeed = opts.pitch end
