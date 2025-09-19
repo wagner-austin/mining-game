@@ -92,7 +92,7 @@ end
 
 ## Current RF Specs
 
-- `ClothDebug.rf.lua` - Cloth simulation debug tools (Studio-only)
+- `Cloth.rf.lua` - Cloth simulation debug tools (Studio-only)
 - `Composition.rf.lua` - Material composition and regeneration
 - `Core.rf.lua` - Core game functions and debug tools
 - `CubeMaterial.rf.lua` - Cube material preferences
