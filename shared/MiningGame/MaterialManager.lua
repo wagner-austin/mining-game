@@ -213,8 +213,10 @@ local function applyGlowBars(palette: Palette)
     local batch = (VIS and VIS.GLOWBAR_APPLY_BATCH) or 512
     applyToTaggedChunked("GlowBar", function(inst)
         if inst:IsA("BasePart") then
+            -- Always match current theme palette
+            local color: Color3 = palette.glowColor
             -- Always use Neon for glow bars
-            setPart(inst, Enum.Material.Neon, palette.glowColor, palette.glowTransparency)
+            setPart(inst, Enum.Material.Neon, color, palette.glowTransparency)
             
             -- Remove old PointLight if exists (from previous system)
             local oldLight = inst:FindFirstChildOfClass("PointLight")
@@ -224,7 +226,7 @@ local function applyGlowBars(palette: Palette)
             if palette.glowEmissive > 0 then
                 -- Upward light (main vertical emission)
                 local upLight = ensureSurfaceLight(inst, Enum.NormalId.Top)
-                upLight.Color = palette.glowColor
+                upLight.Color = color
                 upLight.Brightness = math.min(palette.glowEmissive * 1.5, 3)
                 upLight.Angle = 120 -- Wide spread
                 upLight.Range = 40 -- Good vertical reach
@@ -233,7 +235,7 @@ local function applyGlowBars(palette: Palette)
                 
                 -- Downward light (subtle floor illumination)
                 local downLight = ensureSurfaceLight(inst, Enum.NormalId.Bottom)
-                downLight.Color = palette.glowColor
+                downLight.Color = color
                 downLight.Brightness = math.min(palette.glowEmissive * 0.5, 1.5)
                 downLight.Angle = 90
                 downLight.Range = 15
@@ -410,16 +412,18 @@ function MaterialManager.Initialize()
     -- GlowBar handlers  
     connections[#connections + 1] = CollectionService:GetInstanceAddedSignal("GlowBar"):Connect(function(inst)
         if inst:IsA("BasePart") and currentPalette then
-            setPart(inst, Enum.Material.Neon, currentPalette.glowColor, currentPalette.glowTransparency)
+            -- Always match current theme palette
+            local color: Color3 = currentPalette.glowColor
+            setPart(inst, Enum.Material.Neon, color, currentPalette.glowTransparency)
             
             -- Remove old PointLight if exists
             local oldLight = inst:FindFirstChildOfClass("PointLight")
             if oldLight then oldLight:Destroy() end
             
-            if currentPalette.glowEmissive > 0 then
+            if currentPalette.glowEmissive and currentPalette.glowEmissive > 0 then
                 -- Upward light
                 local upLight = ensureSurfaceLight(inst, Enum.NormalId.Top)
-                upLight.Color = currentPalette.glowColor
+                upLight.Color = color
                 upLight.Brightness = math.min(currentPalette.glowEmissive * 1.5, 3)
                 upLight.Angle = 120
                 upLight.Range = 40
@@ -428,7 +432,7 @@ function MaterialManager.Initialize()
                 
                 -- Downward light
                 local downLight = ensureSurfaceLight(inst, Enum.NormalId.Bottom)
-                downLight.Color = currentPalette.glowColor
+                downLight.Color = color
                 downLight.Brightness = math.min(currentPalette.glowEmissive * 0.5, 1.5)
                 downLight.Angle = 90
                 downLight.Range = 15

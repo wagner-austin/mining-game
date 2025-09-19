@@ -1,7 +1,10 @@
 --!strict
--- Client for ClothSimulator tool: Spawns/destroys cloth on equip/unequip
--- Simplified version without drag functionality
+-- DISABLED: Studio-only ClothSimulator tool client retained for reference
+-- Original path: client/ClothToolClient.client.lua
 
+if not game:GetService("RunService"):IsStudio() then return end
+
+-- Client for ClothSimulator tool: Spawns/destroys cloth on equip/unequip
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
 
@@ -51,3 +54,4 @@ end)
 player.CharacterAdded:Connect(function()
     task.delay(0.1, scanForTool)
 end)
+

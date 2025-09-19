@@ -107,7 +107,11 @@ function ServiceManager.start()
     regOpt(c, "RockGenerationService", parent:FindFirstChild("RockGenerationService"), {"CubePositionService"})
     regOpt(c, "FireflyGenerationService", parent:FindFirstChild("FireflyGenerationService"), {"CubePositionService"})
     regOpt(c, "FloatingIslandService", parent:FindFirstChild("FloatingIslandService"), {"GridService", "MixedMaterialService"})
-    local clothModule = ServerScriptService:FindFirstChild("Cloth") and ServerScriptService.Cloth:FindFirstChild("ClothServiceSimple")
+    local clothModule: ModuleScript? = nil
+    local clothFolder = ServerScriptService:FindFirstChild("Cloth")
+    if clothFolder then
+        clothModule = clothFolder:FindFirstChild("SimpleClothService")
+    end
     regOpt(c, "ClothService", clothModule, {})
 
     regReq(c, "CubeMaterialService",  parent.CubeMaterialService,  {"GridService","DataService"})

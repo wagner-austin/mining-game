@@ -25,16 +25,18 @@ We implement a manual replication system using the EventBus (bridged to clients 
 ```
 server/
   Cloth/
-    ClothServiceSimple.lua    # Main service handling simulation (DI service)
+    SimpleClothService.lua    # Main service handling simulation (DI service)
     init.server.lua           # Legacy bootstrap (unused when DI is active)
-  CreateClothTool.server.lua  # Creates tool in StarterPack
+  CreateClothTool.server.lua.disabled  # Studio-only test tool (disabled)
 
 client/
-  ClothClientSimple.client.lua  # Receives and applies bone transforms
-  ClothToolClient.client.lua    # Tool equipment handling
+  ClothClient.client.lua            # Receives and applies bone transforms (minimal logging)
+  ClothToolClient.client.lua.disabled  # Studio-only test tool client (disabled)
 
 shared/
   MiningGame/
+    Cloth/
+      ClothBase.lua           # Reusable cloth base (spawn/compute/helpers)
     Remotes.lua               # Remote definitions
 ```
 
@@ -133,7 +135,7 @@ Each bone has a colored sphere for debugging:
 
 ### Manual Spawning (Server-Side)
 ```lua
-local ClothService = require(path.to.ClothServiceSimple)
+local ClothService = require(path.to.SimpleClothService)
 ClothService:spawnFor(player)
 ```
 
@@ -200,10 +202,10 @@ Skinned MeshParts lose their `Skin` data when exported to `.rbxm`/`.rbxmx`, so t
 ### Publishing Steps
 1. Import the FBX into Studio and verify it deforms.
 2. Save it to Roblox (Model or Package) so the skin lives in the published asset.
-3. Update `server/Cloth/ClothServiceSimple.lua` with the new asset ID.
+3. Update `server/Cloth/SimpleClothService.lua` with the new asset ID.
 
 ### Runtime Loading
-`ClothServiceSimple` finds the asset in `ReplicatedStorage.MiningGame.Assets` or uses `InsertService:LoadAsset(116193032143091)` to fetch it. The first template clone gets cached so future spawns reuse the skinned mesh.
+`SimpleClothService` finds the asset in `ReplicatedStorage.MiningGame.Assets` or uses `InsertService:LoadAsset(116193032143091)` to fetch it. The first template clone gets cached so future spawns reuse the skinned mesh.
 
 ### Skin Safety Check
 After cloning, we call `FindFirstChildOfClass("Skin")` and enable it. If the skin is missing we log a warning; the cloth will fall back to a rigid mesh.
@@ -213,7 +215,7 @@ Rojo won't sync skinned MeshParts directly. Keep a `PackageLink` or loader scrip
 ## Testing and Debugging
 
 ### Enable Debug Spheres
-In `ClothServiceSimple.lua` line 185:
+In `SimpleClothService.lua` (debug spheres section):
 ```lua
 sphere.Transparency = 0  -- Show spheres
 ```
@@ -227,7 +229,7 @@ Frame 60: Sending 60 offsets to Player1, first=0.00
 ### Verify Client Reception  
 Client prints when receiving updates:
 ```
-[ClothClientSimple] Frame 60: Applying 60 offsets to 12345678
+[ClothClient] Frame 60: Applying 60 offsets to 12345678
   Bone 1: x=0.00, y=0.00, z=0.00
 ```
 

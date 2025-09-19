@@ -1,15 +1,21 @@
 --!strict
--- ClothClientSimple.client.lua
+-- ClothClient.client.lua
+-- Client applier for cloth bone transforms (minimal logs in Studio only)
 -- Receives cloth updates via EventBus and applies bone transforms
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
 local EventBus = require(MiningGame:WaitForChild("EventBus"))
 local EventNames = require(MiningGame:WaitForChild("EventNames"))
 local Bus = EventBus.global()
+local isStudio = RunService:IsStudio()
+local function dprint(...)
+    if isStudio then print(...) end
+end
 
-print("[ClothClientSimple] Starting...")
+dprint("[ClothClient] Starting...")
 
 local cloths = {}
 local frameCount = 0
@@ -23,21 +29,25 @@ local function onClothUpdate(payload)
 
     local entry = cloths[clothId]
     if not entry then
-        local model
-        for _, child in ipairs(workspace:GetChildren()) do
-            if child:GetAttribute("ClothId") == clothId then
-                model = child
+        local model: Instance? = nil
+        -- Look anywhere in workspace, not just top-level
+        for _, inst in ipairs(workspace:GetDescendants()) do
+            local ok, attr = pcall(function()
+                return inst:GetAttribute("ClothId")
+            end)
+            if ok and attr == clothId then
+                model = inst:IsA("Model") and inst or inst:FindFirstAncestorOfClass("Model") or inst
                 break
             end
         end
         if not model then
-            print("[ClothClientSimple] Cloth not found:", clothId)
+            dprint("[ClothClient] Cloth not found:", clothId)
             return
         end
 
         local mesh = model:IsA("MeshPart") and model or model:FindFirstChildWhichIsA("MeshPart")
         if not mesh then
-            print("[ClothClientSimple] No mesh in cloth model")
+            dprint("[ClothClient] No mesh in cloth model")
             return
         end
 
@@ -58,7 +68,7 @@ local function onClothUpdate(payload)
         }
         cloths[clothId] = entry
 
-        print(("[ClothClientSimple] Found cloth %s with %d indexed bones"):format(clothId:sub(1, 8), #bones))
+        dprint(("[ClothClient] Found cloth %s with %d indexed bones"):format(clothId:sub(1, 8), #bones))
 
         model.AncestryChanged:Connect(function()
             if not model.Parent then
@@ -70,8 +80,8 @@ local function onClothUpdate(payload)
     local bones = entry.bones
     frameCount += 1
 
-    if frameCount == 1 or frameCount % 60 == 0 then
-        print(string.format("[ClothClientSimple] Frame %d: Applying %d offsets to %s", frameCount, #offsets, clothId:sub(1, 8)))
+    if isStudio and (frameCount == 1 or frameCount % 60 == 0) then
+        print(string.format("[ClothClient] Frame %d: Applying %d offsets to %s", frameCount, #offsets, clothId:sub(1, 8)))
     end
 
     for i, offset in ipairs(offsets) do
@@ -90,7 +100,7 @@ local function onClothUpdate(payload)
 
             bone.Transform = CFrame.new(x, y, z)
 
-            if frameCount % 60 == 0 then
+            if isStudio and frameCount % 60 == 0 then
                 if i == 1 then
                     print(string.format("  Bone 1: x=%.2f, y=%.2f, z=%.2f", x, y, z))
                 elseif i == #bones then
@@ -103,4 +113,4 @@ end
 
 Bus:on(EventNames.CLOTH_UPDATE, onClothUpdate)
 
-print("[ClothClientSimple] Ready")
+dprint("[ClothClient] Ready")

@@ -1,0 +1,17 @@
+--!strict
+-- DISABLED: Studio-only tool scaffold retained for reference
+-- Original path: server/CreateClothTool.server.lua
+
+-- Creates a ClothSimulator tool in StarterPack for testing (Studio-only)
+if not game:GetService("RunService"):IsStudio() then return end
+
+local StarterPack = game:GetService("StarterPack")
+
+local tool = Instance.new("Tool")
+tool.Name = "ClothSimulator"
+tool.RequiresHandle = false
+tool.CanBeDropped = false
+tool.Parent = StarterPack
+
+print("[CreateClothTool] ClothSimulator tool created in StarterPack (Studio)")
+
