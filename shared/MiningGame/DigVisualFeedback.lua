@@ -31,7 +31,6 @@ local Utils = MiningGame:WaitForChild("Utils")
 local GridMath = require(Utils:WaitForChild("GridMath"))
 local MathUtils = require(MiningGame:WaitForChild("MathUtils"))
 local Logger = require(MiningGame:WaitForChild("Logger"))
-local BlanketPreview = require(MiningGame:WaitForChild("BlanketPreview"))
 local TerrainSurfaceDetector = require(MiningGame:WaitForChild("TerrainSurfaceDetector"))
 -- ClientRF not required for baseline visual feedback; keep preview logic simple and robust
 local log = Logger.new("DigVisualFeedback")
@@ -112,8 +111,8 @@ end
 function DigVisualFeedback:Init()
     log:debug("Initializing visual feedback system")
     
-    -- Create skinned mesh blanket for smooth preview
-    self._blanket = BlanketPreview.new(GameConfig.Grid.CELL_SIZE_STUDS)
+    -- BlanketPreview removed - no longer using skinned mesh preview
+    self._blanket = nil
     
     -- Create cursor overlay and effects
     self:CreateCursorOverlay()
