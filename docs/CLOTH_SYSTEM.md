@@ -14,7 +14,7 @@ When you set `bone.Transform` on the server:
 - This creates a disconnect between the data and visual state
 
 ### The Solution
-We implement a manual replication system using RemoteEvents:
+We implement a manual replication system using the EventBus (bridged to clients via RemoteEvent):
 1. Server calculates bone transforms each frame
 2. Server sends transform data via RemoteEvent to each client
 3. Clients apply the transforms locally for visual updates
@@ -25,8 +25,8 @@ We implement a manual replication system using RemoteEvents:
 ```
 server/
   Cloth/
-    ClothServiceSimple.lua    # Main service handling simulation
-    init.server.lua           # Remote wiring and tick management
+    ClothServiceSimple.lua    # Main service handling simulation (DI service)
+    init.server.lua           # Legacy bootstrap (unused when DI is active)
   CreateClothTool.server.lua  # Creates tool in StarterPack
 
 client/
@@ -38,10 +38,12 @@ shared/
     Remotes.lua               # Remote definitions
 ```
 
+ClothService is registered through ServiceManager so it can be resolved via the DI container (optional, Studio-only by default).
+
 ### Remote Communication
 - `ClothSpawn` (RemoteFunction): Client → Server, spawns cloth
 - `ClothDestroy` (RemoteFunction): Client → Server, destroys cloth  
-- `ClothUpdate` (RemoteEvent): Server → Client, sends bone offsets
+- `cloth.update` (EventBus): Server -> Client, sends bone offsets
 
 ## Implementation Details
 
@@ -136,9 +138,10 @@ ClothService:spawnFor(player)
 ```
 
 ### Cloth Properties
-- **Position**: 15 studs above, 10 studs in front of player
+- **Position**: 20 studs above, 10 studs in front of player
 - **Orientation**: Rotated -90° (hanging) + 180° Y rotation
-- **Material**: Wood with brown color
+- **Material**: Glass (dark blue tint)
+- **Lighting**: Neon uplight pad (SurfaceLight) for upward glow
 - **Physics**: Anchored, CanCollide enabled (player can stand on it)
 
 ## Performance Considerations
@@ -189,6 +192,24 @@ wave = sin(speed * time + u * wavelength * π) * amplitude * (v * v)
 ```
 The `v * v` term makes waves stronger at the bottom of the curtain.
 
+## Asset Pipeline
+
+### Why Roblox Asset IDs?
+Skinned MeshParts lose their `Skin` data when exported to `.rbxm`/`.rbxmx`, so the mesh won't deform if we clone those files. Publishing the cloth to Roblox as a model (asset ID `116193032143091`) and cloning it at runtime keeps the `Skin` intact.
+
+### Publishing Steps
+1. Import the FBX into Studio and verify it deforms.
+2. Save it to Roblox (Model or Package) so the skin lives in the published asset.
+3. Update `server/Cloth/ClothServiceSimple.lua` with the new asset ID.
+
+### Runtime Loading
+`ClothServiceSimple` finds the asset in `ReplicatedStorage.MiningGame.Assets` or uses `InsertService:LoadAsset(116193032143091)` to fetch it. The first template clone gets cached so future spawns reuse the skinned mesh.
+
+### Skin Safety Check
+After cloning, we call `FindFirstChildOfClass("Skin")` and enable it. If the skin is missing we log a warning; the cloth will fall back to a rigid mesh.
+
+### Rojo Considerations
+Rojo won't sync skinned MeshParts directly. Keep a `PackageLink` or loader script under `shared/MiningGame/Assets` so Studio refreshes the asset from Roblox instead of a local `.rbxm`.
 ## Testing and Debugging
 
 ### Enable Debug Spheres
@@ -217,3 +238,5 @@ Client prints when receiving updates:
 - Multiple cloth instances per player
 - Tearable cloth with bone removal
 - Performance LOD system
+
+
