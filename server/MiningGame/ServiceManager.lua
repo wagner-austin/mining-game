@@ -1,5 +1,6 @@
 --!strict
 -- ServiceManager.lua (new, thin wrapper over ServiceContainer)
+local ServerScriptService = game:GetService("ServerScriptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("MiningGame")
 local ServiceContainer = require(script.Parent.ServiceContainer)
@@ -106,6 +107,8 @@ function ServiceManager.start()
     regOpt(c, "RockGenerationService", parent:FindFirstChild("RockGenerationService"), {"CubePositionService"})
     regOpt(c, "FireflyGenerationService", parent:FindFirstChild("FireflyGenerationService"), {"CubePositionService"})
     regOpt(c, "FloatingIslandService", parent:FindFirstChild("FloatingIslandService"), {"GridService", "MixedMaterialService"})
+    local clothModule = ServerScriptService:FindFirstChild("Cloth") and ServerScriptService.Cloth:FindFirstChild("ClothServiceSimple")
+    regOpt(c, "ClothService", clothModule, {})
 
     regReq(c, "CubeMaterialService",  parent.CubeMaterialService,  {"GridService","DataService"})
     regReq(c, "CompositionService",   parent.CompositionService,   {"MixedMaterialService","CubePositionService","DataService","CurrencyService"})
