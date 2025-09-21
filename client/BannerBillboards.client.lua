@@ -19,9 +19,15 @@ local ClientRoot = script.Parent:WaitForChild("MiningGame")
 local UIComponents = ClientRoot:WaitForChild("UI"):WaitForChild("Components")
 local HighScoreBillboard = require(UIComponents:WaitForChild("HighScoreBillboard"))
 
-type Mount = { destroy: (() -> ())?, ancestryConn: RBXScriptConnection? }
-local mounted: {[Model]: Mount} = {}
-local pending: {[Model]: (() -> ())} = {}
+type Mount = { model: Model, destroy: (() -> ())?, ancestryConn: RBXScriptConnection? }
+local mounted: {[string]: Mount} = {}
+local pending: {[string]: (() -> ())} = {}
+
+local function getClothId(model: Instance): string?
+    local ok, v = pcall(function() return (model :: any):GetAttribute("ClothId") end)
+    if ok and type(v) == "string" then return v :: string end
+    return nil
+end
 
 local function getBannerColor(m: Instance): Color3?
     local ok, v = pcall(function() return (m :: any):GetAttribute("BannerColor") end)
@@ -66,22 +72,26 @@ local function findAdornee(model: Model): BasePart?
     return nil
 end
 local function mountBanner(model: Model, overrides: any?)
-    if mounted[model] then return end
+    local id: string? = (overrides and overrides.id) or getClothId(model)
+    if not id then return end
+    local mrec = mounted[id]
+    if mrec and mrec.model == model then return end
     local adornee = findAdornee(model)
     if not adornee then
         -- Defer until PrimaryPart/BasePart exists using signals (event-driven)
-        if pending[model] then return end
+        if pending[id] then return end
         local conns = {}
         local function cleanup()
             for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
-            pending[model] = nil
+            pending[id] = nil
         end
         local function tryNow()
-            if mounted[model] then cleanup(); return end
+            local mm = mounted[id]
+            if mm and mm.model == model then cleanup(); return end
             local p = findAdornee(model)
             if p then
                 cleanup()
-                task.defer(function() mountBanner(model) end)
+                task.defer(function() mountBanner(model, overrides) end)
             end
         end
         conns[#conns+1] = model:GetPropertyChangedSignal("PrimaryPart"):Connect(tryNow)
@@ -89,9 +99,10 @@ local function mountBanner(model: Model, overrides: any?)
             if inst:IsA("BasePart") then tryNow() end
         end)
         conns[#conns+1] = model.AncestryChanged:Connect(function(_, parent)
-            if not parent then cleanup() end
+            -- Survive stream-out; retry on reparent so mounting is durable
+            if parent then tryNow() end
         end)
-        pending[model] = cleanup
+        pending[id] = cleanup
         -- Immediate re-check closes race window where adornee appears just before listeners are wired
         tryNow()
         log:debug("Deferring billboard mount until adornee exists: %s", model:GetFullName())
@@ -135,13 +146,13 @@ local function mountBanner(model: Model, overrides: any?)
                 if not parent then
                     -- Streamed out: tear down and mark unmounted
                     destroy()
-                    if mounted[model] then mounted[model] = nil end
+                    if mounted[id] then mounted[id] = nil end
                 else
                     -- Streamed back in: attempt to remount if not mounted
-                    if not mounted[model] then task.defer(function() mountBanner(model) end) end
+                    if not mounted[id] then task.defer(function() mountBanner(model, overrides) end) end
                 end
             end)
-            mounted[model] = { destroy = destroy, ancestryConn = conn }
+            mounted[id] = { model = model, destroy = destroy, ancestryConn = conn }
             log:info("Mounted HighScore billboard on %s (face=%s, category=%s)", adornee:GetFullName(), tostring(face), tostring(category))
         else
             log:error("Failed to create HighScore billboard: %s", tostring(hs))
@@ -153,14 +164,16 @@ local function mountBanner(model: Model, overrides: any?)
 end
 
 local function unmountBanner(model: Model)
-    local pend = pending[model]
+    local id = getClothId(model)
+    if not id then return end
+    local pend = pending[id]
     if pend then pcall(pend) end
-    local m = mounted[model]
+    local m = mounted[id]
     if m then
         if m.ancestryConn then pcall(function() m.ancestryConn:Disconnect() end) end
         if m.destroy then pcall(m.destroy) end
     end
-    mounted[model] = nil
+    mounted[id] = nil
 end
 
 local Bus = EventBus.global()
@@ -182,7 +195,7 @@ Bus:on(EventNames.BANNER_READY, function(evt)
     end
 end)
 
--- Keep CollectionService as fallback for existing banners and cleanup
-CollectionService:GetInstanceRemovedSignal("Banner"):Connect(function(inst)
-    if inst:IsA("Model") then unmountBanner(inst) end
-end)
+ -- Keep CollectionService as fallback for existing banners and cleanup
+ CollectionService:GetInstanceRemovedSignal("Banner"):Connect(function(inst)
+     if inst:IsA("Model") then unmountBanner(inst) end
+ end)

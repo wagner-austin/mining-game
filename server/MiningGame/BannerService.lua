@@ -55,7 +55,24 @@ local function getTemplate(): Instance?
             log:warn("LoadAsset(%d) failed: %s", BLANKET_ASSET_ID, tostring(modelOrErr))
         end
     else
-        log:warn("BlanketPlane asset missing and not in Studio; banners disabled")
+        -- In live/server runs, fall back to a simple MeshPart if asset isn't preloaded
+        log:warn("BlanketPlane asset missing and not in Studio; using simple MeshPart fallback")
+        if not assets then
+            assets = Instance.new("Folder")
+            assets.Name = "Assets"
+            assets.Parent = MiningGame
+        end
+        local mp = Instance.new("MeshPart")
+        mp.Name = "BlanketPlane"
+        mp.Size = Vector3.new(12, 10, 0.5)
+        mp.Anchored = true
+        mp.CanCollide = false
+        mp.CanQuery = false
+        mp.CanTouch = false
+        mp.CastShadow = false
+        mp.Material = Enum.Material.Plastic
+        mp.Parent = assets
+        return mp
     end
     return nil
 end
@@ -256,13 +273,14 @@ local function spawnFor(player: Player, baseModel: Model)
         -- Queue explicit banner info for client (mounts without waiting for attribute replication)
         local feat = (type(feature) == "string" and feature) or ""
         table.insert(ready, {
+            id = inst.id,
             model = inst.model,
             feature = feat,
             category = category,
             face = faceStr,
             color = slotColor,
         })
-
+        
         -- Banner setup complete - event bus will notify clients
     end
 
@@ -277,11 +295,17 @@ local function spawnFor(player: Player, baseModel: Model)
         log:info("Spawned banner for %s", player.Name)
     end
 
-    -- Announce ready
+    -- Announce ready (route directly to this player) and re-emit briefly to catch late listeners
     ErrorService.safecall("BannerService.EmitReady", function()
-        -- Notify the specific player with explicit banner info to avoid attribute races
         local target = { kind = "player", player = player }
-        Bus:emit(EventNames.BANNER_READY, { to = target, payload = { to = target, banners = ready } })
+        local payload = { to = target, banners = ready }
+        Bus:emit(EventNames.BANNER_READY, { to = target, payload = payload })
+        task.delay(1.0, function()
+            Bus:emit(EventNames.BANNER_READY, { to = target, payload = payload })
+        end)
+        task.delay(2.0, function()
+            Bus:emit(EventNames.BANNER_READY, { to = target, payload = payload })
+        end)
     end)
 
     ensureHeartbeat()
@@ -308,6 +332,31 @@ function Service:Start(container)
         spawned[player] = nil
         ErrorService.safecall("BannerService.EmitRemoved", function()
             Bus:emit(EventNames.BANNER_REMOVED, { to = { kind = "player", player = player } })
+        end)
+    end)
+
+    -- On player join, send current banners so late joiners see billboards
+    Players.PlayerAdded:Connect(function(viewer)
+        ErrorService.safecall("BannerService.EmitReadyOnJoin", function()
+            local all = {}
+            for _owner, list in pairs(spawned) do
+                for _, inst in ipairs(list) do
+                    local m = inst.model
+                    if m and m:IsA("Model") then
+                        table.insert(all, {
+                            id = inst.id,
+                            model = m,
+                            feature = (m:GetAttribute("BannerFeature") or ""),
+                            category = (m:GetAttribute("BannerCategory") or ""),
+                            face = (m:GetAttribute("BannerFace") or "Front"),
+                            color = m:GetAttribute("BannerColor"),
+                        })
+                    end
+                end
+            end
+            if #all > 0 then
+                Bus:emit(EventNames.BANNER_READY, { to = { kind = "player", player = viewer }, payload = { to = { kind = "player", player = viewer }, banners = all } })
+            end
         end)
     end)
 
