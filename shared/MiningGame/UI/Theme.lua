@@ -196,6 +196,23 @@ Theme.textSizes = {
     Display = {Min = 22, Max = 34}, -- Increased from 20-32
 }
 
+-- Billboard UI sizing (centralized, tweak here)
+Theme.billboard = Theme.billboard or {
+    -- Title text sizing
+    title = { Min = 26, Max = 40 },
+    -- Row text sizing (name/value)
+    row   = { Min = 26, Max = 42 },
+    -- Index column sizing
+    index = { Min = 22, Max = 34 },
+    -- Value column sizing
+    value = { Min = 24, Max = 38 },
+    -- Row height in pixels (allow text to scale larger)
+    rowHeight = 52,
+    -- Column widths (in px)
+    idxWidth = 28,
+    valueWidth = 112,
+}
+
 -- Animation presets
 Theme.animations = {
     Quick = TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),

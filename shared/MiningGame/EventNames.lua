@@ -56,6 +56,11 @@ local E = {
 
     -- World generation lifecycle
     WORLDGEN_DONE = "worldgen.done",
+
+    -- Player base + banner lifecycle
+    PLAYER_BASE_READY = "player_base.ready",
+    BANNER_READY = "banner.ready",
+    BANNER_REMOVED = "banner.removed",
 }
 
 local VALID: {[string]: true} = {}
@@ -83,6 +88,6 @@ export type EventName =
     "tree.spawn.request" | "tree.clear.request" |
     "rock.spawn.request" | "rock.clear.request" |
     "firefly.spawn.request" | "firefly.clear.request" |
-    "worldgen.done"
+    "worldgen.done" | "player_base.ready" | "banner.ready" | "banner.removed"
 
 return E

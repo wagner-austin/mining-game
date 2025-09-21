@@ -18,7 +18,6 @@ end
 dprint("[ClothClient] Starting...")
 
 local cloths = {}
-local frameCount = 0
 
 local function onClothUpdate(payload)
     local clothId = payload.id
@@ -78,11 +77,6 @@ local function onClothUpdate(payload)
     end
 
     local bones = entry.bones
-    frameCount += 1
-
-    if isStudio and (frameCount == 1 or frameCount % 60 == 0) then
-        print(string.format("[ClothClient] Frame %d: Applying %d offsets to %s", frameCount, #offsets, clothId:sub(1, 8)))
-    end
 
     for i, offset in ipairs(offsets) do
         local bone = bones[i]
@@ -99,14 +93,6 @@ local function onClothUpdate(payload)
             end
 
             bone.Transform = CFrame.new(x, y, z)
-
-            if isStudio and frameCount % 60 == 0 then
-                if i == 1 then
-                    print(string.format("  Bone 1: x=%.2f, y=%.2f, z=%.2f", x, y, z))
-                elseif i == #bones then
-                    print(string.format("  Bone %d: x=%.2f, y=%.2f, z=%.2f", i, x, y, z))
-                end
-            end
         end
     end
 end

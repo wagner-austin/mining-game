@@ -8,6 +8,8 @@ local CollectionService = game:GetService("CollectionService")
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
 local Logger = require(MiningGame:WaitForChild("Logger"))
 local Theme = require(MiningGame:WaitForChild("UI"):WaitForChild("Theme"))
+local EventBus = require(MiningGame:WaitForChild("EventBus"))
+local EventNames = require(MiningGame:WaitForChild("EventNames"))
 
 local log = Logger.new("BannerBillboards")
 local ClientError = require(script.Parent:WaitForChild("ClientErrorHandler"))
@@ -63,7 +65,7 @@ local function findAdornee(model: Model): BasePart?
     if model.PrimaryPart and model.PrimaryPart:IsA("BasePart") then return model.PrimaryPart end
     return nil
 end
-local function mountBanner(model: Model)
+local function mountBanner(model: Model, overrides: any?)
     if mounted[model] then return end
     local adornee = findAdornee(model)
     if not adornee then
@@ -90,17 +92,28 @@ local function mountBanner(model: Model)
             if not parent then cleanup() end
         end)
         pending[model] = cleanup
+        -- Immediate re-check closes race window where adornee appears just before listeners are wired
+        tryNow()
         log:debug("Deferring billboard mount until adornee exists: %s", model:GetFullName())
         return
     end
 
-    local feature = getBannerFeature(model)
-    local accent = getBannerColor(model) or Theme.colors.Primary
-    local category = getBannerCategory(model)
+    local feature = (overrides and overrides.feature) or getBannerFeature(model)
+    local accent = (overrides and overrides.color) or getBannerColor(model) or Theme.colors.Primary
+    local category = (overrides and overrides.category) or getBannerCategory(model)
     -- Use face: if using UIPanel, mount on Front (vertical aligned by server).
     local face = Enum.NormalId.Front
     if adornee.Name ~= "UIPanel" then
-        face = getBannerFace(model)
+        face = (overrides and overrides.face and typeof(overrides.face) == "EnumItem" and overrides.face)
+            or (type(overrides and overrides.face) == "string" and (
+                (string.lower(overrides.face) == "front" and Enum.NormalId.Front)
+                or (string.lower(overrides.face) == "back" and Enum.NormalId.Back)
+                or (string.lower(overrides.face) == "left" and Enum.NormalId.Left)
+                or (string.lower(overrides.face) == "right" and Enum.NormalId.Right)
+                or (string.lower(overrides.face) == "top" and Enum.NormalId.Top)
+                or (string.lower(overrides.face) == "bottom" and Enum.NormalId.Bottom)
+            ))
+            or getBannerFace(model)
     end
 
     if feature == "HighScore" then
@@ -150,16 +163,26 @@ local function unmountBanner(model: Model)
     mounted[model] = nil
 end
 
--- Watch for tagged banners
-CollectionService:GetInstanceAddedSignal("Banner"):Connect(function(inst)
-    if inst:IsA("Model") then mountBanner(inst) end
+local Bus = EventBus.global()
+
+-- Listen for banner ready events (reliable, after full setup)
+Bus:on(EventNames.BANNER_READY, function(evt)
+    -- Server bridges only the payload; route is already per-player
+    local banners = evt and evt.banners
+    if type(banners) ~= "table" then return end
+    for _, b in ipairs(banners) do
+        if typeof(b) == "Instance" then
+            if b:IsA("Model") then mountBanner(b) end
+        elseif type(b) == "table" then
+            local m = b.model
+            if typeof(m) == "Instance" and m:IsA("Model") then
+                mountBanner(m, b)
+            end
+        end
+    end
 end)
 
+-- Keep CollectionService as fallback for existing banners and cleanup
 CollectionService:GetInstanceRemovedSignal("Banner"):Connect(function(inst)
     if inst:IsA("Model") then unmountBanner(inst) end
 end)
-
--- Mount existing at startup
-for _, inst in ipairs(CollectionService:GetTagged("Banner")) do
-    if inst:IsA("Model") then mountBanner(inst) end
-end

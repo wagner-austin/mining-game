@@ -122,6 +122,8 @@ function ServiceManager.start()
 
     -- Player base visuals (optional, safe fallback if absent)
     regOpt(c, "PlayerBaseService", parent:FindFirstChild("PlayerBaseService"), {})
+    -- Scenic banners at player bases (spawns cloth + UIPanel + attributes for billboards)
+    regOpt(c, "BannerService", parent:FindFirstChild("BannerService"), {"PlayerBaseService"})
 
     -- Gameplay (required)
     regReq(c, "DigService",              parent.DigService,              {"GridService","DataService","InventoryService","UpgradeService","LootService","AchievementService","ItemService","CubePositionService"})

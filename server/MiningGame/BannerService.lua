@@ -122,6 +122,9 @@ local function spawnFor(player: Player, baseModel: Model)
     local template = getTemplate()
     if not template then return end
 
+    -- Collect explicit banner info for client to avoid attribute race
+    local ready: { { model: Model, feature: string, category: string, face: string, color: Color3 } } = {}
+
     local function spawnAt(alongZT: number, inwardXT: number, index: number, slot: any?)
         local slotColor: Color3 = ((slot and slot.color) and (slot.color :: any)) or (TUNE().COLOR or Color3.fromRGB(10, 30, 170))
         local feature: string? = (slot and slot.feature) or TUNE().FEATURE
@@ -196,8 +199,10 @@ local function spawnFor(player: Player, baseModel: Model)
                     local s = inst.mesh.Size
                     local tallLocal = (s.Z >= s.Y) and s.Z or s.Y
                     local wideLocal = s.X
-                    local panelWidth = math.max(12, wideLocal * 0.82)
-                    local panelHeight = math.max(8, tallLocal * 0.85)
+                    -- Slightly reduce width so billboards don’t feel edge-to-edge
+                    local panelWidth = math.max(12, wideLocal * 0.78)
+                    -- Make the UI face physically taller so text reads larger in-world
+                    local panelHeight = math.max(8, tallLocal * 1.05)
                     local panelThickness = 0.05
                     p.Size = Vector3.new(panelWidth, panelHeight, panelThickness)
 
@@ -216,10 +221,7 @@ local function spawnFor(player: Player, baseModel: Model)
             end
         end)
 
-        -- Tag as Banner (client mounts via tag event)
-        ErrorService.safecall("BannerService.AddTag", function()
-            CollectionService:AddTag(inst.model, "Banner")
-        end)
+        -- Tag will be added after all setup is complete
 
         -- Compute placement against anchors
         local clearanceY = TUNE().LIFT_Y
@@ -250,6 +252,18 @@ local function spawnFor(player: Player, baseModel: Model)
             inst.model.Name = ("BaseBanner_%s_%d"):format(string.sub(inst.id, 1, 8), index)
         end)
         table.insert(spawned[player], inst)
+
+        -- Queue explicit banner info for client (mounts without waiting for attribute replication)
+        local feat = (type(feature) == "string" and feature) or ""
+        table.insert(ready, {
+            model = inst.model,
+            feature = feat,
+            category = category,
+            face = faceStr,
+            color = slotColor,
+        })
+
+        -- Banner setup complete - event bus will notify clients
     end
 
     local slots = (BannerConfig.get().SLOTS :: any)
@@ -265,7 +279,9 @@ local function spawnFor(player: Player, baseModel: Model)
 
     -- Announce ready
     ErrorService.safecall("BannerService.EmitReady", function()
-        Bus:emit(EventNames.BANNER_READY, { to = { kind = "player", player = player } })
+        -- Notify the specific player with explicit banner info to avoid attribute races
+        local target = { kind = "player", player = player }
+        Bus:emit(EventNames.BANNER_READY, { to = target, payload = { to = target, banners = ready } })
     end)
 
     ensureHeartbeat()

@@ -208,13 +208,7 @@ function Service:step(dt: number)
         -- Optional debug visuals update
         ClothBase.updateDebug((cloth :: any) :: ClothBase.ClothInstance, t)
 
-        -- Debug log periodically
-        if self._frameCount % 60 == 0 then
-            local sample = offsetsV3[1]
-            local firstValue = (typeof(sample) == "Vector3") and sample.X or 0
-            log:debug("Frame %d: Sending %d offsets to %s, first=%.2f", 
-                self._frameCount, #offsetsV3, player.Name, firstValue)
-        end
+        -- Suppress periodic per-frame debug logs to reduce noise
         
         -- Send to client (EventBus)
         Bus:emit(EventNames.CLOTH_UPDATE, {

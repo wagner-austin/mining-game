@@ -292,6 +292,10 @@ function PlayerBaseService:Ensure(player: Player, cubeOrigin: CFrame)
     if ok and model then
         _bases[player] = model
         log:info("Ensured base for %s", player.Name)
+        -- Announce via EventBus so dependent services (e.g., BannerService) can react
+        pcall(function()
+            Bus:emit(EventNames.PLAYER_BASE_READY, { to = { kind = "player", player = player }, payload = { baseModel = model } })
+        end)
     else
         log:warn("Failed to build base for %s: %s", player.Name, tostring(model))
     end

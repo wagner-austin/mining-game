@@ -13,23 +13,31 @@ Config.TUNE = {
     -- DO NOT TOUCH in normal use: PITCH_X_DEG tilts the banner. +90 hangs upright; 0 makes it flat.
     PITCH_X_DEG = 90,   -- X axis (pitch)
     -- DO NOT TOUCH in normal use: YAW_Y_DEG "spins the sign" like a sign spinner (rotates around vertical).
-    YAW_Y_DEG = 0,      -- Y axis (yaw)
+    YAW_Y_DEG = 90,     -- Y axis (yaw)
     -- Preferred control for facing: ROLL_Z_DEG "rotates the face" (0/90/180/270) without affecting hang/spin.
     ROLL_Z_DEG = 90,    -- Z axis (roll)
-    LIFT_Y = 24,
+    LIFT_Y = 28,
     INWARD_X_T = 0.05,  -- 0..1 left->right
     INSIDE_Z = -4.0,    -- additive after along-edge
     ALONG_Z_T = 0.625,  -- 0..1 front->back
     COLOR = Color3.fromRGB(10, 30, 170),
     MATCH_GLOW_TO_BANNER = true,
+    -- Billboard wiring defaults (overridable per-slot):
+    FEATURE = "",            -- default: no billboard feature; set per-slot
+    CATEGORY = "blocks",     -- default category
+    FACE = "Front",          -- Surface face for panel/billboard
     -- Optional multi‑spawn slots (normalized positions). If nil, spawns one banner using ALONG_Z_T/INWARD_X_T.
     -- Each slot: { alongZT = 0..1, inwardXT = 0..1 }
     -- Spawn three banners: first at current T, next two slightly higher along the Z edge.
     SLOTS = {
-        { alongZT = 0.625, inwardXT = 0.05, color = Color3.fromRGB(10, 30, 170) }, -- dark blue
-        { alongZT = 0.700, inwardXT = 0.05, color = Color3.fromRGB(170, 120, 0) },  -- dark yellow
-        { alongZT = 0.775, inwardXT = 0.05, color = Color3.fromRGB(0, 120, 40) },   -- dark green
-        { alongZT = 0.850, inwardXT = 0.05, color = Color3.fromRGB(100, 0, 160) },  -- dark purple
+        -- 1) Blocks Dug (with billboard)
+        { alongZT = 0.625, inwardXT = 0.05, color = Color3.fromRGB(10, 30, 170), feature = "HighScore", category = "blocks", face = "Front" },
+        -- 2) Robux Donated (with billboard)
+        { alongZT = 0.685, inwardXT = 0.05, color = Color3.fromRGB(170, 120, 0), feature = "HighScore", category = "donator", face = "Front" },
+        -- 3) Coins Earned (with billboard)
+        { alongZT = 0.745, inwardXT = 0.05, color = Color3.fromRGB(0, 120, 40), feature = "HighScore", category = "coins", face = "Front" },
+        -- 4) Scenic banner only (no billboard)
+        { alongZT = 0.805, inwardXT = 0.05, color = Color3.fromRGB(100, 0, 160) },
     },
 }
 

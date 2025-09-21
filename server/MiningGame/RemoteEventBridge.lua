@@ -69,6 +69,7 @@ local TO_CLIENT = {
     [EventNames.NEIGHBOR_JOINED] = true,
     [EventNames.NEIGHBOR_LEFT] = true,
     [EventNames.CUBE_UPDATE] = true,
+    [EventNames.BANNER_READY] = true,
 }
 
 -- Whitelist of client -> server events

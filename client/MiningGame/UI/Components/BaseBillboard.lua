@@ -105,7 +105,7 @@ function BaseBillboard.new(props: Props): BaseBillboardT
     UIUtils.registerFrosted(root, gradient, noise)
 
     -- Register root background for theme updates
-    ThemeRefresher.Bind(root, { Background = "Surface" })
+    ThemeRefresher.Bind(root, { BackgroundColor3 = "Surface" })
 
     -- Accent bar
     local accent = Instance.new("Frame")
@@ -132,21 +132,22 @@ function BaseBillboard.new(props: Props): BaseBillboardT
         titleLabel = Instance.new("TextLabel")
         titleLabel.Name = "Title"
         titleLabel.BackgroundTransparency = 1
-        titleLabel.Size = UDim2.new(1, 0, 0, UIx.Size.ROW_HEADER)
+        titleLabel.Size = UDim2.new(1, 0, 0, UIx.Size.ROW_SECTION)
         titleLabel.Position = UDim2.fromOffset(0, 0)
         titleLabel.Font = Theme.fonts.Display or Theme.fonts.Primary
         titleLabel.Text = props.title
         titleLabel.TextColor3 = Theme.colors.Text
-        titleLabel.TextXAlignment = Enum.TextXAlignment.Left
-        titleLabel.TextYAlignment = Enum.TextYAlignment.Top
+        titleLabel.TextXAlignment = Enum.TextXAlignment.Center
+        titleLabel.TextYAlignment = Enum.TextYAlignment.Center
         titleLabel.TextScaled = true
         titleLabel.ZIndex = z + 3
         titleLabel.Parent = content
 
-        -- Text size constraint
+        -- Text size constraint (prefer Theme.billboard.title if present)
         local titleConstraint = Instance.new("UITextSizeConstraint")
-        titleConstraint.MinTextSize = Theme.textSizes.Medium.Min
-        titleConstraint.MaxTextSize = Theme.textSizes.Medium.Max
+        local tSizes = (Theme.billboard and Theme.billboard.title) or Theme.textSizes.Display
+        titleConstraint.MinTextSize = tSizes.Min
+        titleConstraint.MaxTextSize = tSizes.Max
         titleConstraint.Parent = titleLabel
 
         -- Bind to theme for dynamic color
@@ -168,21 +169,22 @@ function BaseBillboard.new(props: Props): BaseBillboardT
             local tl = Instance.new("TextLabel")
             tl.Name = "Title"
             tl.BackgroundTransparency = 1
-            tl.Size = UDim2.new(1, 0, 0, UIx.Size.ROW_HEADER)
+            tl.Size = UDim2.new(1, 0, 0, UIx.Size.ROW_SECTION)
             tl.Position = UDim2.fromOffset(0, 0)
             tl.Font = Theme.fonts.Display or Theme.fonts.Primary
             tl.Text = title
             tl.TextColor3 = Theme.colors.Text
-            tl.TextXAlignment = Enum.TextXAlignment.Left
-            tl.TextYAlignment = Enum.TextYAlignment.Top
+            tl.TextXAlignment = Enum.TextXAlignment.Center
+            tl.TextYAlignment = Enum.TextYAlignment.Center
             tl.TextScaled = true
             tl.ZIndex = z + 3
             tl.Parent = content
 
-            -- Text size constraint
+            -- Text size constraint (prefer Theme.billboard.title if present)
             local titleConstraint = Instance.new("UITextSizeConstraint")
-            titleConstraint.MinTextSize = Theme.textSizes.Medium.Min
-            titleConstraint.MaxTextSize = Theme.textSizes.Medium.Max
+            local tSizes = (Theme.billboard and Theme.billboard.title) or Theme.textSizes.Display
+            titleConstraint.MinTextSize = tSizes.Min
+            titleConstraint.MaxTextSize = tSizes.Max
             titleConstraint.Parent = tl
 
             -- Bind to theme for dynamic color

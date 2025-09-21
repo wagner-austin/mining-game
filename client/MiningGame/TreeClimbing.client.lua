@@ -121,20 +121,7 @@ RunService.Heartbeat:Connect(function()
     local previousTree = nearbyTree
     nearbyTree = findNearbyTree()
     
-    -- Periodic debug logging
-    if frameCount % 300 == 0 then -- Every 5 seconds at 60fps
-        local decorFolder = Workspace:FindFirstChild("BlockDecorations")
-        if decorFolder then
-            local treeCount = 0
-            for _, child in ipairs(decorFolder:GetChildren()) do
-                if child:IsA("Model") and child.Name:find("Tree") then
-                    treeCount = treeCount + 1
-                end
-            end
-            log:debug("Heartbeat check - %d trees in world, nearbyTree=%s, HUD=%s", 
-                treeCount, nearbyTree and nearbyTree.Name or "nil", mainHUD and "ready" or "loading")
-        end
-    end
+    -- Suppress periodic heartbeat debug logging (noise)
     
     -- Only interact with HUD if it's ready
     if not mainHUD then return end

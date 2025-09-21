@@ -56,12 +56,22 @@ function HighScoreBillboard.new(props: Props): HighScoreBillboardT
     local title = props.title or titleFor(props.category)
     local accent = props.accentColor or Theme.colors.Primary
 
+    -- Compute canvas height to fit header + rows based on Theme.billboard.rowHeight
+    local rowHeight = (Theme.billboard and Theme.billboard.rowHeight) or UIx.Size.ROW_LARGE
+    local rows = limit
+    local listPaddingBetween = UIx.Spacing.SM
+    local contentMarginsY = UIx.Spacing.LG * 2
+    local headerHeight = UIx.Size.ROW_SECTION
+    local extraGapBelowHeader = UIx.Spacing.SM
+    local listHeightNeeded = rows * rowHeight + math.max(0, rows - 1) * listPaddingBetween
+    local canvasHeight = math.max(260, contentMarginsY + headerHeight + extraGapBelowHeader + listHeightNeeded)
+
     local bb = BaseBillboard.new({
         adornee = props.adornee,
         title = title,
         accentColor = accent,
         face = props.face or Enum.NormalId.Front,
-        canvasSize = Vector2.new(420, 260),
+        canvasSize = Vector2.new(380, canvasHeight),
         zIndex = 10,
     })
 
@@ -70,8 +80,9 @@ function HighScoreBillboard.new(props: Props): HighScoreBillboardT
     local list = Instance.new("Frame")
     list.Name = "List"
     list.BackgroundTransparency = 1
-    list.Size = UDim2.new(1, 0, 1, -(UIx.Size.ROW_HEADER + UIx.Spacing.LG))
-    list.Position = UDim2.fromOffset(0, UIx.Size.ROW_HEADER)
+    -- Position list below the title; match title height (ROW_SECTION) and keep a small gap
+    list.Size = UDim2.new(1, 0, 1, -(UIx.Size.ROW_SECTION + UIx.Spacing.SM))
+    list.Position = UDim2.fromOffset(0, UIx.Size.ROW_SECTION)
     list.ZIndex = 12
     list.Parent = content
 
@@ -85,14 +96,19 @@ function HighScoreBillboard.new(props: Props): HighScoreBillboardT
         local row = Instance.new("Frame")
         row.Name = "Row" .. tostring(i)
         row.BackgroundTransparency = 1
-        row.Size = UDim2.new(1, 0, 0, UIx.Size.ROW_MEDIUM)
+        row.Size = UDim2.new(1, 0, 0, rowHeight)
         row.LayoutOrder = i
         row.Parent = list
+
+        local sizes = Theme.billboard or {}
+        local idxW = tonumber(sizes.idxWidth) or 28
+        local valW = tonumber(sizes.valueWidth) or 112
+        local gap = UIx.Spacing.SM
 
         local idx = Instance.new("TextLabel")
         idx.Name = "Idx"
         idx.BackgroundTransparency = 1
-        idx.Size = UDim2.new(0, 22, 1, 0)
+        idx.Size = UDim2.new(0, idxW, 1, 0)
         idx.Position = UDim2.fromOffset(0, 0)
         idx.Font = Theme.fonts.Primary
         idx.TextScaled = true
@@ -103,8 +119,9 @@ function HighScoreBillboard.new(props: Props): HighScoreBillboardT
         idx.Parent = row
 
         local idxConstraint = Instance.new("UITextSizeConstraint")
-        idxConstraint.MinTextSize = Theme.textSizes.Small.Min
-        idxConstraint.MaxTextSize = Theme.textSizes.Medium.Max
+        local idxSizes = (Theme.billboard and Theme.billboard.index) or Theme.textSizes.Display
+        idxConstraint.MinTextSize = idxSizes.Min
+        idxConstraint.MaxTextSize = idxSizes.Max
         idxConstraint.Parent = idx
 
         ThemeRefresher.Bind(idx, { TextColor3 = "Text" })
@@ -112,8 +129,8 @@ function HighScoreBillboard.new(props: Props): HighScoreBillboardT
         local name = Instance.new("TextLabel")
         name.Name = "Name"
         name.BackgroundTransparency = 1
-        name.Size = UDim2.new(1, -120, 1, 0)
-        name.Position = UDim2.fromOffset(24, 0)
+        name.Size = UDim2.new(1, -(valW + idxW + gap), 1, 0)
+        name.Position = UDim2.fromOffset(idxW + gap, 0)
         name.Font = Theme.fonts.Secondary
         name.TextScaled = true
         name.TextXAlignment = Enum.TextXAlignment.Left
@@ -124,8 +141,9 @@ function HighScoreBillboard.new(props: Props): HighScoreBillboardT
         name.Parent = row
 
         local nameConstraint = Instance.new("UITextSizeConstraint")
-        nameConstraint.MinTextSize = Theme.textSizes.Small.Min
-        nameConstraint.MaxTextSize = Theme.textSizes.Medium.Max
+        local rowSizes = (Theme.billboard and Theme.billboard.row) or Theme.textSizes.Display
+        nameConstraint.MinTextSize = rowSizes.Min
+        nameConstraint.MaxTextSize = rowSizes.Max
         nameConstraint.Parent = name
 
         ThemeRefresher.Bind(name, { TextColor3 = "Text" })
@@ -133,8 +151,8 @@ function HighScoreBillboard.new(props: Props): HighScoreBillboardT
         local value = Instance.new("TextLabel")
         value.Name = "Value"
         value.BackgroundTransparency = 1
-        value.Size = UDim2.new(0, 96, 1, 0)
-        value.Position = UDim2.new(1, -96, 0, 0)
+        value.Size = UDim2.new(0, valW, 1, 0)
+        value.Position = UDim2.new(1, -valW, 0, 0)
         value.Font = Theme.fonts.Primary
         value.TextScaled = true
         value.TextXAlignment = Enum.TextXAlignment.Right
@@ -144,8 +162,9 @@ function HighScoreBillboard.new(props: Props): HighScoreBillboardT
         value.Parent = row
 
         local valueConstraint = Instance.new("UITextSizeConstraint")
-        valueConstraint.MinTextSize = Theme.textSizes.Small.Min
-        valueConstraint.MaxTextSize = Theme.textSizes.Medium.Max
+        local valSizes = (Theme.billboard and Theme.billboard.value) or Theme.textSizes.Display
+        valueConstraint.MinTextSize = valSizes.Min
+        valueConstraint.MaxTextSize = valSizes.Max
         valueConstraint.Parent = value
 
         ThemeRefresher.Bind(value, { TextColor3 = "Text" })
