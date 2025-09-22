@@ -51,7 +51,6 @@ local Bridge: BridgeApi = {} :: any
 local SENDABLE_EVENTS: {[string]: boolean} = {
     [RequestNames.INVENTORY_REQUEST_SELL] = true,
     [RequestNames.INVENTORY_REQUEST_EQUIP] = true,
-    [RequestNames.DIG_REQUEST] = true,
     [RequestNames.UPGRADE_REQUEST_PURCHASE] = true,
     [RequestNames.COSMETIC_REQUEST_EQUIP] = true,
     [RequestNames.SETTINGS_UPDATE] = true,
@@ -85,12 +84,7 @@ function Bridge.requestEquip(itemId: string, slot: string?)
     })
 end
 
-function Bridge.requestDig(position: Vector3, toolId: string?)
-    Bridge.send(RequestNames.DIG_REQUEST, {
-        position = position,
-        toolId = toolId
-    })
-end
+-- Note: Digging is handled via ClientRF (RemoteFunction) for immediate feedback
 
 function Bridge.requestUpgrade(upgradeId: string)
     Bridge.send(RequestNames.UPGRADE_REQUEST_PURCHASE, {

@@ -78,6 +78,6 @@ local cloth = ClothBase.spawnFromTemplate(template, {
 - Keep the cloth’s motion subtle (`zAmplitude` small) to make text legible.
 - You can also disable motion entirely by sending zero offsets from your controller.
 
-## Integration with Existing Service
+## Integration Notes
 
-`server/Cloth/SimpleClothService.lua` now uses `ClothBase` under the hood, so its cloth instances are compatible with any scenic usage created via `spawnFromTemplate`.
+The previous `SimpleClothService` has been retired. Use `ClothBase.spawnFromTemplate` directly (as in BannerService) and client-side animation (e.g., `BannerAnimator.client.lua`).

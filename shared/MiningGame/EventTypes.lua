@@ -31,7 +31,7 @@ export type ServerToClientEventName =
     "achievement.unlocked" | "announcement.broadcast" | "sound.play" |
     "notification.push" | "equipment.changed" | "boosts.changed" |
     "item.collected" | "pickup.prompt" | "reward.granted" | "debug.reset" |
-    "profile.updated" | "upgrades.changed" | "cloth.update"
+    "profile.updated" | "upgrades.changed"
 
 export type ClientToServerEventName =
     "inventory.request.sell" | "inventory.request.equip" |
@@ -69,7 +69,7 @@ export type CurrencyChangedEvent = {
 export type CubeOriginChangedEvent = {
     to: Player,
     payload: {
-        origin: Vector3
+        origin: CFrame | Vector3
     }
 }
 

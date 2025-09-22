@@ -107,12 +107,7 @@ function ServiceManager.start()
     regOpt(c, "RockGenerationService", parent:FindFirstChild("RockGenerationService"), {"CubePositionService"})
     regOpt(c, "FireflyGenerationService", parent:FindFirstChild("FireflyGenerationService"), {"CubePositionService"})
     regOpt(c, "FloatingIslandService", parent:FindFirstChild("FloatingIslandService"), {"GridService", "MixedMaterialService"})
-    local clothModule: ModuleScript? = nil
-    local clothFolder = ServerScriptService:FindFirstChild("Cloth")
-    if clothFolder then
-        clothModule = clothFolder:FindFirstChild("SimpleClothService")
-    end
-    regOpt(c, "ClothService", clothModule, {})
+    -- SimpleClothService removed; banners/clothes are client-driven now
 
     regReq(c, "CubeMaterialService",  parent.CubeMaterialService,  {"GridService","DataService"})
     regReq(c, "CompositionService",   parent.CompositionService,   {"MixedMaterialService","CubePositionService","DataService","CurrencyService"})

@@ -329,24 +329,7 @@ local function getProfile()
     end
 end
 
--- Listen for dig feedback via EventBus
-table.insert(connections, { Disconnect = Bus:on(EventNames.DIG_FEEDBACK, function(payload)
-    ClientError.try("DIG_FEEDBACK", function()
-        local feedback = payload
-        log:debug("Dig feedback received:")
-        print("  Cells dug:", feedback.cellCount or "unknown")
-        print("  Size:", feedback.size or "unknown")
-        print("  Shake:", feedback.shake)
-        print("  Particles:", feedback.particles)
-
-    if visualFeedback then
-        local approxEnds = now() + (digCooldown or 0.2)
-        visualFeedback:SetCooldownEndsAt(approxEnds)
-        visualFeedback:OnDig()
-        visualFeedback:ShowDigResult(true, feedback.centerPos or feedback.worldPos)
-    end
-    end)
-end) })
+-- (Removed) DIG_FEEDBACK listener: RF result drives visuals directly in this test client.
 
 -- Listen for loot drops via EventBus
 table.insert(connections, { Disconnect = Bus:on(EventNames.LOOT_DROPPED, function(p)

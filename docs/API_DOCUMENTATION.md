@@ -66,7 +66,7 @@ Bridge.send(RequestNames.INVENTORY_REQUEST_SELL, {
 - **Customization**: Material settings, theme settings, UpdateSettings
 - **Movement**: TeleportToHome, RespawnCubeModel
 - **Metrics**: GetMetrics, GetServerMetrics
-- **Cloth**: ClothSpawn, ClothDestroy
+- Cloth: (dev RFs removed)
 
 #### Debug & Testing (Studio/Developer only)
 - **Debug Tools**: Currency, stats, and cube reset
@@ -93,7 +93,7 @@ Bridge.send(RequestNames.INVENTORY_REQUEST_SELL, {
 - Item collection, pickup prompts, sounds
 
 #### Effects & Visuals
-- Sound effects, particles, camera shake, cloth updates
+- Sound effects, particles, camera shake
 
 [See full RemoteEvent documentation →](API_REMOTE_EVENTS.md)
 [See EventBus documentation →](EVENTBUS_SYSTEM.md)

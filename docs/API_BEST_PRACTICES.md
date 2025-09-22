@@ -378,7 +378,8 @@ local digDebounce = Debounce.new(0.1)
 UserInputService.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
         digDebounce:run(function()
-            Bridge.requestDig(targetPosition)
+            local ClientRF = require(MiningGame.ClientRF)
+            ClientRF.call("RequestDig", targetPosition)
         end)
     end
 end)

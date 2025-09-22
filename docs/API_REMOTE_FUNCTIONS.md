@@ -131,8 +131,7 @@ local data, err = ClientRF.callWithRetry("GetInventory", 3)
 ### Debug Functions (Studio Only)
 
 #### ClothDebug (`ClothDebug.rf.lua`)
-- `ClothSpawn` - Create cloth instance
-- `ClothDestroy` - Remove cloth
+-- Cloth RFs removed; use service code (e.g., BannerService) to spawn cloth directly if needed.
 
 #### SimAgents (`SimAgents.rf.lua`)
 - `SimAgents_SetCount`

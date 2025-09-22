@@ -5,6 +5,8 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("MiningGame")
 local Logger = require(Shared:WaitForChild("Logger"))
+local EventBus = require(Shared:WaitForChild("EventBus"))
+local EventNames = require(Shared:WaitForChild("EventNames"))
 local GameConfig = require(Shared:WaitForChild("GameConfig"))
 local GridMath = require(Shared:WaitForChild("Utils"):WaitForChild("GridMath"))
 local Time = require(Shared:WaitForChild("Time"))
@@ -237,6 +239,20 @@ function Processor.Process(service, player: Player, worldPos: Vector3)
 
     Telemetry.success()
     local nextAtMono = now + effectiveStats.delay
+    -- Emit dig feedback event for listeners (UI, analytics). Keep payload stable for clients.
+    pcall(function()
+        EventBus.global():emit(EventNames.DIG_FEEDBACK, {
+            to = { kind = "player", player = player },
+            payload = {
+                size = effectiveStats.size,
+                cellCount = #dugCells,
+                centerPos = soundPos,
+                shake = (GameConfig.Digging and GameConfig.Digging.ENABLE_CAMERA_SHAKE) ~= false,
+                particles = (GameConfig.Digging and GameConfig.Digging.ENABLE_PARTICLES) ~= false,
+                cooldownSec = effectiveStats.delay,
+            }
+        })
+    end)
     return {
         ok = true,
         cellsDug = #dugCells,

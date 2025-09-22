@@ -451,7 +451,13 @@ Bridge.send(RequestNames.INVENTORY_REQUEST_SELL, {
 -- Convenience methods
 Bridge.requestSell("diamond", 5)
 Bridge.requestEquip("sword", "weapon")
-Bridge.requestDig(Vector3.new(10, 0, 10))
+
+-- For digging, use ClientRF RemoteFunction for immediate results:
+local ClientRF = require(MiningGame.ClientRF)
+local result, err = ClientRF.call("RequestDig", Vector3.new(10, 0, 10))
+if result and result.ok then
+    print("Dug cells:", result.cellsDug)
+end
 ```
 
 ## Performance Considerations

@@ -39,7 +39,6 @@ local FAST_PATH_EVENTS = {
     [EventNames.TERRAIN_POKE] = true,
     [EventNames.RUNTIME_EFFECTS_CHANGED] = true,
     [EventNames.SOUND_PLAY] = true,
-    [EventNames.CLOTH_UPDATE] = true
 }
 
 -- Whitelist of server -> client events
@@ -64,7 +63,7 @@ local TO_CLIENT = {
     [EventNames.DEBUG_RESET] = true,
     [EventNames.PROFILE_UPDATED] = true,
     [EventNames.UPGRADES_CHANGED] = true,
-    [EventNames.CLOTH_UPDATE] = true,
+    -- [EventNames.CLOTH_UPDATE] = true, -- removed: cloth now client-driven
     -- Neighborhood events
     [EventNames.NEIGHBOR_JOINED] = true,
     [EventNames.NEIGHBOR_LEFT] = true,

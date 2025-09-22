@@ -25,12 +25,11 @@ We implement a manual replication system using the EventBus (bridged to clients 
 ```
 server/
   Cloth/
-    SimpleClothService.lua    # Main service handling simulation (DI service)
-    init.server.lua           # Legacy bootstrap (unused when DI is active)
+    init.server.lua           # Legacy bootstrap (unused)
   CreateClothTool.server.lua.disabled  # Studio-only test tool (disabled)
 
 client/
-  ClothClient.client.lua            # Receives and applies bone transforms (minimal logging)
+  BannerAnimator.client.lua         # Client-side cloth animation (no server updates)
   ClothToolClient.client.lua.disabled  # Studio-only test tool client (disabled)
 
 shared/
@@ -40,12 +39,10 @@ shared/
     Remotes.lua               # Remote definitions
 ```
 
-ClothService is registered through ServiceManager so it can be resolved via the DI container (optional, Studio-only by default).
+Cloth animation for banners and scenic use is client-driven; no server cloth simulation service is registered.
 
 ### Remote Communication
-- `ClothSpawn` (RemoteFunction): Client → Server, spawns cloth
-- `ClothDestroy` (RemoteFunction): Client → Server, destroys cloth  
-- `cloth.update` (EventBus): Server -> Client, sends bone offsets
+No dedicated cloth RemoteFunctions are provided. Spawn cloth in services (e.g., BannerService) and animate on the client. The server does not emit cloth updates.
 
 ## Implementation Details
 
@@ -128,16 +125,10 @@ Each bone has a colored sphere for debugging:
 ## Usage
 
 ### Tool-Based Spawning
-1. Player equips ClothSimulator tool
-2. Tool client calls `ClothSpawn` remote
-3. Server creates cloth at player position + offset
-4. Cloth hangs vertically like a curtain
+In Studio, you can build your own quick test tool that clones the cloth template under your character and uses `ClothBase.buildGrid` to map bones. Server remotes for cloth spawning have been removed.
 
 ### Manual Spawning (Server-Side)
-```lua
-local ClothService = require(path.to.SimpleClothService)
-ClothService:spawnFor(player)
-```
+Use `ClothBase.spawnFromTemplate` directly in your service/script (see BannerService for example patterns).
 
 ### Cloth Properties
 - **Position**: 20 studs above, 10 studs in front of player
@@ -149,9 +140,7 @@ ClothService:spawnFor(player)
 ## Performance Considerations
 
 ### Update Frequency
-- Server sends updates every Heartbeat (~60 Hz)
-- Network optimization: Only position deltas, not full CFrames
-- Client-side smoothing not needed (direct application)
+- Client animates at ~30 FPS using BannerAnimator (or similar). No server cloth updates are sent.
 
 ### Debug Logging
 - Logs every 60 frames to reduce spam
@@ -161,8 +150,8 @@ ClothService:spawnFor(player)
 ## Common Issues and Solutions
 
 ### Issue: Cloth appears rigid, no movement
-**Cause**: Server bone transforms not replicating visually
-**Solution**: Ensure RemoteEvent system is working, check client is receiving updates
+**Cause**: Client animator not attached or skin disabled
+**Solution**: Verify `Skin.Enabled = true` on the MeshPart, and that your client animator is mounting (e.g., via BANNER_READY).
 
 ### Issue: Bones moving incorrectly (inchworm effect)
 **Cause**: Cumulative transforms in parent-child hierarchy
@@ -202,10 +191,10 @@ Skinned MeshParts lose their `Skin` data when exported to `.rbxm`/`.rbxmx`, so t
 ### Publishing Steps
 1. Import the FBX into Studio and verify it deforms.
 2. Save it to Roblox (Model or Package) so the skin lives in the published asset.
-3. Update `server/Cloth/SimpleClothService.lua` with the new asset ID.
+3. Store your cloth asset under ReplicatedStorage.MiningGame.Assets for easy cloning.
 
 ### Runtime Loading
-`SimpleClothService` finds the asset in `ReplicatedStorage.MiningGame.Assets` or uses `InsertService:LoadAsset(116193032143091)` to fetch it. The first template clone gets cached so future spawns reuse the skinned mesh.
+At runtime, find the asset in `ReplicatedStorage.MiningGame.Assets` (e.g., `BlanketPlane`) and clone it; ensure `Skin.Enabled = true`.
 
 ### Skin Safety Check
 After cloning, we call `FindFirstChildOfClass("Skin")` and enable it. If the skin is missing we log a warning; the cloth will fall back to a rigid mesh.
@@ -215,7 +204,7 @@ Rojo won't sync skinned MeshParts directly. Keep a `PackageLink` or loader scrip
 ## Testing and Debugging
 
 ### Enable Debug Spheres
-In `SimpleClothService.lua` (debug spheres section):
+In your spawner (e.g., BannerService debug spheres section):
 ```lua
 sphere.Transparency = 0  -- Show spheres
 ```
@@ -229,7 +218,7 @@ Frame 60: Sending 60 offsets to Player1, first=0.00
 ### Verify Client Reception  
 Client prints when receiving updates:
 ```
-[ClothClient] Frame 60: Applying 60 offsets to 12345678
+BannerAnimator: Animating N bones at ~30 FPS (client-only)
   Bone 1: x=0.00, y=0.00, z=0.00
 ```
 

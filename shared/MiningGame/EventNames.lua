@@ -25,7 +25,6 @@ local E = {
     NOTIFICATION_PUSH = "notification.push",
     SOUND_PLAY = "sound.play",
     TERRAIN_POKE = "terrain.poke",
-    CLOTH_UPDATE = "cloth.update",
     
     -- Dig service events
     MEGA_DIG_REQUEST = "dig.mega_request",
@@ -80,7 +79,7 @@ export type EventName =
     "achievement.unlocked" | "announcement.broadcast" |
     "equipment.changed" | "boosts.changed" | "debug.reset" | "upgrades.changed" |
     "item.collected" | "pickup.prompt" | "reward.granted" | "notification.push" |
-    "sound.play" | "terrain.poke" | "cloth.update" |
+    "sound.play" | "terrain.poke" |
     "neighbor.joined" | "neighbor.left" | "cube.update" | "error.reported" |
     "dig.mega_request" | "dig.auto_start" | "composition.apply.request" |
     "cube.spawn.request" | "cube.despawn.request" |
