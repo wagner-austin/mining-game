@@ -134,7 +134,7 @@ local function spawnFor(player: Player, baseModel: Model)
             widen = 1.1,
             idAttribute = "ClothId",
             -- Only create debug spheres in Studio to avoid network overhead in live servers
-            makeDebugSpheres = RunService:IsStudio(),
+            makeDebugSpheres = false,
             glowBar = {
                 enabled = true,
                 thickness = 0.2,
@@ -200,6 +200,10 @@ local function spawnFor(player: Player, baseModel: Model)
                     local pos = inst.mesh.Position + look * (panelThickness * 0.5 + 0.03)
                     p.CFrame = CFrame.fromMatrix(pos, right, up, look)
                     p.Parent = inst.model
+                    panel = p
+                end
+                if not panel then
+                    log:warn("UIPanel creation failed for %s", tostring(inst.model))
                 end
             end
         end)

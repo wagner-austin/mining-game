@@ -64,11 +64,9 @@ end
 -- No face auto-mapping: respect BannerFace from server config exactly.
 
 local function findAdornee(model: Model): BasePart?
-    -- Prefer explicitly oriented UI panel if present (created server-side)
+    -- Require explicitly oriented UI panel created server-side
     local uiPanel = model:FindFirstChild("UIPanel")
     if uiPanel and uiPanel:IsA("BasePart") then return uiPanel end
-    -- Otherwise use PrimaryPart (mesh)
-    if model.PrimaryPart and model.PrimaryPart:IsA("BasePart") then return model.PrimaryPart end
     return nil
 end
 local function mountBanner(model: Model, overrides: any?)
@@ -78,10 +76,12 @@ local function mountBanner(model: Model, overrides: any?)
     if mrec and mrec.model == model then return end
     local adornee = findAdornee(model)
     if not adornee then
-        -- Defer until PrimaryPart/BasePart exists using signals (event-driven)
+        -- Defer until UIPanel exists using signals (event-driven)
         if pending[id] then return end
         local conns = {}
+        local canceled = false
         local function cleanup()
+            canceled = true
             for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
             pending[id] = nil
         end
@@ -96,7 +96,7 @@ local function mountBanner(model: Model, overrides: any?)
         end
         conns[#conns+1] = model:GetPropertyChangedSignal("PrimaryPart"):Connect(tryNow)
         conns[#conns+1] = model.DescendantAdded:Connect(function(inst)
-            if inst:IsA("BasePart") then tryNow() end
+            if inst:IsA("BasePart") and inst.Name == "UIPanel" then tryNow() end
         end)
         conns[#conns+1] = model.AncestryChanged:Connect(function(_, parent)
             -- Survive stream-out; retry on reparent so mounting is durable
@@ -105,7 +105,13 @@ local function mountBanner(model: Model, overrides: any?)
         pending[id] = cleanup
         -- Immediate re-check closes race window where adornee appears just before listeners are wired
         tryNow()
-        log:debug("Deferring billboard mount until adornee exists: %s", model:GetFullName())
+        log:warn("UIPanel not present yet; deferring billboard mount: %s", model:GetFullName())
+        -- Watchdog: warn if UIPanel still missing after timeout
+        task.delay(5.0, function()
+            if not canceled and not mounted[id] and not findAdornee(model) and model.Parent then
+                log:warn("UIPanel still missing after 5s; billboard not mounted: %s", model:GetFullName())
+            end
+        end)
         return
     end
 
@@ -158,8 +164,10 @@ local function mountBanner(model: Model, overrides: any?)
             log:error("Failed to create HighScore billboard: %s", tostring(hs))
         end
     else
-        -- Unknown feature; mount a simple placeholder later
-        log:debug("Unknown banner feature '%s' on %s", tostring(feature), model:GetFullName())
+        -- Scenic/unknown feature: skip logging when empty (expected scenic slot)
+        if feature and #feature > 0 then
+            log:warn("Unknown banner feature '%s' on %s", tostring(feature), model:GetFullName())
+        end
     end
 end
 
