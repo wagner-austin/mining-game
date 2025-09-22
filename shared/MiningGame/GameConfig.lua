@@ -420,6 +420,9 @@ GameConfig.Loot = {
     RING_JITTER = 1.5,          -- random variance around ring
     RING_VERTICAL_OFFSET = 0.0, -- offset from dig center Y
 
+    -- Visibility distance for floating nameplates (studs)
+    LABEL_MAX_DISTANCE = 200,
+
     -- Drop visuals (gate extra VFX here; defaults favor simpler look)
     VISUALS = {
         USE_RARITY_TINT = true,      -- Color part/label by rarity

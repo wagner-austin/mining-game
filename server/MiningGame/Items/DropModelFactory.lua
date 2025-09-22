@@ -61,7 +61,8 @@ function DropModelFactory.create(itemDef: any, position: Vector3, count: number)
     billboard.Size = UDim2.new(0, 150, 0, 28)
     billboard.StudsOffset = Vector3.new(0, 1.6, 0)
     billboard.AlwaysOnTop = true
-    billboard.MaxDistance = 80
+    local labelMaxDist = (GameConfig.Loot and GameConfig.Loot.LABEL_MAX_DISTANCE) or 200
+    billboard.MaxDistance = labelMaxDist
     billboard.Parent = part
 
     -- Background chip
