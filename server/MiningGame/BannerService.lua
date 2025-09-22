@@ -6,7 +6,7 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ServerScriptService = game:GetService("ServerScriptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local CollectionService = game:GetService("CollectionService")
+-- local CollectionService = game:GetService("CollectionService")
 
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
 local EventBus = require(MiningGame:WaitForChild("EventBus"))
@@ -80,41 +80,6 @@ end
 -- Track spawned cloth per-player for cleanup
 type ClothInstance = ClothBase.ClothInstance
 local spawned: { [Player]: { ClothInstance } } = {}
-local hbConn: RBXScriptConnection? = nil
-local tAccum = 0
-
-local function ensureHeartbeat()
-    if hbConn then return end
-    hbConn = RunService.Heartbeat:Connect(function(dt)
-        tAccum += dt
-        for _player, list in pairs(spawned) do
-            for _, inst in ipairs(list) do
-                local offsets = ClothBase.computeOffsets(inst, tAccum, {
-                    waveSpeed = 2.0,
-                    waveLength = 3.0,
-                    zAmplitude = 1.0,
-                    stretchAmount = 0.12,
-                })
-                -- Apply server transforms for debug mapping; also broadcast offsets
-                for i, bone in ipairs(inst.bones) do
-                    local v = offsets[i]
-                    if typeof(v) == "Vector3" then
-                        bone.Transform = CFrame.new(v.X, v.Y, v.Z)
-                    else
-                        bone.Transform = CFrame.new()
-                    end
-                end
-                Bus:emit(EventNames.CLOTH_UPDATE, {
-                    to = { kind = "all" },
-                    payload = { id = inst.id, offsets = offsets },
-                })
-                ErrorService.safecall("BannerService.UpdateDebug", function()
-                    ClothBase.updateDebug(inst, tAccum)
-                end)
-            end
-        end
-    end)
-end
 
 local function spawnFor(player: Player, baseModel: Model)
     -- Despawn previous
@@ -168,7 +133,8 @@ local function spawnFor(player: Player, baseModel: Model)
             scale = 0.5,
             widen = 1.1,
             idAttribute = "ClothId",
-            makeDebugSpheres = true,
+            -- Only create debug spheres in Studio to avoid network overhead in live servers
+            makeDebugSpheres = RunService:IsStudio(),
             glowBar = {
                 enabled = true,
                 thickness = 0.2,
@@ -308,7 +274,7 @@ local function spawnFor(player: Player, baseModel: Model)
         end)
     end)
 
-    ensureHeartbeat()
+    -- Cloth animation is handled client-side by BannerAnimator.client.lua
 end
 
 local Service = {}
