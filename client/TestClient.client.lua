@@ -66,6 +66,7 @@ local Bus = EventBus.global()
 local connections = {} :: {{ Disconnect: () -> () }}
 
 -- Interval-safe time source
+-- Use monotonic time for local cooldown calculations
 local function now() return Time.mono() end
 
 -- Get SoundManager for local sound playback
@@ -232,8 +233,9 @@ local function requestDigAt(position: Vector3)
             end
         end
         
-        -- Update cooldown tracking
-        cooldownEndsAt = result.nextAllowedAt or (t + digCooldown)
+        -- Update cooldown tracking (prefer precise duration from server)
+        local cd = (result and result.cooldownSec) or digCooldown or 0
+        cooldownEndsAt = t + cd
         
         -- Update visual feedback
         if visualFeedback then
@@ -251,9 +253,13 @@ local function requestDigAt(position: Vector3)
     else
         log:warn("Dig failed: %s", (result and result.reason) or "Unknown reason")
         -- No sound on failures ✅
-        if result and result.nextAllowedAt then
-            cooldownEndsAt = result.nextAllowedAt
-            local timeLeft = result.nextAllowedAt - t
+        if result and (result.cooldownSec or result.nextAllowedAt) then
+            local cd = result.cooldownSec
+            if not cd and result.nextAllowedAt then
+                cd = math.max(0, result.nextAllowedAt - t)
+            end
+            cooldownEndsAt = t + (cd or 0)
+            local timeLeft = (cd or 0)
             log:debug("Can dig again in %.2fs", timeLeft)
             if visualFeedback then
                 visualFeedback:SetCooldownEndsAt(cooldownEndsAt)

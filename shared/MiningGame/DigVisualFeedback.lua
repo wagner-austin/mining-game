@@ -341,6 +341,7 @@ end
 function DigVisualFeedback:UpdateState(hit: RaycastResult?)
     if not self.enabled then return end
     
+    -- Use monotonic time for smooth, consistent visuals
     local now = Time.mono()
     local onCooldown = now < self.cooldownEndsAt
     

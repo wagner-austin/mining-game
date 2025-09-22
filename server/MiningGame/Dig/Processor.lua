@@ -31,6 +31,7 @@ function Processor.Process(service, player: Player, worldPos: Vector3)
     local ItemService = container:Get("ItemService")
 
     local userId = player.UserId
+    -- Use high-resolution monotonic time for server-side gating
     local now = Time.mono()
     log:debug("ProcessDig START:\n  Player: %s\n  Input Position: %s", player.Name, tostring(worldPos))
 
@@ -123,7 +124,8 @@ function Processor.Process(service, player: Player, worldPos: Vector3)
     local lastDig = lastDigTime[userId] or 0
     local cooldown = digCooldowns[userId] or effectiveStats.delay
     if now - lastDig < cooldown then
-        return { ok = false, reason = "On cooldown", nextAllowedAt = lastDig + cooldown }
+        local nextAt = lastDig + cooldown
+        return { ok = false, reason = "On cooldown", nextAllowedAt = nextAt, cooldownSec = math.max(0, nextAt - now) }
     end
 
     -- Compute cell and clamp (use adjusted snapped position to align dig with picked volume)
@@ -225,13 +227,23 @@ function Processor.Process(service, player: Player, worldPos: Vector3)
         local SoundBroadcast = require(script.Parent.Parent.SoundBroadcast)
         SoundBroadcast.MiningLocal(player, soundPos, materialKey, chosenSubtype)
     end)
+    -- Reflect cooldown timestamp (server wall time) so UI can read Char_NextDigAllowedAt
+    pcall(function()
+        local CSM = container:Get("CharacterStateManager")
+        if CSM and type(CSM.SetNextDigAllowedAt) == "function" then
+            CSM:SetNextDigAllowedAt(player, Time.unix() + effectiveStats.delay)
+        end
+    end)
+
     Telemetry.success()
+    local nextAtMono = now + effectiveStats.delay
     return {
         ok = true,
         cellsDug = #dugCells,
         lootGranted = {},
         lootCounts = countsById,
-        nextAllowedAt = now + effectiveStats.delay,
+        nextAllowedAt = nextAtMono,
+        cooldownSec = effectiveStats.delay,
         effectiveStats = effectiveStats,
         soundMaterialKey = materialKey,
         soundWorldPos = soundPos,

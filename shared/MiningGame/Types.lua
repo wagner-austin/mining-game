@@ -147,6 +147,7 @@ export type DigResult = {
     lootGranted: {},                      -- Legacy/placeholder (empty)
     lootCounts: { [string]: number }?,    -- Items dropped (not collected yet)
     nextAllowedAt: number?,               -- Server-side cooldown resume time (Time.mono-based)
+    cooldownSec: number?,                 -- Server-provided cooldown duration (seconds)
     effectiveStats: EffectiveStats?,      -- Snapshot used for this dig
     soundMaterialKey: string?,            -- "rock", etc.
     soundWorldPos: Vector3?,              -- Position for sound effect

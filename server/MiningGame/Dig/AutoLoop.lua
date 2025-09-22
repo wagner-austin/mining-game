@@ -32,6 +32,7 @@ local function runAutoDigLoop(service, player: Player)
                 local result = service:ProcessDigRequest(player, digPos)
                 local sleepSec = 1.0
                 if result and result.nextAllowedAt then
+                    -- Server uses monotonic time for gating
                     sleepSec = math.max(result.nextAllowedAt - Time.mono(), 0.5)
                 else
                     sleepSec = 1.0
@@ -80,4 +81,3 @@ function AutoLoop.CleanupOnRemoving(service, player: Player)
 end
 
 return AutoLoop
-

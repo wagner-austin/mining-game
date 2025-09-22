@@ -50,6 +50,7 @@ local function runHoldLoop(service, player: Player)
                 if nextY >= -halfCells then
                     local originForStep = result.volumeOrigin or cube.origin
                     holdState[player].target = GridMath.cellToWorld(baseX, nextY, baseZ, originForStep, GameConfig.Grid.CELL_SIZE_STUDS)
+                    -- Server uses monotonic time for gating
                     sleepSec = (result.nextAllowedAt and math.max(result.nextAllowedAt - Time.mono(), 0)) or (GameConfig.Timing.AUTO_DIG_DEFAULT_INTERVAL)
                 else
                     break
@@ -59,7 +60,10 @@ local function runHoldLoop(service, player: Player)
             end
 
         elseif result and result.reason == "On cooldown" then
-            sleepSec = math.max((result.nextAllowedAt or Time.mono()) - Time.mono(), 0.05)
+            -- Compare against server monotonic timebase
+            local nowM = Time.mono()
+            local nextAt = result.nextAllowedAt or nowM
+            sleepSec = math.max(nextAt - nowM, 0.05)
 
         elseif result and result.reason == "No cells dug" then
             local cube = service.playerCubes[player]
@@ -134,4 +138,3 @@ function HoldLoop.CleanupOnRemoving(service, player: Player)
 end
 
 return HoldLoop
-
