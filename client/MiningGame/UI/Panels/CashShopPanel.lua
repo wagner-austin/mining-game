@@ -65,7 +65,7 @@ function CashShopPanel:init(manager)
     self.manager = manager
 
     local features = GameConfig.Features or {}
-    local tabs = { { name = "Products" } }
+    local tabs = { { name = "Passes" } }
     local showCosmetics = features.SHOW_SHOP_TAB == true
     if showCosmetics then table.insert(tabs, { name = "Cosmetics" }) end
 
@@ -80,19 +80,19 @@ function CashShopPanel:init(manager)
             manager:hideScene("CashShopPanel")
         end,
         tabs = tabs,
-        defaultTab = "Products",
+        defaultTab = "Passes",
         onTabChange = function(newTab)
-            if newTab == "Products" and self._coinsTab and self._coinsTab.refresh then self._coinsTab:refresh() end
+            if newTab == "Passes" and self._coinsTab and self._coinsTab.refresh then self._coinsTab:refresh() end
             if newTab == "Cosmetics" and self._cosmeticsTab and self._cosmeticsTab.refresh then self._cosmeticsTab:refresh() end
         end,
         onShown = function()
             local current = self.panel:getCurrentTab()
-            if current == "Products" and self._coinsTab and self._coinsTab.refresh then self._coinsTab:refresh() end
+            if current == "Passes" and self._coinsTab and self._coinsTab.refresh then self._coinsTab:refresh() end
             if current == "Cosmetics" and self._cosmeticsTab and self._cosmeticsTab.refresh then self._cosmeticsTab:refresh() end
         end,
     })
 
-    local coinsRoot = self.panel:getTabContent("Products")
+    local coinsRoot = self.panel:getTabContent("Passes")
     self._coinsTab = CashShopCoinsTab.new({ parent = coinsRoot })
     if showCosmetics then
         local cosmeticsRoot = self.panel:getTabContent("Cosmetics")

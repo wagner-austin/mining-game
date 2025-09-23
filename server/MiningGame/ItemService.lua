@@ -100,6 +100,7 @@ function ItemService:Start(_container)
         Time = Time, Logger = Logger, GameConfig = GameConfig, MathUtils = MathUtils,
         DropModelFactory = DropModelFactory, ItemAnimations = ItemAnimations,
         LootService = LootService, InventoryService = InventoryService, dropRegistry = dropRegistry,
+        Bus = Bus, EventNames = EventNames,
         constants = { ITEM_LIFETIME = ITEM_LIFETIME, DESPAWN_RETRY_DELAY = DESPAWN_RETRY_DELAY, MAX_DROPS_PER_PLAYER = MAX_DROPS_PER_PLAYER, FINAL_DESPAWN_AFTER = FINAL_DESPAWN_AFTER },
     })
     collector = CollectorMod.new({

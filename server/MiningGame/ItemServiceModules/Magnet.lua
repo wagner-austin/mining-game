@@ -34,16 +34,8 @@ function Magnet.new(ctx): MagnetT
     }
 
     function obj:getAutoCollectRangeFromConfig(): number
-        local GameConfig = self._GameConfig
-        local ITEM_MAGNET_RANGE = self._ITEM_MAGNET_RANGE
-        if GameConfig and GameConfig.Monetization and GameConfig.Monetization.GAMEPASSES then
-            for _, pass in ipairs(GameConfig.Monetization.GAMEPASSES) do
-                if pass.id == "AUTO_COLLECT" then
-                    return (pass.effects and pass.effects.auto_collect_range) or ITEM_MAGNET_RANGE
-                end
-            end
-        end
-        return ITEM_MAGNET_RANGE
+        -- Range derives from loot config defaults; no AUTO_COLLECT pass support
+        return self._ITEM_MAGNET_RANGE
     end
 
     function obj:hasAutoCollect(player: Player): (boolean, number?)
@@ -53,9 +45,6 @@ function Magnet.new(ctx): MagnetT
             return false, nil
         end
         local gamepasses = UpgradeService:GetPlayerGamepasses(player)
-        if gamepasses["AUTO_COLLECT"] then
-            return true, self:getAutoCollectRangeFromConfig()
-        end
         if gamepasses["VIP"] then
             return true, ITEM_MAGNET_RANGE
         end

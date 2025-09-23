@@ -259,6 +259,35 @@ function SpawnService:Respawn(player: Player, source: string?)
     lastCommittedOrigin[player] = cubeOrigin
 end
 
+--[[
+    Teleport the player to their base's SpawnAnchor (no respawn or cube init).
+    Requires PlayerBaseService to have created PlayerBase_<userId>/SpawnAnchor_Anchor.
+]]
+function SpawnService:TeleportHome(player: Player): (boolean, string?, string?)
+    if not player or not player.Parent then return false, "NO_PLAYER" end
+    local char = player.Character
+    if not char then return false, "NO_CHARACTER" end
+    local hrp = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+    if not hrp then return false, "NO_HRP" end
+
+    local origin = CubePositionService and CubePositionService:GetOrigin(player)
+    if not origin then
+        log:warn("TeleportHome: cube origin missing for %s", player.Name)
+        return false, "NO_ORIGIN"
+    end
+
+    -- Use the exact same placement logic as Respawn for parity
+    local cf = computeSpawnCFrame(origin)
+
+    hrp.CFrame = cf
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        humanoid:Move(Vector3.zero, true)
+    end
+    log:info("TeleportHome: moved %s to base spawn", player.Name)
+    return true
+end
+
 -- hook character spawns (called from Start method after dependencies are ready)
 onCharacterAdded = function(char: Model)
     local plr = Players:GetPlayerFromCharacter(char)

@@ -49,6 +49,7 @@ type RollCellOpts = {
     rarityBoost: number?,
     specificBoosts: {[string]: number}?,
     exclusiveSet: {[string]: boolean}?,
+    terrainKey: string?,
 }
 
 -- Initialize with DI container
@@ -64,6 +65,8 @@ local baseItems = GameConfig.Loot.ITEMS
 local itemDefinitions: {ItemDef} = {}  -- Will contain base + cosmetics
 local itemById: {[string]: ItemDef} = {}  -- O(1) lookup map
 local materialMultipliers = {}
+local terrainResourceMapByMaterialId = (GameConfig and GameConfig.Loot and GameConfig.Loot.TERRAIN_RESOURCE_MAP and GameConfig.Loot.TERRAIN_RESOURCE_MAP.byMaterialId) or {}
+local terrainResourceMapByTerrainKey = (GameConfig and GameConfig.Loot and GameConfig.Loot.TERRAIN_RESOURCE_MAP and GameConfig.Loot.TERRAIN_RESOURCE_MAP.byTerrainKey) or {}
 
 -- Helper to add item definition
 local function addItemDef(def: ItemDef)
@@ -195,30 +198,30 @@ function LootService:RollCell(
     luckMultiplier: number?,
     opts: {chanceMult: number?, rarityBoost: number?, specificBoosts: {[string]: number}?, exclusiveSet: {[string]: boolean}?}?
 ): Types.LootDrop?
-    
+
     luckMultiplier = luckMultiplier or 1.0
     opts = opts or {}
-    
-    -- Get material multiplier
-    local materialMult = materialMultipliers[materialId] or 1.0
-    
-    -- Combined rarity boost (use override from composition if present)
-    local rarityBoost = (opts.rarityBoost or materialMult) * luckMultiplier
-    
+
     -- Create deterministic RNG for this cell
     local rng = RNG.fromCell(cellX, cellY, cellZ, seed)
-    
+
     -- First check: does this cell have loot?
     local baseChance = GameConfig.Loot.BASE_DROP_CHANCE
     local chanceMult = opts.chanceMult or 1.0
     local dropChance = baseChance * chanceMult * math.min(2, luckMultiplier)
     -- Clamp to avoid always-hit and keep RNG meaningful
     dropChance = math.clamp(dropChance, 0, 0.9999)
-    
+
     if rng:NextNumber() > dropChance then
         return nil
     end
-    
+
+    -- Weighted-table mode (original behavior) with resource gating by terrain
+    -- Get material multiplier
+    local materialMult = materialMultipliers[materialId] or 1.0
+    -- Combined rarity boost (use override from composition if present)
+    local rarityBoost = (opts.rarityBoost or materialMult) * luckMultiplier
+
     -- DEBUG: Force rarity if configured
     if GameConfig.Features.DEBUG_FORCE_RARITY then
         local forcedRarity = GameConfig.Features.DEBUG_FORCE_RARITY
@@ -262,6 +265,24 @@ function LootService:RollCell(
     
     -- Second roll: what item?
     local weights = buildWeightedTable(rarityBoost)
+
+    -- Resource gating: prefer terrain key (dominant voxel material) when provided in opts
+    do
+        local mappedId = nil
+        local tk = (opts :: any).terrainKey
+        if tk and type(tk) == "string" and terrainResourceMapByTerrainKey and terrainResourceMapByTerrainKey[tk] then
+            mappedId = terrainResourceMapByTerrainKey[tk]
+        else
+            mappedId = terrainResourceMapByMaterialId and terrainResourceMapByMaterialId[materialId]
+        end
+        if mappedId then
+            for i, itemDef in ipairs(itemDefinitions) do
+                if itemDef.type == "resource" and itemDef.id ~= mappedId then
+                    weights[i] = 0
+                end
+            end
+        end
+    end
     
     -- Apply specific item boosts and enforce exclusive items
     for i, itemDef in ipairs(itemDefinitions) do
@@ -332,7 +353,7 @@ function LootService:RollCells(
     cells: {{x: number, y: number, z: number}},
     seed: number,
     luckMultiplier: number?,
-    compositionInfo: {miner: Player?, ownerId: number?, materialKey: string?, compositionId: string?}?
+    compositionInfo: {miner: Player?, ownerId: number?, materialKey: string?, compositionId: string?, terrainKey: string?}?
 ): {Types.LootDrop}
     
     local drops = {}
@@ -417,6 +438,9 @@ function LootService:RollCells(
         specificBoosts = specificBoosts,
         exclusiveSet = exclusiveSet,
     }
+    if compositionInfo and compositionInfo.terrainKey then
+        (opts :: any).terrainKey = compositionInfo.terrainKey
+    end
     
     -- Roll each cell with the composed options
     for _, cell in ipairs(cells) do

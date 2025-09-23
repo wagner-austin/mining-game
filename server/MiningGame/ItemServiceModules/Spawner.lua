@@ -26,6 +26,8 @@ function Spawner.new(ctx): SpawnerT
     local LootService = ctx.LootService
     local InventoryService = ctx.InventoryService
     local dropRegistry = ctx.dropRegistry
+    local Bus = ctx.Bus
+    local EventNames = ctx.EventNames
 
     local ITEM_LIFETIME: number = ctx.constants.ITEM_LIFETIME
     local DESPAWN_RETRY_DELAY: number = ctx.constants.DESPAWN_RETRY_DELAY
@@ -170,6 +172,7 @@ function Spawner.new(ctx): SpawnerT
         local drops = {}
         local toInventory: {[string]: number} = {}
         local typed = {}
+        local spawnedCounts: {[string]: number} = {}
 
         for _, e in ipairs(entries) do
             local def = LootService:GetItemDefinition(e.itemId)
@@ -186,6 +189,7 @@ function Spawner.new(ctx): SpawnerT
             if spawned < cap then
                 local m = SpawnStackedDrop(t.id, 1, t.pos, owner)
                 if m then table.insert(drops, m) end
+                spawnedCounts[t.id] = (spawnedCounts[t.id] or 0) + 1
                 spawned += 1
             else
                 toInventory[t.id] = (toInventory[t.id] or 0) + 1
@@ -194,6 +198,26 @@ function Spawner.new(ctx): SpawnerT
 
         if owner and next(toInventory) ~= nil then
             InventoryService:AddItemsBulk(owner, toInventory)
+        end
+
+        -- Emit a LOOT_DROPPED event (per dig) with counts and approximate center position
+        if owner and Bus and EventNames and next(spawnedCounts) ~= nil then
+            local cx, cy, cz, n = 0, 0, 0, 0
+            for _, t in ipairs(typed) do
+                if spawnedCounts[t.id] and spawnedCounts[t.id] > 0 and t.pos then
+                    cx += t.pos.X; cy += t.pos.Y; cz += t.pos.Z; n += 1
+                end
+            end
+            local center = nil
+            if n > 0 then center = Vector3.new(cx / n, cy / n, cz / n) end
+            Bus:emit(EventNames.LOOT_DROPPED, {
+                to = { kind = "player", player = owner },
+                payload = {
+                    counts = spawnedCounts,
+                    granted = next(toInventory) and toInventory or nil,
+                    position = center,
+                }
+            })
         end
         return drops
     end

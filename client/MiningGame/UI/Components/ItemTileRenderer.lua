@@ -121,14 +121,15 @@ function ItemTileRenderer.create(opts: CreateOptions)
     local helpers = {}
     local autoEffects = (opts and opts.rarityEffects) and true or false
 
-    function helpers.addNameLabel(text: string, options: {useRarityColor: boolean?, item: any?}?)
+    function helpers.addNameLabel(text: string, options: {useRarityColor: boolean?, item: any?, align: ("left"|"center")?}?)
         local nameLabel = Instance.new("TextLabel")
         nameLabel.Name = "Name"
         nameLabel.BackgroundTransparency = 1
         nameLabel.Text = text
         nameLabel.TextScaled = false
         nameLabel.TextWrapped = true
-        nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+        local align = options and options.align or "left"
+        nameLabel.TextXAlignment = (align == "center") and Enum.TextXAlignment.Center or Enum.TextXAlignment.Left
         nameLabel.Font = Theme.fonts.Primary
         nameLabel.TextSize = UIx.Visual.TEXT_SMALL
         nameLabel.Size = UDim2.new(1, -UIx.Spacing.SM, 0, UIx.Size.ROW_LARGE)

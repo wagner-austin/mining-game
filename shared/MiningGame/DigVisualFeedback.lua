@@ -461,6 +461,8 @@ function DigVisualFeedback:UpdateState(hit: RaycastResult?)
             self.stateLabel.Visible = false
         end
     end
+
+    
     
     self.currentState = newState
 end
@@ -780,6 +782,7 @@ function DigVisualFeedback:Destroy()
         self.cursorEffectPart:Destroy()
         self.cursorEffectPart = nil
     end
+    
     
     -- Clean up GUI
     if self.cursorGui then

@@ -59,7 +59,7 @@ GameConfig.Decorations = {
 GameConfig.FloatingIslands = {
     -- Manual spawning (via debug commands)
     ENABLED = true, -- Allow manual island spawning
-    STUDIO_ONLY = true, -- Only allow manual spawning in Studio (for FloatingIslandHandler)
+    STUDIO_ONLY = false, -- Allow islands outside Studio as well
     RATE_LIMIT_SECONDS = 2, -- Cooldown between manual spawns per player
     MAX_ISLANDS_PER_SESSION = 100, -- Maximum manual islands per session
     ALLOW_IN_DEBUG_TAB = true, -- Show in debug tab
@@ -137,6 +137,8 @@ GameConfig.Features = {
     COSMETICS_ENABLED = true,        -- Master switch for cosmetic drops and equipment
     COSMETICS_IN_LOOT = true,        -- Include cosmetics in loot drops
     COSMETIC_WEIGHT_MULT = 0.01,     -- Multiplier for cosmetic drop rates (0.01 = 100x rarer)
+    -- Auto-equip newly acquired cosmetics into empty slots (loot, grants, shop)
+    AUTO_EQUIP_COSMETICS_ON_ACQUIRE = true,
     
     -- SHOP / ENHANCED COSMETICS (release-day flags)
     SHOP_ENABLED = true,             -- Server RF gate for Cash Shop (dev default on; UI toggled separately)
@@ -328,40 +330,17 @@ GameConfig.Pets = {
 GameConfig.Monetization = {
     -- Developer Products (consumables)
     PRODUCTS = {
-        -- Speed boosts
-        {id = "SPEED_1HR", productId = 0, robux = 25, 
-         effect = "speed", multiplier = 0.5, duration = 3600},
-        {id = "SPEED_24HR", productId = 0, robux = 99, 
-         effect = "speed", multiplier = 0.5, duration = 86400},
-        
-        -- Luck boosts
-        {id = "LUCK_1HR", productId = 0, robux = 49, 
-         effect = "luck", multiplier = 2.0, duration = 3600},
-        {id = "LUCK_24HR", productId = 0, robux = 199, 
-         effect = "luck", multiplier = 2.0, duration = 86400},
-        
-        -- Instant actions
-        {id = "MEGA_DIG", productId = 0, robux = 49, 
-         effect = "instant_dig", size = 10},
-        {id = "AUTO_DIGGER", productId = 0, robux = 299, 
-         effect = "auto_dig", duration = 3600},
-        
-        -- Currency
-        {id = "COINS_5K", productId = 0, robux = 99, coins = 5000},
-        {id = "COINS_25K", productId = 0, robux = 399, coins = 25000},
-        {id = "COINS_100K", productId = 0, robux = 1499, coins = 100000},
+        -- Developer Products (consumables, can be purchased repeatedly)
+        {id = "DONATE", name = "Donate", productId = 3411959603, robux = 100, description = "Support the game"},
     },
     
     -- Game Passes (permanent)
     GAMEPASSES = {
-        {id = "VIP", gamepassId = 0, robux = 399, 
-         effects = {loot_multiplier = 2.0, exp_multiplier = 2.0}},
-        {id = "MEGA_PICKAXE", gamepassId = 0, robux = 799, 
+        {id = "VIP", name = "VIP", gamepassId = 1481633877, robux = 1000, 
+         effects = {loot_multiplier = 2.0}},
+        {id = "MEGA_PICKAXE", name = "Mega Pickaxe", gamepassId = 1481773901, robux = 300, 
          effects = {size_bonus = 3}},
-        {id = "AUTO_COLLECT", gamepassId = 0, robux = 299, 
-         effects = {auto_collect_range = 50}},
-        {id = "EXTRA_PETS", gamepassId = 0, robux = 499, 
-         effects = {max_pets_bonus = 2}},
+        {id = "AUTO_DIGGER", name = "Auto Dig", gamepassId = 1481997949, robux = 500},
     },
     
     -- Surface detection tuning parameters
@@ -389,10 +368,14 @@ GameConfig.MovementBoosts = {
 
 -- Loot Tables and Items
 GameConfig.Loot = {
+    -- Loot mode:
+    --  "WEIGHTED_TABLE" = original rarity-weighted system
+    --  "TERRAIN_SIMPLE" = one resource per terrain/material
+    MODE = "WEIGHTED_TABLE",
     -- Base drop chance per cell dug
     -- Per-cell base drop chance. 0.02 ≈ 0.54 items/dig at size=1, luck=1.0.
     -- Upper cap note: 0.05 felt too frequent during testing; avoid going above ~0.04–0.05.
-    BASE_DROP_CHANCE = 0.02,
+    BASE_DROP_CHANCE = 0.04,
     
     -- Item drop behavior
     ITEM_LIFETIME = 300,           -- 5 minutes before despawn attempt
@@ -444,56 +427,88 @@ GameConfig.Loot = {
         LEGENDARY = {weight = 2, color = Color3.fromRGB(255, 200, 0), value_mult = 250},
         MYTHIC = {weight = 0.1, color = Color3.fromRGB(255, 50, 50), value_mult = 2500},
     },
+
+    -- Terrain-dependent resource mapping (used when MODE = "TERRAIN_SIMPLE")
+    -- Map by cube material id (tier) to a single resource item id.
+    -- See GameConfig.CubeMaterials below for available material ids.
+    TERRAIN_RESOURCE_MAP = {
+        byMaterialId = {
+            tier1 = "stone",           -- rock
+            tier2 = "sandstone",       -- sandstone
+            tier3 = "basalt",          -- basalt
+            tier4 = "slate",           -- slate
+            tier5 = "glacier_shard",   -- glacier
+            tier6 = "lava_rock",       -- cracked lava
+        },
+        -- One unique resource per terrain key (MaterialDefinitions)
+        byTerrainKey = {
+            rock = "stone",
+            sandstone = "sandstone",
+            basalt = "basalt",
+            slate = "slate",
+            limestone = "limestone",
+            glacier = "glacier_shard",
+            ice = "ice_shard",
+            snow = "snow_chunk",
+            sand = "sand_clump",
+            mud = "mud_clod",
+            ground = "soil",
+            grass = "grass_fiber",
+            leafygrass = "leafy_fiber",
+            concrete = "concrete_rubble",
+            cobblestone = "cobble_chunk",
+            brick = "brick_piece",
+            asphalt = "asphalt_chunk",
+            pavement = "pavement_chip",
+            salt = "salt_crystal",
+            woodplanks = "plank_scrap",
+            water = "water_drop",
+            crackedlava = "lava_rock",
+        }
+    },
     
     -- Item definitions
     ITEMS = {
-        -- Resources (sellable)
-        {id = "stone", name = "Stone", rarity = "COMMON", value = 1, type = "resource"},
-        {id = "coal", name = "Coal", rarity = "COMMON", value = 5, type = "resource"},
-        {id = "copper", name = "Copper Ore", rarity = "COMMON", value = 10, type = "resource"},
-        {id = "iron", name = "Iron Ore", rarity = "UNCOMMON", value = 15, type = "resource"},
-        {id = "silver", name = "Silver Ore", rarity = "UNCOMMON", value = 30, type = "resource"},
-        {id = "gold", name = "Gold Ore", rarity = "RARE", value = 50, type = "resource"},
-        {id = "crystal", name = "Crystal", rarity = "RARE", value = 75, type = "resource"},
-        {id = "diamond", name = "Diamond", rarity = "EPIC", value = 200, type = "resource"},
-        {id = "ruby", name = "Ruby", rarity = "EPIC", value = 250, type = "resource"},
-        {id = "emerald", name = "Emerald", rarity = "LEGENDARY", value = 1000, type = "resource"},
-        {id = "obsidian", name = "Obsidian Shard", rarity = "LEGENDARY", value = 1500, type = "resource"},
-        {id = "void_crystal", name = "Void Crystal", rarity = "MYTHIC", value = 10000, type = "resource"},
-        
-        -- Composition-exclusive materials (only drop with specific compositions)
-        {id = "glass_shard", name = "Glass Shard", rarity = "COMMON", value = 8, type = "resource", exclusive = true},
-        {id = "quartz", name = "Quartz", rarity = "UNCOMMON", value = 25, type = "resource", exclusive = true},
-        {id = "volcanic_glass", name = "Volcanic Glass", rarity = "RARE", value = 80, type = "resource", exclusive = true},
-        {id = "ice_crystal", name = "Ice Crystal", rarity = "RARE", value = 60, type = "resource", exclusive = true},
-        {id = "frozen_gem", name = "Frozen Gem", rarity = "EPIC", value = 300, type = "resource", exclusive = true},
-        {id = "prismatic_shard", name = "Prismatic Shard", rarity = "LEGENDARY", value = 2000, type = "resource", exclusive = true},
-        {id = "void_essence", name = "Void Essence", rarity = "MYTHIC", value = 5000, type = "resource", exclusive = true},
-        {id = "dark_matter", name = "Dark Matter", rarity = "MYTHIC", value = 7500, type = "resource", exclusive = true},
-        {id = "cosmic_fragment", name = "Cosmic Fragment", rarity = "MYTHIC", value = 12000, type = "resource", exclusive = true},
-        {id = "rainbow_gem", name = "Rainbow Gem", rarity = "LEGENDARY", value = 3000, type = "resource", exclusive = true},
-        {id = "chromatic_ore", name = "Chromatic Ore", rarity = "EPIC", value = 500, type = "resource", exclusive = true},
-        
-        -- Equipment pickaxes removed; visuals handled by hand cosmetics
-        
-        -- Cosmetics removed - now defined in CosmeticDefinitions.lua to avoid duplicates
-        
+        -- Terrain resources (one per terrain), normalized sell value
+        {id = "stone", name = "Stone", rarity = "COMMON", value = 10, type = "resource"},
+        {id = "sandstone", name = "Sandstone", rarity = "COMMON", value = 10, type = "resource"},
+        {id = "basalt", name = "Basalt", rarity = "COMMON", value = 10, type = "resource"},
+        {id = "slate", name = "Slate", rarity = "COMMON", value = 10, type = "resource"},
+        {id = "glacier_shard", name = "Glacial Shard", rarity = "COMMON", value = 10, type = "resource"},
+        {id = "lava_rock", name = "Lava Rock", rarity = "COMMON", value = 10, type = "resource"},
+        {id = "limestone", name = "Limestone", rarity = "COMMON", value = 10, type = "resource"},
+        {id = "ice_shard", name = "Ice Shard", rarity = "COMMON", value = 10, type = "resource"},
+        {id = "snow_chunk", name = "Snow Chunk", rarity = "COMMON", value = 10, type = "resource"},
+        {id = "sand_clump", name = "Sand Clump", rarity = "COMMON", value = 10, type = "resource"},
+        {id = "mud_clod", name = "Mud Clod", rarity = "COMMON", value = 10, type = "resource"},
+        {id = "soil", name = "Soil", rarity = "COMMON", value = 10, type = "resource"},
+        {id = "grass_fiber", name = "Grass Fiber", rarity = "COMMON", value = 10, type = "resource"},
+        {id = "leafy_fiber", name = "Leafy Fiber", rarity = "COMMON", value = 10, type = "resource"},
+        {id = "concrete_rubble", name = "Concrete Rubble", rarity = "COMMON", value = 10, type = "resource"},
+        {id = "cobble_chunk", name = "Cobblestone Chunk", rarity = "COMMON", value = 10, type = "resource"},
+        {id = "brick_piece", name = "Brick Piece", rarity = "COMMON", value = 10, type = "resource"},
+        {id = "asphalt_chunk", name = "Asphalt Chunk", rarity = "COMMON", value = 10, type = "resource"},
+        {id = "pavement_chip", name = "Pavement Chip", rarity = "COMMON", value = 10, type = "resource"},
+        {id = "salt_crystal", name = "Salt Crystal", rarity = "COMMON", value = 10, type = "resource"},
+        {id = "plank_scrap", name = "Plank Scrap", rarity = "COMMON", value = 10, type = "resource"},
+        {id = "water_drop", name = "Water Drop", rarity = "COMMON", value = 10, type = "resource"},
+
         -- Consumable buffs
         {id = "speed_potion", name = "Speed Potion", rarity = "UNCOMMON", type = "consumable", 
-         effect = "speed", multiplier = 0.8, duration = 300},
+         effect = "speed", multiplier = 0.8, duration = 300, dropWeight = 125},
         {id = "size_potion", name = "Size Potion", rarity = "RARE", type = "consumable", 
          effect = "size", bonus = 2, duration = 300},
         {id = "luck_potion", name = "Luck Potion", rarity = "EPIC", type = "consumable", 
          effect = "luck", multiplier = 1.5, duration = 600},
-        {id = "mega_potion", name = "Mega Potion", rarity = "LEGENDARY", type = "consumable", 
-         effect = "all", speed_mult = 0.7, size_bonus = 3, luck_mult = 2.0, duration = 900},
+        {id = "jump_potion", name = "Jump Potion", rarity = "LEGENDARY", type = "consumable", 
+         effect = "jumps", jumps = 4, duration = 900},
     },
 
     -- Optional type multipliers to adjust selection share without changing total drop volume
     -- 1.0 = baseline; <1.0 reduces frequency; >1.0 increases
         TYPE_MULTIPLIER = {
         resource = 0.6,
-        consumable = 0.45,
+        consumable = 0.045,
         cosmetic = 1.0,
     },
 }
@@ -687,7 +702,9 @@ GameConfig.Limits = {
     MAX_PURCHASE_LOG = 20,       -- Max purchase history entries
     MAX_PENDING_GRANTS = 300,    -- Max pending monetization grants
     MAX_SIM_AGENTS = 25,         -- Max simulation agents in Studio
-    MAX_INVENTORY_STACK = 999,   -- Max items per stack
+    MAX_COSMETIC_STACK = 99999,      -- Cap for cosmetics (including hand tools)
+    MAX_RESOURCE_STACK = 99999,      -- Cap for resource stacks
+    MAX_CONSUMABLE_STACK = 99999,    -- Cap for consumable stacks
     MAX_SOUND_INSTANCES = 10,    -- Max concurrent sounds per type
 }
 

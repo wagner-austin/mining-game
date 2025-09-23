@@ -23,6 +23,23 @@ return function(container)
 
     local specs: {RFSpec} = {
         {
+            name = "GetActiveComposition",
+            handler = function(ctx)
+                local comp = CompositionService:GetActiveComposition(ctx.player)
+                if comp then
+                    return {
+                        ok = true,
+                        success = true,
+                        id = comp.id,
+                        name = comp.name,
+                        dropModifiers = comp.dropModifiers, -- { rarityBoost, specificItems?, exclusiveItems? }
+                    }
+                end
+                return { ok = true, success = true, id = nil, name = nil, dropModifiers = nil }
+            end,
+            opts = { requireProfile = true, rateLimitSec = 0.2 },
+        },
+        {
             name = "ListCompositions",
             handler = function(ctx)
                 local payload = CompositionService:ListCompositions(ctx.player) or {}

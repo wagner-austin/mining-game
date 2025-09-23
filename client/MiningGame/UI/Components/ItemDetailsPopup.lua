@@ -41,7 +41,7 @@ local function createSection(parent: Instance, title: string): Frame
         header.BackgroundTransparency = 1
         header.Text = title:upper()
         header.TextXAlignment = Enum.TextXAlignment.Left
-        header.TextSize = UIx.Visual.TEXT_MEDIUM
+        header.TextSize = UIx.Visual.TEXT_HEADER
         header.Font = Theme.fonts.Display
         header.TextColor3 = Theme.colors.Text
         header.Size = UDim2.new(1, 0, 0, UIx.Size.ROW_HEADER)
@@ -74,7 +74,7 @@ local function row(parent: Instance, label: string, value: string, color: Color3
     l.BackgroundTransparency = 1
     l.Text = label
     l.TextXAlignment = Enum.TextXAlignment.Left
-    l.TextSize = UIx.Visual.TEXT_MEDIUM
+    l.TextSize = UIx.Visual.TEXT_HEADER
     l.Font = Theme.fonts.Secondary
     l.TextColor3 = Theme.colors.TextSecondary or Theme.colors.Text
     l.Size = UDim2.new(0.4, -UIx.Spacing.MD, 1, 0)
@@ -85,7 +85,7 @@ local function row(parent: Instance, label: string, value: string, color: Color3
     v.BackgroundTransparency = 1
     v.Text = value
     v.TextXAlignment = Enum.TextXAlignment.Left
-    v.TextSize = UIx.Visual.TEXT_MEDIUM
+    v.TextSize = UIx.Visual.TEXT_HEADER
     v.Font = Theme.fonts.Primary
     v.TextColor3 = color or Theme.colors.Text
     v.Size = UDim2.new(0.6, 0, 1, 0)
@@ -248,7 +248,7 @@ function ItemDetailsPopup.new(props: Props)
         l.BackgroundTransparency = 1
         l.Text = label
         l.TextXAlignment = Enum.TextXAlignment.Left
-        l.TextSize = UIx.Visual.TEXT_SMALL
+        l.TextSize = UIx.Visual.TEXT_MEDIUM
         l.Font = Theme.fonts.Secondary
         l.TextColor3 = Theme.colors.TextSecondary
         l.Size = UDim2.new(0.35, 0, 1, 0)
@@ -259,7 +259,7 @@ function ItemDetailsPopup.new(props: Props)
         v.BackgroundTransparency = 1
         v.Text = value
         v.TextXAlignment = Enum.TextXAlignment.Left
-        v.TextSize = UIx.Visual.TEXT_SMALL
+        v.TextSize = UIx.Visual.TEXT_MEDIUM
         v.Font = Theme.fonts.Primary
         v.TextColor3 = color or Theme.colors.Text
         v.Size = UDim2.new(0.65, 0, 1, 0)
@@ -276,7 +276,7 @@ function ItemDetailsPopup.new(props: Props)
         compactRow("Value", valueText .. " coins", nil, 1)
     end
 
-    -- Accurate drop rates (use live luck and size when available)
+    -- Drop rate (per dig) only
     do
         local provider = (_G and _G.UIManager and _G.UIManager.accountDataProvider) or nil
         local matId = nil
@@ -295,18 +295,20 @@ function ItemDetailsPopup.new(props: Props)
             if typeof(es.size) == "number" then size = es.size end
             if not matId and typeof(res.materialId) == "string" then matId = res.materialId end
         end
-        -- Per cell probability for this item
-        local pCell = LootMath.dropRatePerDig(insight.id, { materialId = matId, luckMultiplier = luck, chanceMult = 1.0 })
-        compactRow("Drop (per cell)", string.format("%.3f%%", (pCell or 0) * 100), nil, 2)
-        -- Per dig probability for current dig size, cap-aware
-        local pDig = LootMath.dropRatePerDigAction(insight.id, { materialId = matId, luckMultiplier = luck, chanceMult = 1.0, size = size })
-        compactRow("Drop (per dig)", string.format("%.3f%%", (pDig or 0) * 100), nil, 3)
+
+        local pDig = LootMath.dropRatePerDigAction(insight.id, {
+            materialId = matId,
+            luckMultiplier = luck,
+            chanceMult = 1.0,
+            size = size,
+        })
+        compactRow("Drop (per dig)", string.format("%.3f%%", (pDig or 0) * 100), nil, 2)
     end
 
     if insight.sources and #insight.sources > 0 then
         local sources = insight.sources[1] -- Just show first source
         if #insight.sources > 1 then sources = sources .. " (+"..(#insight.sources-1).." more)" end
-        compactRow("Source", sources, nil, 4)
+        compactRow("Source", sources, nil, 3)
     end
 
     -- Event connections

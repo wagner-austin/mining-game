@@ -89,10 +89,7 @@ function DebugTab.new(config: Config): DebugTabT
     self:_createStatsSection()
     self:_createSimAgentsSection()
     
-    -- Floating Islands section (if enabled)
-    if GameConfig.FloatingIslands.ALLOW_IN_DEBUG_TAB then
-        self:_createIslandsSection()
-    end
+    -- Floating Islands section removed
     
     -- Client Errors section removed (was Studio-only)
     
@@ -384,7 +381,8 @@ function DebugTab:_toggleTerrainCubes()
 end
 
 -- Floating Islands Section
-function DebugTab:_createIslandsSection()
+-- DebugTab:_createIslandsSection removed
+    --[[ legacy islands UI removed
     local card = self:createSectionCard(self.container, { layoutOrder = 5 })
     self:createSectionTitle(card, "🏝️ Floating Islands")
     
@@ -405,7 +403,7 @@ function DebugTab:_createIslandsSection()
         })
         rfStatus(self, "Spawned large island!")(data, err)
     end, { layoutOrder = 2 })
-end
+    ]]
 
 -- Client Errors section removed
 

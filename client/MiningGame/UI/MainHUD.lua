@@ -309,7 +309,16 @@ function MainHUD:init(manager)
             end)
         end
 
-        -- Item Index chip (flag)
+        -- Upgrades chip (dedicated panel) — place before Index
+        makeNavChip("upgrades", function()
+            if self.manager then
+                task.defer(function()
+                    self.manager:showScene("UpgradesPanel")
+                end)
+            end
+        end)
+
+        -- Item Index chip (last)
         if GameConfig.Features.SHOW_ITEM_INDEX == true then
             makeNavChip("index", function()
                 if self.manager then
@@ -319,15 +328,6 @@ function MainHUD:init(manager)
                 end
             end)
         end
-        
-        -- Upgrades chip (dedicated panel)
-        makeNavChip("upgrades", function()
-            if self.manager then
-                task.defer(function()
-                    self.manager:showScene("UpgradesPanel")
-                end)
-            end
-        end)
     end
 
     -- === Public updaters ===

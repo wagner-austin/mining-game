@@ -84,12 +84,28 @@ function UpgradeService:ComputeEffectiveStats(
         end
     end
     
-    -- Apply gamepass bonuses
+    -- Apply gamepass bonuses (read from GameConfig when available)
     if gamepasses["VIP"] then
-        luck = luck * 2.0 -- VIP doubles luck
+        local vipMult = 2.0
+        local passes = (GameConfig.Monetization and GameConfig.Monetization.GAMEPASSES) or {}
+        for _, p in ipairs(passes) do
+            if p.id == "VIP" and p.effects and type(p.effects.loot_multiplier) == "number" then
+                vipMult = p.effects.loot_multiplier
+                break
+            end
+        end
+        luck = luck * vipMult
     end
     if gamepasses["MEGA_PICKAXE"] then
-        size = size + 3 -- +3 size
+        local sizeBonus = 3
+        local passes = (GameConfig.Monetization and GameConfig.Monetization.GAMEPASSES) or {}
+        for _, p in ipairs(passes) do
+            if p.id == "MEGA_PICKAXE" and p.effects and type(p.effects.size_bonus) == "number" then
+                sizeBonus = p.effects.size_bonus
+                break
+            end
+        end
+        size = size + sizeBonus
     end
     
     -- Cosmetic perks are mapped to runtime effects in PerkService and applied by StatsResolver.

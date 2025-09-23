@@ -12,6 +12,9 @@ local Logger = require(MiningGame:WaitForChild("Logger"))
 local log = Logger.new(Logger.CAT.UserMetrics or "UserMetricsService")
 local MathUtils = require(MiningGame:WaitForChild("MathUtils"))
 local ServiceValidator = require(MiningGame:WaitForChild("ServiceValidator"))
+local EventBus = require(MiningGame:WaitForChild("EventBus"))
+local EventNames = require(MiningGame:WaitForChild("EventNames"))
+local Bus = EventBus.global()
 local SpawnOrchestrator = require(script.Parent:WaitForChild("SpawnOrchestrator"))
 
 -- Services (injected via Init)
@@ -75,6 +78,17 @@ export type UserMetrics = {
         effectiveStats: { delay: number, size: number, luck: number, hardness: number },
     },
 
+    loot: {
+        digs: number,
+        cellsRolled: number,
+        dropped: number,
+        collected: number,
+        dropsPerCell: number,
+        dropsPerDig: number,
+        rarityDropped: {[string]: number},
+        rarityCollected: {[string]: number},
+    }?,
+
     lastUpdated: number,
 }
 
@@ -89,6 +103,26 @@ local function safeDiv(a: number, b: number): number
     return a / b
 end
 
+-- Internal drop metrics state (per-player)
+type DropStats = {
+    digs: number,
+    digsWithDrop: number,
+    cells: number,
+    droppedByItem: {[string]: number},
+    collectedByItem: {[string]: number},
+}
+
+local dropStatsByPlayer: {[Player]: DropStats} = {}
+
+local function ensureDropStats(p: Player): DropStats
+    local ds = dropStatsByPlayer[p]
+    if not ds then
+        ds = { digs = 0, digsWithDrop = 0, cells = 0, droppedByItem = {}, collectedByItem = {} }
+        dropStatsByPlayer[p] = ds
+    end
+    return ds
+end
+
 -- Initialize with DI container
 function UserMetricsService:Init(container)
     DataService = ServiceValidator.get(container, "DataService", {
@@ -100,6 +134,7 @@ function UserMetricsService:Init(container)
     })
     GridService = ServiceValidator.get(container, "GridService", {"GetChunkStats"})
     MonetizationService = ServiceValidator.tryGet(container, "MonetizationService", {"GetMetrics"})
+    self._LootService = ServiceValidator.tryGet(container, "LootService", {"GetItemDefinition"})
     
     log:info("Initialized with dependencies")
 end
@@ -109,6 +144,54 @@ function UserMetricsService:Start(container)
     -- Set up player cleanup
     Players.PlayerRemoving:Connect(function(p)
         cache[p] = nil
+        dropStatsByPlayer[p] = nil
+    end)
+    
+    -- Subscribe to dig feedback for cell counts and dig count
+    Bus:on(EventNames.DIG_FEEDBACK, function(evt)
+        local to = evt and evt.to
+        local payload = evt and evt.payload
+        local player = to and to.player
+        if typeof(player) ~= "Instance" then return end
+        local ds = ensureDropStats(player)
+        ds.digs += 1
+        local c = (payload and payload.cellCount) or 0
+        if typeof(c) == "number" then ds.cells += math.max(0, c) end
+    end)
+
+    -- Subscribe to LOOT_DROPPED for realized drop counts
+    Bus:on(EventNames.LOOT_DROPPED, function(evt)
+        local to = evt and evt.to
+        local payload = evt and evt.payload
+        local player = to and to.player
+        if typeof(player) ~= "Instance" then return end
+        local counts = payload and (payload.counts or payload.items)
+        local granted = payload and payload.granted
+        if type(counts) ~= "table" and type(granted) ~= "table" then return end
+        local ds = ensureDropStats(player)
+        ds.digsWithDrop += 1
+        local function add(map)
+            for itemId, count in pairs(map) do
+                if typeof(itemId) == "string" and typeof(count) == "number" then
+                    ds.droppedByItem[itemId] = (ds.droppedByItem[itemId] or 0) + math.max(0, count)
+                end
+            end
+        end
+        if type(counts) == "table" then add(counts) end
+        if type(granted) == "table" then add(granted) end
+    end)
+
+    -- Subscribe to ITEM_COLLECTED for collected counts
+    Bus:on(EventNames.ITEM_COLLECTED, function(evt)
+        local to = evt and evt.to
+        local payload = evt and evt.payload
+        local player = to and to.player
+        if typeof(player) ~= "Instance" then return end
+        local itemId = payload and payload.itemId
+        local count = payload and payload.count
+        if typeof(itemId) ~= "string" or typeof(count) ~= "number" then return end
+        local ds = ensureDropStats(player)
+        ds.collectedByItem[itemId] = (ds.collectedByItem[itemId] or 0) + math.max(0, count)
     end)
     
     log:info("Started with player connections")
@@ -255,6 +338,50 @@ function UserMetricsService:GetMetrics(player: Player): UserMetrics?
 
         lastUpdated = now,
     }
+    
+    -- Attach loot metrics (observed)
+    do
+        local ds = dropStatsByPlayer[player]
+        if ds then
+            local droppedTotal, collectedTotal = 0, 0
+            local rarityDropped: {[string]: number} = {}
+            local rarityCollected: {[string]: number} = {}
+            local LootService = self._LootService
+            for id, c in pairs(ds.droppedByItem) do
+                droppedTotal += c
+                if LootService then
+                    local def = LootService:GetItemDefinition(id)
+                    local r = def and def.rarity or "UNKNOWN"
+                    rarityDropped[r] = (rarityDropped[r] or 0) + c
+                end
+            end
+            for id, c in pairs(ds.collectedByItem) do
+                collectedTotal += c
+                if LootService then
+                    local def = LootService:GetItemDefinition(id)
+                    local r = def and def.rarity or "UNKNOWN"
+                    rarityCollected[r] = (rarityCollected[r] or 0) + c
+                end
+            end
+            local dropsPerCell = safeDiv(droppedTotal, ds.cells)
+            local dropsPerDig = safeDiv(droppedTotal, ds.digs)
+            local anyDropPerDig = safeDiv(ds.digsWithDrop, ds.digs)
+            m.loot = {
+                digs = ds.digs,
+                digsWithDrop = ds.digsWithDrop,
+                cellsRolled = ds.cells,
+                dropped = droppedTotal,
+                collected = collectedTotal,
+                dropsPerCell = dropsPerCell,
+                dropsPerDig = dropsPerDig,
+                anyDropPerDig = anyDropPerDig,
+                dropsPerCellPercent = dropsPerCell * 100,
+                anyDropPerDigPercent = anyDropPerDig * 100,
+                rarityDropped = rarityDropped,
+                rarityCollected = rarityCollected,
+            }
+        end
+    end
     
     -- Add monetization metrics (optional service)
     if MonetizationService then

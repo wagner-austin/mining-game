@@ -394,12 +394,12 @@ local function handleGamepassPurchase(player: Player, gamepass: Types.GamePass)
     })
     
     -- Special effects for specific gamepasses
-    if gamepass.id == "AUTO_COLLECT" then
-        -- Enable auto collection range
-        player:SetAttribute("AutoCollectRange", gamepass.effects.auto_collect_range or 50)
-    elseif gamepass.id == "EXTRA_PETS" then
-        -- Increase max pets
-        player:SetAttribute("MaxPetsBonus", gamepass.effects.max_pets_bonus or 2)
+    if gamepass.id == "AUTO_DIGGER" then
+        -- Start auto dig when the gamepass is activated/backfilled
+        Bus:emit(EventNames.AUTO_DIG_START, {
+            to = { kind = "server" },
+            payload = Contracts.AUTO_DIG_START({ player = player })
+        })
     end
 end
 
@@ -492,6 +492,7 @@ end
 
 -- Listen for game pass purchases (idempotent + tracked once)
 local function onGamePassPurchaseFinished(player, gamePassId, purchased)
+    log:info("PromptGamePassPurchaseFinished player={} gamePassId={} purchased={} ", player and player.Name or "<nil>", tostring(gamePassId), tostring(purchased))
     if not purchased then return end
 
     local profile = DataService:GetPlayerData(player)
@@ -574,6 +575,7 @@ function MonetizationService:PromptPurchase(player: Player, purchaseType: string
         -- Find product
         for _, product in ipairs(GameConfig.Monetization.PRODUCTS) do
             if product.id == purchaseId and product.productId and product.productId > 0 then
+                log:info("Calling PromptProductPurchase uid={} id={} (#{})", player.UserId, product.id, product.productId)
                 MarketplaceService:PromptProductPurchase(player, product.productId)
                 log:event("purchase_prompted", {
                     uid = player.UserId,
@@ -583,10 +585,12 @@ function MonetizationService:PromptPurchase(player: Player, purchaseType: string
                 return true
             end
         end
+        log:warn("Product not configured or not found id={} for {}", purchaseId, player.Name)
     elseif purchaseType == "gamepass" then
         -- Find gamepass
         for _, gamepass in ipairs(GameConfig.Monetization.GAMEPASSES) do
             if gamepass.id == purchaseId and gamepass.gamepassId and gamepass.gamepassId > 0 then
+                log:info("Calling PromptGamePassPurchase uid={} id={} (#{})", player.UserId, gamepass.id, gamepass.gamepassId)
                 MarketplaceService:PromptGamePassPurchase(player, gamepass.gamepassId)
                 log:event("purchase_prompted", {
                     uid = player.UserId,
@@ -596,6 +600,7 @@ function MonetizationService:PromptPurchase(player: Player, purchaseType: string
                 return true
             end
         end
+        log:warn("Gamepass not configured or not found id={} for {}", purchaseId, player.Name)
     end
     
     log:warn("Failed to prompt purchase: {} {} not found", purchaseType, purchaseId)

@@ -114,7 +114,7 @@ function CashShopCosmeticsTab:refresh()
         })
         local btn = tile.button
         tile.helpers.addSymbol(it)
-        tile.helpers.addNameLabel(it.name or it.id, { useRarityColor = true, item = it })
+        tile.helpers.addNameLabel(it.name or it.id, { useRarityColor = true, item = it, align = "center" })
         -- Ownership badge (top-left) using server-provided ownedCount when available
         local ownedCount = tonumber((it :: any).ownedCount) or tonumber((it :: any).meta and (it :: any).meta.ownedCount) or 0
         tile.helpers.addOwnershipBadgeLeft(it, ownedCount)

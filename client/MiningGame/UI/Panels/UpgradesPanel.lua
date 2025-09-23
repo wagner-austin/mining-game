@@ -81,44 +81,7 @@ function UpgradesPanel:init(manager)
     })
     table.insert(self._widgets, self._upTab)
 
-    -- Footer action row (non-intrusive): Respawn Cube button
-    local footer = Instance.new("Frame")
-    footer.Name = "FooterActions"
-    footer.BackgroundTransparency = 1
-    footer.Size = UDim2.new(1, 0, 0, UIx.Size.BUTTON_MEDIUM_HEIGHT)
-    footer.LayoutOrder = 999
-    footer.Parent = content
-    local fl = Instance.new("UIListLayout")
-    fl.FillDirection = Enum.FillDirection.Horizontal
-    fl.HorizontalAlignment = Enum.HorizontalAlignment.Center
-    fl.VerticalAlignment = Enum.VerticalAlignment.Center
-    fl.Padding = UDim.new(0, UIx.Spacing.SM)
-    fl.Parent = footer
-
-    local respawn = Instance.new("TextButton")
-    respawn.Name = "RespawnCubeButton"
-    respawn.Size = UDim2.new(0, UIx.Size.BUTTON_WIDTH, 0, UIx.Size.BUTTON_MEDIUM_HEIGHT - 6)
-    respawn.BackgroundColor3 = Theme.colors.Surface
-    respawn.TextColor3 = Theme.colors.Text
-    respawn.TextScaled = true
-    respawn.Font = Theme.fonts.Primary
-    respawn.Text = "Respawn Cube"
-    respawn.AutoButtonColor = false
-    respawn.Parent = footer
-    ThemeRefresher.Bind(respawn, { BackgroundColor3 = "Surface", TextColor3 = "Text" })
-    local rc = Instance.new("UICorner")
-    rc.CornerRadius = UIx.corner()
-    rc.Parent = respawn
-    respawn.Activated:Connect(function()
-        local res, err = ClientRF.call("RespawnCubeModel")
-        if _G.UIManager then
-            if err or not (res and res.success) then
-                _G.UIManager:showNotification(err or (res and res.reason) or "Respawn failed", "error")
-            else
-                _G.UIManager:showNotification("Cube respawned", "success")
-            end
-        end
-    end)
+    -- Footer actions removed: Respawn Cube button (moved out of Upgrades panel)
 end
 
 function UpgradesPanel:show()

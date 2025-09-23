@@ -495,7 +495,7 @@ function InventoryPanel:init(manager)
         self._sellableValue = val
         if cnt > 0 then
             -- Normalize summary formatting (avoid stray control chars)
-            summary.Text = string.format("Resources: %d items - %s coins", cnt, tostring(val))
+            summary.Text = string.format("Resources: %d items for %s coins", cnt, tostring(val))
             if self._sellChip then
                 self._sellChip:setBackgroundColor(Theme.colors.Primary)
                 self._sellChip:setTextColor(Theme.colors.OnPrimary)

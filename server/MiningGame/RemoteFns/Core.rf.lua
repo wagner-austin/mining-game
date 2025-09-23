@@ -53,10 +53,12 @@ return function(container)
     {
         name = "TeleportToHome",
         handler = function(ctx)
-            -- Tag source for forensics
-            SpawnService:Respawn(ctx.player, "TeleportToHome")
-            -- Return at top level for consistency
-            return { ok = true, success = true }
+            local ok, err, reason = SpawnService:TeleportHome(ctx.player)
+            if ok then
+                return { ok = true, success = true }
+            else
+                return { ok = false, success = false, err = err or "FAILED", reason = reason }
+            end
         end,
         opts = { requireProfile = false, rateLimitSec = 0.2 },
     },

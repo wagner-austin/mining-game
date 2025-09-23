@@ -148,6 +148,7 @@ function ClientCashShop.getRobuxProducts(): {any}
     if not ok or not res or not res.prices then return out end
     local prices = (res.prices :: any)
     for id, prod in pairs(prices) do
+        -- Only include configured developer products (server exposes only those in GameConfig)
         table.insert(out, {
             id = tostring(id),
             name = UIUtils.humanize(prod.name or tostring(id)),

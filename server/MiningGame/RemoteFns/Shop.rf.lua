@@ -200,18 +200,15 @@ return function(container)
                     return { ok = false, success = false, err = "PURCHASE_FAILED", reason = "Grant failed" }
                 end
 
-                -- Auto-equip if the relevant slot is empty
+                -- Centralized auto-equip happens inside InventoryService on acquire
+                -- Report whether it ended up equipped, and if we should suggest equip
                 local equipped = false
                 local equipSuggested = false
                 if def.slot then
                     local equippedMap = InventoryService:GetEquippedItems(player)
-                    if equippedMap and not equippedMap[def.slot] then
-                        local r = InventoryService:EquipItem(player, itemId)
-                        equipped = r and r.success == true
-                        equipSuggested = not equipped
-                    else
-                        equipSuggested = true
-                    end
+                    local eq = equippedMap and equippedMap[def.slot]
+                    equipped = (eq == itemId)
+                    equipSuggested = not equipped
                 end
 
                 -- Informational toast

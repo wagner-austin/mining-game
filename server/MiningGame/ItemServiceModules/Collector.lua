@@ -85,19 +85,6 @@ function Collector.new(ctx): CollectorT
     local function addToInventory(player: Player, itemId: string, count: number): number
         local actuallyAdded = InventoryService:AddItemsBulk(player, {[itemId] = count})
         local added = actuallyAdded[itemId] or 0
-        -- Auto-equip on pickup if cosmetic slot is empty
-        if added > 0 then
-            local def = LootService:GetItemDefinition(itemId)
-            if def and def.type == "cosmetic" and def.slot and def.slot ~= "modelSwap" then
-                local eq = InventoryService:GetEquippedItems(player)
-                if not (eq and eq[def.slot]) then
-                    -- Best-effort; ignore failure
-                    pcall(function()
-                        InventoryService:EquipItem(player, itemId)
-                    end)
-                end
-            end
-        end
         return added
     end
 

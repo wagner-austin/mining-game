@@ -11,6 +11,7 @@ local CosmeticDefinitions = require(MG:WaitForChild("CosmeticDefinitions"))
 
 export type Context = {
     materialId: string?,
+    terrainKey: string?,
     luckMultiplier: number?,      -- 1.0..2.0 typically; server caps at 2 in first roll
     chanceMult: number?,          -- theme dropBoost influences this on server
     rarityBoostOverride: number?, -- theme rarity boost override (rarely used)
@@ -21,6 +22,8 @@ export type Context = {
 }
 
 local LootMath = {}
+local terrainResourceMapByMaterialId = (GameConfig and GameConfig.Loot and GameConfig.Loot.TERRAIN_RESOURCE_MAP and GameConfig.Loot.TERRAIN_RESOURCE_MAP.byMaterialId) or {}
+local terrainResourceMapByTerrainKey = (GameConfig and GameConfig.Loot and GameConfig.Loot.TERRAIN_RESOURCE_MAP and GameConfig.Loot.TERRAIN_RESOURCE_MAP.byTerrainKey) or {}
 
 local function _materialMult(materialId: string?): number
     local mats = GameConfig and GameConfig.CubeMaterials or {}
@@ -112,6 +115,25 @@ local function _pickProbabilityById(rarityBoost: number, ctx: Context): {[string
     local total = 0
     for _, it in ipairs(list) do
         local w = _finalWeight(it, rarityBoost, ctx.specificBoosts, ctx.exclusiveSet)
+        -- Resource gating only applies in TERRAIN_SIMPLE mode.
+        -- In WEIGHTED_TABLE mode we allow all resources per rarity weights.
+        if it.type == "resource" then
+            local mode = (GameConfig and GameConfig.Loot and GameConfig.Loot.MODE) or "WEIGHTED_TABLE"
+            if mode == "TERRAIN_SIMPLE" then
+                -- Prefer terrain key mapping; fallback to cube material mapping
+                local mappedId = nil
+                local tk = tostring(ctx.terrainKey or "")
+                if tk ~= "" and terrainResourceMapByTerrainKey[tk] then
+                    mappedId = terrainResourceMapByTerrainKey[tk]
+                else
+                    local matId = tostring(ctx.materialId or "")
+                    mappedId = terrainResourceMapByMaterialId[matId]
+                end
+                if mappedId and it.id ~= mappedId then
+                    w = 0
+                end
+            end
+        end
         weights[it.id] = w
         total += w
     end
@@ -133,23 +155,23 @@ end
 -- Compute per-dig drop probability for a specific item id given a context
 function LootMath.dropRatePerDig(itemId: string, ctx: Context?): number
     ctx = ctx or {}
+    local anyDrop = _dropChance(ctx)
     local luck = ctx.luckMultiplier or 1.0
     local matMult = _materialMult(ctx.materialId)
     local rarityBoost = (ctx.rarityBoostOverride or matMult) * luck
     local pickProbs = _pickProbabilityById(rarityBoost, ctx)
     local pick = pickProbs[itemId] or 0
-    local anyDrop = _dropChance(ctx)
     return anyDrop * pick
 end
 
 -- Compute per-dig drop probabilities for all items given a context
 function LootMath.allDropRates(ctx: Context?): {[string]: number}
     ctx = ctx or {}
+    local anyDrop = _dropChance(ctx)
     local luck = ctx.luckMultiplier or 1.0
     local matMult = _materialMult(ctx.materialId)
     local rarityBoost = (ctx.rarityBoostOverride or matMult) * luck
     local pickProbs = _pickProbabilityById(rarityBoost, ctx)
-    local anyDrop = _dropChance(ctx)
     local out = {}
     for id, prob in pairs(pickProbs) do
         out[id] = anyDrop * prob

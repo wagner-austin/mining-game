@@ -183,7 +183,8 @@ function Processor.Process(service, player: Player, worldPos: Vector3)
     local countsById = {}
     do
         local themeId = (pickedVol and pickedVol.meta and pickedVol.meta.themeId) or nil
-        local compositionInfo = { miner = player, ownerId = volState.ownerId, compositionId = themeId }
+        local terrainKey = soundHint and soundHint.materialKey or nil
+        local compositionInfo = { miner = player, ownerId = volState.ownerId, compositionId = themeId, terrainKey = terrainKey }
         local drops = LootService:RollCells(volState.materialId, dugCells, player.UserId, effectiveStats.luck, compositionInfo)
 
         -- Aggregate counts and build entries with world positions

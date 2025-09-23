@@ -146,12 +146,35 @@ end
 local PALETTE_DEBOUNCE_TIME = 0.5 -- seconds
 
 -- Maximum stack sizes by item type
+local limits = GameConfig and GameConfig.Limits or {}
 local MAX_STACK_SIZE = {
-    resource = 9999,
-    consumable = 999,
-    pickaxe = 99,   -- Allow pickaxes to stack so drops are collectible
-    cosmetic = 99,  -- Make cosmetics stackable (for duplicates/trading)
+    resource = limits.MAX_RESOURCE_STACK or 99999,
+    consumable = limits.MAX_CONSUMABLE_STACK or 99999,
+    cosmetic = limits.MAX_COSMETIC_STACK or 99999,  -- Config-driven cap for cosmetics (including hand tools)
 }
+
+-- Centralized helper: auto-equip cosmetic into empty slot on acquire (opt-in via Feature flag)
+local function autoEquipIfEmpty(self, player: Player, itemId: string, wasFirstObtain: boolean?)
+    local features = GameConfig and GameConfig.Features or {}
+    if not (features.COSMETICS_ENABLED and features.AUTO_EQUIP_COSMETICS_ON_ACQUIRE) then
+        return
+    end
+    -- Only first obtain by default to avoid surprising replaces from duplicates
+    if wasFirstObtain == false then
+        return
+    end
+    local itemDef = LootService:GetItemDefinition(itemId)
+    if not itemDef or itemDef.type ~= "cosmetic" then return end
+    local slot = itemDef.slot
+    if not slot or slot == "modelSwap" then return end
+    -- Only when slot is empty
+    local equippedMap = self:GetEquippedItems(player)
+    if equippedMap and equippedMap[slot] then return end
+    -- Best-effort equip (uses canonical EquipItem path for events/saves)
+    pcall(function()
+        self:EquipItem(player, itemId)
+    end)
+end
 
 
 --[[
@@ -198,10 +221,14 @@ function InventoryService:AddItem(player: Player, itemId: string, count: number)
     
     -- Queue save
     DataService:QueueSave(player)
-    
+
     -- Notify client with delta for this single add
     emitInventoryDelta(player, {[itemId] = addable})
     
+    -- Auto-equip on first obtain if slot is empty
+    local wasFirstObtain = (currentCount == 0) and (addable > 0)
+    autoEquipIfEmpty(self, player, itemId, wasFirstObtain)
+
     return true
 end
 
@@ -241,6 +268,10 @@ function InventoryService:AddItemsBulk(player: Player, countsById: {[string]: nu
 
                 -- Track that we need to emit inventory change
                 -- (Will emit once after all items processed)
+
+                -- Auto-equip this cosmetic if first obtain and slot empty
+                local wasFirstObtain = (currentCount == 0)
+                autoEquipIfEmpty(self, player, itemId, wasFirstObtain)
             end
         end
     end
@@ -618,13 +649,22 @@ InventoryService.UseConsumable = asMethod(Guard.args(
         profile.boosts.size = Time.unix() + (itemDef.duration or 300)
     elseif itemDef.effect == "luck" then
         profile.boosts.luck = Time.unix() + (itemDef.duration or 300)
-    elseif itemDef.effect == "all" then
-        -- Mega potion affects multiple stats (movement speed as tier-1 stack)
+    elseif itemDef.effect == "jumps" then
+        -- Jump potion: grants +N extra jumps temporarily using cosmetic_extra_jumps_1 stacks
         local duration = itemDef.duration or 900
         local now = Time.unix()
-        profile.boosts["potion_speed_tier_1"] = now + duration
-        profile.boosts.size = now + duration
-        profile.boosts.luck = now + duration
+        local n = tonumber((itemDef :: any).jumps) or 4
+        -- Clear existing extra jump stacks
+        for key, _ in pairs(profile.boosts) do
+            if tostring(key):match("^cosmetic_extra_jumps_1") then
+                profile.boosts[key] = nil
+            end
+        end
+        -- Apply N stacked entries as #1..#N
+        for i = 1, math.max(0, n) do
+            local k = string.format("cosmetic_extra_jumps_1#%d", i)
+            profile.boosts[k] = now + duration
+        end
     end
     
     -- Remove item (consume exactly once per accepted call)

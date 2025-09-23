@@ -7,6 +7,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local MG = ReplicatedStorage:WaitForChild("MiningGame")
 local GameConfig = require(MG:WaitForChild("GameConfig"))
 local ItemDefinitions = require(MG:WaitForChild("ItemDefinitions"))
+local MaterialDefinitions = require(MG:WaitForChild("MaterialDefinitions"))
 
 export type Insight = {
     id: string,
@@ -47,19 +48,64 @@ end
 local function determineSources(item: any): { string }
     local out = {}
     if not item then return out end
+
+    -- Prefer specific terrain source for resources using TERRAIN_RESOURCE_MAP
     if item.type == "resource" then
-        table.insert(out, "Drops while digging")
-    elseif item.type == "cosmetic" then
-        -- Cosmetics can drop (if feature enabled) and/or be purchased
+        local map = GameConfig and GameConfig.Loot and GameConfig.Loot.TERRAIN_RESOURCE_MAP
+        local byKey = map and map.byTerrainKey or {}
+        local terrains = {}
+        for terrainKey, id in pairs(byKey) do
+            if id == item.id then
+                table.insert(terrains, terrainKey)
+            end
+        end
+        table.sort(terrains)
+        if #terrains > 0 then
+            -- Use first terrain display name directly (the UI label already says "Source")
+            local tk = terrains[1]
+            local md = MaterialDefinitions.Materials[tk]
+            local display = (md and md.displayName) or (tk:sub(1,1):upper() .. tk:sub(2))
+            table.insert(out, display)
+            -- Include any additional terrains as secondary sources
+            for i = 2, #terrains do
+                local tk2 = terrains[i]
+                local md2 = MaterialDefinitions.Materials[tk2]
+                local disp2 = (md2 and md2.displayName) or (tk2:sub(1,1):upper() .. tk2:sub(2))
+                table.insert(out, disp2)
+            end
+            return out
+        end
+
+        -- Exclusive resources tied to compositions/themes
+        local exclusive = (item.meta and item.meta.exclusive) or (item.tags and item.tags.exclusive)
+        if exclusive then
+            table.insert(out, "Exclusive: Theme-based drop")
+            return out
+        end
+
+        -- Fallback for general resources in weighted mode
+        table.insert(out, "Any terrain")
+        return out
+    end
+
+    if item.type == "cosmetic" then
         if GameConfig.Features and GameConfig.Features.COSMETICS_IN_LOOT then
             table.insert(out, "Rare drop while digging")
         end
         table.insert(out, "Purchasable in Shop (coins)")
-    elseif item.type == "consumable" then
-        table.insert(out, "Usable item: grants temporary boosts")
-    elseif item.type == "pickaxe" then
-        table.insert(out, "Equip to change tool stats/appearance")
+        return out
     end
+
+    if item.type == "consumable" then
+        table.insert(out, "Usable item: grants temporary boosts")
+        return out
+    end
+
+    if item.type == "pickaxe" then
+        table.insert(out, "Equip to change tool stats/appearance")
+        return out
+    end
+
     return out
 end
 
@@ -91,4 +137,3 @@ function ItemInsights.get(itemId: string): Insight?
 end
 
 return ItemInsights
-

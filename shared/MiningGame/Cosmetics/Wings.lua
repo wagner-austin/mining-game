@@ -37,6 +37,8 @@ Wings["back_rainbow_wings"] = {
     slot = "back",
     rarity = "LEGENDARY",
     value = 4000,
+    -- Increase drop likelihood ~3x over default LEGENDARY cosmetic weight (2 * 0.01 = 0.02 → 0.06)
+    dropWeight = 0.06,
     animates = true,
     effect = "rainbow",
     materialPreset = "neon",
@@ -53,6 +55,8 @@ Wings["back_quad_wings"] = {
     slot = "back",
     rarity = "LEGENDARY",
     value = 3000,
+    -- Increase drop likelihood ~3x over default LEGENDARY cosmetic weight (2 * 0.01 = 0.02 → 0.06)
+    dropWeight = 0.06,
     animates = true,
     enhanced = true,
     perks = { extraJumps = 2 },
@@ -101,4 +105,3 @@ do
 end
 
 return Wings
-

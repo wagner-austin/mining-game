@@ -42,7 +42,8 @@ end
 
 -- Ensure defaults for additional effect icons (post-override)
 ICONS.dig = ICONS.dig or emoji(0x26A1, "*")
-ICONS.size = ICONS.size or emoji(0x1F533, "[]")
+-- Use pickaxe for expanded dig/size icon
+ICONS.size = ICONS.size or emoji(0x26CF, "⛏")
 ICONS.wet = ICONS.wet or emoji(0x1F4A7, "~")
 
 -- Map effectId to display meta
