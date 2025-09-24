@@ -105,7 +105,8 @@ local function mountBanner(model: Model, overrides: any?)
         pending[id] = cleanup
         -- Immediate re-check closes race window where adornee appears just before listeners are wired
         tryNow()
-        log:warn("UIPanel not present yet; deferring billboard mount: %s", model:GetFullName())
+        -- Initial deferral is expected during streaming; log at DEBUG.
+        log:debug("UIPanel not present yet; deferring billboard mount: %s", model:GetFullName())
         -- Watchdog: warn if UIPanel still missing after timeout
         task.delay(5.0, function()
             if not canceled and not mounted[id] and not findAdornee(model) and model.Parent then

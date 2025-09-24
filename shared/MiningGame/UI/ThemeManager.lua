@@ -6,6 +6,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
 local Theme = require(MiningGame:WaitForChild("UI"):WaitForChild("Theme"))
 local Packs = require(MiningGame:WaitForChild("UI"):WaitForChild("ThemePacks"))
+local Logger = require(MiningGame:WaitForChild("Logger"))
+local log = Logger.new("ThemeManager")
 
 local ThemeManager = {}
 local _name = "default"
@@ -132,7 +134,7 @@ function ThemeManager.Apply(name: string)
     validateTheme()
     
     _changed:Fire(_name)
-    print("[ThemeManager] Applied theme:", _name)
+    log:info("Applied theme: %s", _name)
 end
 
 function ThemeManager.Changed() 

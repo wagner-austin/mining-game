@@ -11,6 +11,8 @@ local SoundTheme = require(MiningGame:WaitForChild("SoundThemeManager"))
 local SoundConfig = require(MiningGame:WaitForChild("SoundConfig"))
 local Timeout = require(MiningGame:WaitForChild("Timeout"))
 local LoadCfg = require(MiningGame:WaitForChild("LoadingConstants"))
+local Logger = require(MiningGame:WaitForChild("Logger"))
+local log = Logger.new("SoundPreloader")
 
 local _busy = false
 local _dirty = false
@@ -57,7 +59,7 @@ end
 local function preload(ids: {string}?): ()
     if _busy then
         _dirty = true
-        warn("[SoundPreloader] Preload already running; will retry after completion.")
+        log:warn("Preload already running; will retry after completion.")
         return
     end
     _busy = true
@@ -65,7 +67,7 @@ local function preload(ids: {string}?): ()
     ids = ids or gatherIds()  -- Use the gathered set by default
     
     if #ids == 0 then
-        print("[SoundPreloader] No sounds to preload")
+        log:info("No sounds to preload")
         _busy = false
         return
     end
@@ -89,7 +91,7 @@ local function preload(ids: {string}?): ()
     end
     
     if #filtered == 0 then
-        print("[SoundPreloader] No valid sounds to preload after filtering")
+        log:info("No valid sounds to preload after filtering")
         _busy = false
         -- Clean up even if nothing to preload
         for _, s in ipairs(sounds) do 
@@ -98,26 +100,26 @@ local function preload(ids: {string}?): ()
         return
     end
     
-    print(string.format("[SoundPreloader] Preloading %d sound assets...", #filtered))
+    log:info("Preloading %d sound assets...", #filtered)
     
     -- Preload with timeout protection (use longer timeout for sound batches)
     local timeoutSec = LoadCfg.TIMEOUTS.AssetPreload * 2  -- Double timeout for sounds
     local ok, err = Timeout.run(function()
         ContentProvider:PreloadAsync(filtered, function(assetId, status)
             if status == Enum.AssetFetchStatus.Failure then
-                warn("[SoundPreloader] Failed to preload:", assetId)
+                log:warn("Failed to preload: %s", tostring(assetId))
             end
         end)
     end, timeoutSec, LoadCfg.POLL_INTERVALS.Coarse)  -- Use coarse polling for non-critical
     
     if not ok then
         if err == "TIMEOUT" then
-            warn(string.format("[SoundPreloader] Preload timed out after %.1fs for %d sounds", timeoutSec, #filtered))
+            log:warn("Preload timed out after %.1fs for %d sounds", timeoutSec, #filtered)
         else
-            warn("[SoundPreloader] PreloadAsync error:", err)
+            log:warn("PreloadAsync error: %s", tostring(err))
         end
     else
-        print("[SoundPreloader] Preloading complete!")
+        log:info("Preloading complete!")
     end
     
     -- Clean up ALL temporary sounds (not just filtered)
@@ -139,6 +141,6 @@ preload()  -- Use default gatherIds()
 
 -- Preload new pack when theme changes
 SoundTheme.Changed():Connect(function()
-    print("[SoundPreloader] Sound pack changed, preloading new assets...")
+    log:info("Sound pack changed, preloading new assets...")
     preload()  -- Use default gatherIds()
 end)

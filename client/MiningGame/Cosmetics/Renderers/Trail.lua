@@ -7,6 +7,8 @@
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("MiningGame")
+local Logger = require(Shared:WaitForChild("Logger"))
+local log = Logger.new("Trail")
 local Time = require(Shared:WaitForChild("Time"))
 local Registry = require(script.Parent.Parent.RendererRegistry)
 
@@ -17,10 +19,10 @@ function Trail.apply(character: Model, def: any, ctx: any)
     local root = character:FindFirstChild("HumanoidRootPart")
     if not root then return end
     
-    -- Debug logging
-    print("[Trail] Applying trail cosmetic:", def.itemId or "unknown")
-    print("[Trail] Color:", def.color)
-    print("[Trail] Effect:", def.effect)
+    -- Debug logging (tamed via Logger levels)
+    log:info("Applying trail cosmetic: %s", def.itemId or "unknown")
+    log:debug("Color: %s", tostring(def.color))
+    log:debug("Effect: %s", tostring(def.effect))
     
     -- Use HumanoidRootPart size as base, NOT GetExtentsSize which includes all accessories
     local rootSize = root.Size

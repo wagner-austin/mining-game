@@ -194,7 +194,7 @@ function InventoryService:AddItem(player: Player, itemId: string, count: number)
     -- Get item definition
     local itemDef = LootService:GetItemDefinition(itemId)
     if not itemDef then
-        log:warn("Unknown item: {}", itemId)
+        log:warn("Unknown item: %s", itemId)
         return false
     end
     

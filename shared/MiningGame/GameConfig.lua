@@ -14,7 +14,7 @@ GameConfig.WorldGen = {
     ENABLED = true, -- Master switch for ALL world generation (decorations + islands)
     STUDIO_ONLY = false, -- Set true to only generate in Studio
     SPAWN_MARGIN = 160, -- Distance from map edge to avoid spawning (studs) (reduced)
-    LOG_VERBOSE = true, -- Set true for detailed spawn logging
+    LOG_VERBOSE = false, -- Default off to reduce startup spam; enable when needed
     -- Consistency mode for decoration categories (trees/rocks/fireflies)
     -- "independent" = spawn each enabled category independently
     -- "all_or_none" = if any enabled category fails (spawns 0), clear all spawned decorations
@@ -759,7 +759,7 @@ GameConfig.Debug = {
     UNLIMITED_RESOURCES = false,
     FREE_UPGRADES = false,
     -- SINGLE SOURCE OF TRUTH for log level across entire game
-    LOG_LEVEL = "DEBUG", -- "DEBUG", "INFO", "WARN", "ERROR"
+    LOG_LEVEL = "INFO", -- Default to INFO; raise to DEBUG when actively debugging
 }
 
 -- Visual Settings for cube indicators

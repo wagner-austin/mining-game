@@ -14,6 +14,8 @@ local TabbedPanel = require(script.Parent.Parent:WaitForChild("Components"):Wait
 local MaterialsTab = require(script.Parent.Parent:WaitForChild("Components"):WaitForChild("MaterialsTab"))
 local AccountTab = require(script.Parent.Parent:WaitForChild("Components"):WaitForChild("AccountTab"))
 local ThemeTab = require(script.Parent.Parent:WaitForChild("Components"):WaitForChild("ThemeTab"))
+local Logger = require(MiningGame:WaitForChild("Logger"))
+local log = Logger.new("SettingsPanel")
 
 -- Only load MetricsTab and DebugTab in Studio for testing
 local MetricsTab, DebugTab
@@ -82,10 +84,10 @@ function SettingsPanel:init(manager)
         table.insert(tabs, { name = "Debug" })
     end
     
-    -- Debug: Print the tabs array
-    print("[SettingsPanel] Tabs array:")
+    -- Debug: Log the tabs array
+    log:debug("Tabs array:")
     for i, tab in ipairs(tabs) do
-        print(string.format("  [%d] %s", i, tab.name))
+        log:debug("  [%d] %s", i, tab.name)
     end
     
     -- Create tabbed panel

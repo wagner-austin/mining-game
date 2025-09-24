@@ -58,26 +58,23 @@ end
 
 -- Get spawn bounds from world or config
 local function getSpawnBounds(gc)
-    -- First try named part
+    -- Strict: require explicit bounds part or explicit Baseplate
+    -- 1) Named part
     local partName = (gc.Multiplayer and gc.Multiplayer.SPAWN_BOUNDS_PART) or "SpawnBounds"
     local p = Workspace:FindFirstChild(partName)
     if p and p:IsA("BasePart") then
-        log:debug("Found spawn bounds part '{}': center={}, size=({}, {})", 
-            partName, tostring(p.Position), p.Size.X, p.Size.Z)
+        log:debug("Found spawn bounds part '%s': center=%s, size=(%s, %s)", 
+            partName, tostring(p.Position), tostring(p.Size.X), tostring(p.Size.Z))
         return p.Position, p.Size.X, p.Size.Z
     end
-    
-    -- Fall back to Baseplate
+    -- 2) Legacy explicit Baseplate part
     local base = Workspace:FindFirstChild("Baseplate")
     if base and base:IsA("BasePart") then
-        log:debug("Using Baseplate for bounds: center={}, size=({}, {})",
-            tostring(base.Position), base.Size.X, base.Size.Z)
+        log:debug("Using Baseplate for bounds: center=%s, size=(%s, %s)",
+            tostring(base.Position), tostring(base.Size.X), tostring(base.Size.Z))
         return base.Position, base.Size.X, base.Size.Z
     end
-    
-    -- Final fallback to config
-    log:warn("No spawn bounds found, using default 2000x2000 centered at origin")
-    return Vector3.new(0, 0, 0), 2000, 2000
+    error(("Spawn bounds not found. Add a BasePart named '%s' to Workspace or set GameConfig.Multiplayer.SPAWN_BOUNDS_PART to your bounds part name."):format(partName))
 end
 
 local function snapToTerrainY(x: number, z: number, yFallback: number, excludes: {Instance}?): number
@@ -106,7 +103,7 @@ function Strategies.grid(ord: number, GameConfig)
     local gz = math.floor((ord-1)/cols)
     local y = halfCube(GameConfig) -- sits on base level
     local cf = CFrame.new(gx*spacing, y, gz*spacing)
-    log:debug("Grid strategy: ord={} -> grid({},{}) -> pos={}", ord, gx, gz, tostring(cf.Position))
+    log:debug("Grid strategy: ord=%d -> grid(%d,%d) -> pos=%s", ord, gx, gz, tostring(cf.Position))
     return cf
 end
 
@@ -258,12 +255,12 @@ end
 function Strategies.SetStrategy(name: string): boolean
     -- Validate the strategy exists
     if not Strategies[name] or type(Strategies[name]) ~= "function" then
-        log:warn("SetStrategy: Unknown strategy '{}'", name)
+        log:warn("SetStrategy: Unknown strategy '%s'", name)
         return false
     end
     
     currentStrategy = name
-    log:info("SetStrategy: Changed active strategy to '{}'", name)
+    log:info("SetStrategy: Changed active strategy to '%s'", name)
     
     -- Clear memoization caches when strategy changes
     memo_random_dispersed = {}

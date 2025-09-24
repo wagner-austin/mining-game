@@ -133,7 +133,7 @@ function ServiceContainer:build()
     if RunService:IsStudio() then
         local names = {}
         for i, r in ipairs(self._order :: {ServiceRec}) do names[i] = r.name end
-        print("[ServiceContainer] Init order: " .. table.concat(names, ", "))
+        slog:info("Init order: %s", table.concat(names, ", "))
     end
 end
 
@@ -167,11 +167,11 @@ function ServiceContainer:start()
     end
     
     if RunService:IsStudio() then
-        print("[ServiceContainer] Started")
+        slog:info("Started")
         -- Pretty print in Studio
         for _, rec in ipairs(order) do
-            print(("[ServiceContainer] %s -> init=%s start=%s")
-                :format(rec.name, tostring(health.init[rec.name] or "n/a"), tostring(health.start[rec.name] or "n/a")))
+            slog:info("%s -> init=%s start=%s",
+                rec.name, tostring(health.init[rec.name] or "n/a"), tostring(health.start[rec.name] or "n/a"))
         end
     else
         -- Log in production with Logger for searchable health

@@ -19,7 +19,7 @@ local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
 local rootPart = character:WaitForChild("HumanoidRootPart")
 
-log:info("TreeClimbing starting for player %s", player.Name)
+log:debug("TreeClimbing starting for player %s", player.Name)
 
 -- Configuration
 local DETECTION_RANGE = 25 -- Studs from trunk (increased for earlier detection)
@@ -36,7 +36,7 @@ task.spawn(function()
             local scenes = _G.UIManager.scenes
             if scenes and scenes.MainHUD then
                 mainHUD = scenes.MainHUD
-                log:info("Connected to MainHUD")
+                log:debug("Connected to MainHUD")
                 break
             end
         end
@@ -129,7 +129,7 @@ RunService.Heartbeat:Connect(function()
     -- Handle tree detection changes
     if nearbyTree and not previousTree then
         -- Near a tree - show climb option
-        log:info("Near tree: %s", nearbyTree.Name)
+        log:debug("Near tree: %s", nearbyTree.Name)
         isChipShown = true
         mainHUD:showActionChip("Climb", "🌳", function()
             log:debug("Climb chip activated")
@@ -143,7 +143,7 @@ RunService.Heartbeat:Connect(function()
         
     elseif not nearbyTree and previousTree then
         -- Left tree area
-        log:info("Left tree area")
+        log:debug("Left tree area")
         isChipShown = false
         mainHUD:hideActionChip()
     end
@@ -176,7 +176,7 @@ if decorFolder then
             log:debug("Tree %s has %d wood parts", child.Name, woodParts)
         end
     end
-    log:info("Tree climbing initialized - Found %d trees in folder with %d total children", treeCount, #allChildren)
+    log:debug("Tree climbing initialized - Found %d trees in folder with %d total children", treeCount, #allChildren)
     if #allChildren > 0 then
         log:debug("Folder children: %s", table.concat(allChildren, ", "))
     end
@@ -191,7 +191,7 @@ else
                 treeCount = treeCount + 1
             end
         end
-        log:info("Tree climbing initialized after wait - Found %d trees", treeCount)
+        log:debug("Tree climbing initialized after wait - Found %d trees", treeCount)
     else
         log:warn("BlockDecorations folder not found during initialization")
     end

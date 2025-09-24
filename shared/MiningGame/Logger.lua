@@ -245,13 +245,13 @@ function Logger:log(level: number, message: string, ...: any)
 		return
 	end
 	
-	-- Format message with arguments
-	if select("#", ...) > 0 then
-		local success, formatted = pcall(string.format, message, ...)
-		if success then
-			message = formatted
-		end
-	end
+    -- Format message with arguments (no automatic placeholder fallback)
+    if select("#", ...) > 0 then
+        local success, formatted = pcall(string.format, message, ...)
+        if success then
+            message = formatted
+        end
+    end
 	
 	-- Check rate limiting
 	if not passRateLimit(self.category, message) then
@@ -608,6 +608,6 @@ Logger.setCategoryLevel("Bootstrap", "INFO")
 Logger.setCategoryLevel("DigService", "INFO")
 Logger.setCategoryLevel("SessionService", "INFO")
 Logger.setCategoryLevel("Remotes", "INFO")
-Logger.setCategoryLevel("UIManager", "DEBUG")  -- Show watchdog messages
+Logger.setCategoryLevel("UIManager", "INFO")  -- Default to INFO; raise to DEBUG when needed
 
 return Logger

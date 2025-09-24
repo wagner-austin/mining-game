@@ -9,6 +9,8 @@ local Players = game:GetService("Players")
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
 local Ready = require(MiningGame:WaitForChild("Ready"))
 local Remotes = require(MiningGame:WaitForChild("Remotes"))
+local Logger = require(MiningGame:WaitForChild("Logger"))
+local log = Logger.new("ClientUI")
 local AccountDataProvider = require(script.Parent.Parent:WaitForChild("Data"):WaitForChild("AccountDataProvider"))
 local SoundManager = require(MiningGame:WaitForChild("SoundManager"))
 
@@ -31,14 +33,14 @@ local ItemIndexPanel = require(script.Parent:WaitForChild("Panels"):WaitForChild
 local UpgradesPanel = require(script.Parent:WaitForChild("Panels"):WaitForChild("UpgradesPanel"))
 local BoostBar = require(script.Parent:WaitForChild("Components"):WaitForChild("BoostBar"))
 
-print("[ClientUI] Initializing UI system...")
+log:info("Initializing UI system...")
 
 -- Wait for server to be ready before making any API calls
 if not Ready.wait(30) then
-    warn("[ClientUI] Server not ready after 30s - UI bootstrap aborted")
+    log:warn("Server not ready after 30s - UI bootstrap aborted")
     return
 end
-print("[ClientUI] Server ready, continuing UI initialization...")
+log:info("Server ready, continuing UI initialization...")
 
 -- Initialize UI Manager
 local manager = UIManager.new()
@@ -92,7 +94,7 @@ if snapshot and snapshot.profile then
     lastCoins = snapshot.profile.coins or 0
     lastGems = snapshot.profile.gems or 0
     hud:SetCurrencies(lastCoins, lastGems)
-    print("[ClientUI] Initial profile - Coins:", lastCoins, "Gems:", lastGems)
+    log:info("Initial profile - Coins: %d Gems: %d", lastCoins, lastGems)
 else
     hud:SetCurrencies(0, 0)
 end
@@ -152,8 +154,8 @@ end)
 task.defer(function()
     if not SoundManager.GetCurrentMusic() then
         SoundManager.PlayMusic("main")
-        print("[ClientUI] Background music started: main")
+        log:info("Background music started: main")
     end
 end)
 
-print("[ClientUI] UI system ready!")
+log:info("UI system ready!")

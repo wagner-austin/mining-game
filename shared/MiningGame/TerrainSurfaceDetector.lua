@@ -104,7 +104,7 @@ local function evictOldestCache()
     
     -- Remove oldest 10% by last access time (true LRU)
     local toRemove = math.max(1, math.floor(MAX_CACHE_SIZE * 0.1))
-    log:debug("Evicting {} old cache entries (cache at capacity: {})", toRemove, MAX_CACHE_SIZE)
+    log:debug("Evicting %d old cache entries (cache at capacity: %d)", toRemove, MAX_CACHE_SIZE)
     
     for _ = 1, toRemove do
         local oldestKey, oldestTime = nil, math.huge
@@ -590,7 +590,7 @@ function TerrainSurfaceDetector.SetEnabled(enabled: boolean)
     ENABLED = enabled
     
     if wasEnabled ~= enabled then
-        log:info("Surface detection {} (was {})", enabled and "enabled" or "disabled", wasEnabled and "enabled" or "disabled")
+        log:info("Surface detection %s (was %s)", enabled and "enabled" or "disabled", wasEnabled and "enabled" or "disabled")
         -- Clear cache when toggling to avoid stale data
         TerrainSurfaceDetector.ClearCache()
     end
@@ -603,7 +603,7 @@ function TerrainSurfaceDetector.ClearCache()
     end
     
     if cacheSize > 0 then
-        log:debug("Clearing surface detection cache ({} entries)", cacheSize)
+        log:debug("Clearing surface detection cache (%d entries)", cacheSize)
     end
     
     exposureCache = {}

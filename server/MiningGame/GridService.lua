@@ -304,7 +304,7 @@ function GridService:RestoreCube(cubeOrigin: CFrame, state: Types.CubeState, ini
     local materialData = GameConfig.CubeMaterialsById[materialId]
     
     if not materialData then
-        log:warn("Unknown material ID: {} - using tier1", materialId)
+        log:warn("Unknown material ID: %s - using tier1", tostring(materialId))
         materialData = GameConfig.CubeMaterialsById["tier1"]
     end
     
@@ -315,7 +315,7 @@ function GridService:RestoreCube(cubeOrigin: CFrame, state: Types.CubeState, ini
         log:debug("Material resolved: %s -> %s -> %s",
             materialId, tostring(materialData.terrainKey), tostring(terrainMaterial))
     else
-        log:warn("No terrainKey for material: {} - defaulting to Rock", materialId)
+        log:warn("No terrainKey for material: %s - defaulting to Rock", tostring(materialId))
     end
     
     -- Create the base cube (now guaranteed to have a valid material)
@@ -360,7 +360,7 @@ function GridService:RestoreCube(cubeOrigin: CFrame, state: Types.CubeState, ini
                 else
                     log:warn("MixedMaterialService not available - skipping mixed materials for UID %s", tostring(state.ownerId))
                 end
-                log:debug("Restored theme '{}' ({} materials) for UID {}", themeId, #swathes, state.ownerId)
+                log:debug("Restored theme '%s' (%d materials) for UID %d", themeId, #swathes, state.ownerId)
             end
         end
     end

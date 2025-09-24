@@ -262,13 +262,13 @@ function DebugTab:_createSimAgentsSection()
         local listData, listErr = ClientRF.call("SpawnStrategy_List")
         if not listErr and listData and listData.strategies then
             self._strategies = listData.strategies
-            log:debug("Loaded spawn strategies: {}", table.concat(listData.strategies, ", "))
+            log:debug("Loaded spawn strategies: %s", table.concat(listData.strategies, ", "))
         end
         
         local getData, getErr = ClientRF.call("SpawnStrategy_Get")
         if not getErr and getData and getData.current then
             self._currentStrategy = getData.current
-            log:debug("Current spawn strategy: {}", getData.current)
+            log:debug("Current spawn strategy: %s", getData.current)
         end
         
         self:_updateStrategyDisplay()

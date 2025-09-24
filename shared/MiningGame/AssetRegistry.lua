@@ -255,7 +255,7 @@ function AssetRegistry.PrepareModel(template: Model, position: Vector3, scale: n
         if largestPart then
             model.PrimaryPart = largestPart
         else
-            log:warn("Model {} has no suitable parts for PrimaryPart", template.Name)
+            log:warn("Model %s has no suitable parts for PrimaryPart", template.Name)
             model:Destroy()
             return nil
         end

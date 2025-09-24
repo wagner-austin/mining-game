@@ -94,7 +94,7 @@ local function createArrow(origin: Vector3, direction: Vector3, color: Color3)
 end
 
 local function clearTestArea(center: Vector3, size: number)
-    log:info("Clearing test area at {}", center)
+    log:info("Clearing test area at %s", tostring(center))
     
     local region = Region3.new(
         center - Vector3.new(size, size, size),
@@ -111,7 +111,7 @@ local function clearTestArea(center: Vector3, size: number)
 end
 
 local function createTestTerrain(center: Vector3, pattern: string)
-    log:info("Creating test terrain pattern: {}", pattern)
+    log:info("Creating test terrain pattern: %s", tostring(pattern))
     
     -- Ensure all dimensions are multiples of CELL_SIZE for cleaner tests
     local blockSize = function(cells: number) return Vector3.one * (CELL_SIZE * cells) end
@@ -265,7 +265,7 @@ local function testIsExposedAt(center: Vector3)
         end
     end
     
-    log:info("Tested {} points, {} exposed", #testPoints, exposedCount)
+    log:info("Tested %d points, %d exposed", #testPoints, exposedCount)
     
     return testPoints
 end
@@ -307,7 +307,7 @@ local function testCheckCellSurface(center: Vector3, stride: number?)
         end
     end
     
-    log:info("Found {} surface cells out of {} tested", #results, testedCells)
+    log:info("Found %d surface cells out of %d tested", #results, testedCells)
     return results
 end
 
@@ -334,7 +334,7 @@ local function testDetectSurfaces(center: Vector3)
         createArrow(surface.position, surface.normal, COLORS.NORMAL)
     end
     
-    log:info("Detected {} surfaces in region (showing every {} for clarity)", #surfaces, sampleRate)
+    log:info("Detected %d surfaces in region (showing every %d for clarity)", #surfaces, sampleRate)
     return surfaces
 end
 
@@ -378,7 +378,7 @@ local function testGetSurfacesInRadius(center: Vector3)
     radiusPart.Parent = vizFolder
     Debris:AddItem(radiusPart, VISUALIZATION_DURATION)
     
-    log:info("Found {} surfaces within radius {}", #surfaces, radiusInCells)
+    log:info("Found %d surfaces within radius %d", #surfaces, radiusInCells)
     return surfaces
 end
 
@@ -458,7 +458,7 @@ local function testEnabledToggle()
     -- Re-enable for other tests
     TerrainSurfaceDetector.SetEnabled(true)
     
-    log:info("Enabled result: {}, Disabled result: {}", enabledResult, disabledResult)
+    log:info("Enabled result: %s, Disabled result: %s", tostring(enabledResult), tostring(disabledResult))
 end
 
 local function testWaterBoundary(center: Vector3)
@@ -516,7 +516,7 @@ local function testZeroNormalCase(center: Vector3)
     local hasSurface, surfacePos, normal, material = 
         TerrainSurfaceDetector.CheckCellSurface(center, CELL_SIZE)
     
-    log:info("Thin wall test - Has surface: {}, Normal: {}", hasSurface, normal)
+    log:info("Thin wall test - Has surface: %s, Normal: %s", tostring(hasSurface), tostring(normal))
     
     if normal then
         createArrow(center, normal, COLORS.NORMAL)
@@ -544,7 +544,7 @@ local function testIntegrationWithDigService()
             hasSurface = hasSurface
         })
         
-        log:info("Integration test at {} - Has surface: {}", pos, hasSurface)
+        log:info("Integration test at %s - Has surface: %s", tostring(pos), tostring(hasSurface))
     end
     
     return results
@@ -553,8 +553,8 @@ end
 -- Main test runner
 local function runAllTests()
     log:info("=== Starting Surface Detection Tests ===")
-    log:info("Surface detection enabled: {}", TerrainSurfaceDetector.IsEnabled())
-    log:info("Cell size: {} studs", CELL_SIZE)
+    log:info("Surface detection enabled: %s", tostring(TerrainSurfaceDetector.IsEnabled()))
+    log:info("Cell size: %d studs", CELL_SIZE)
     
     local testCenter = Vector3.new(0, 20, 0)
     
@@ -596,13 +596,13 @@ local function runAllTests()
     createTestTerrain(testCenter, "thin_wall")
     task.wait(0.5)
     local surfaces = testDetectSurfaces(testCenter)
-    log:info("Thin wall detected {} surface voxels", #surfaces)
+    log:info("Thin wall detected %d surface voxels", #surfaces)
     task.wait(2)
     
     -- Test 6: Zero normal case
     log:info("\n--- Test 6: Zero Normal Edge Case ---")
     local zeroNormalSuccess = testZeroNormalCase(testCenter)
-    log:info("Zero normal test {}", zeroNormalSuccess and "PASSED" or "FAILED")
+    log:info("Zero normal test %s", zeroNormalSuccess and "PASSED" or "FAILED")
     task.wait(2)
     
     -- Test 7: Partial occupancy
@@ -617,7 +617,7 @@ local function runAllTests()
     log:info("\n--- Test 8: Water Boundary ---")
     clearTestArea(testCenter, TEST_REGION_SIZE)
     local waterTestPassed = testWaterBoundary(testCenter)
-    log:info("Water boundary test {}", waterTestPassed and "PASSED" or "FAILED")
+    log:info("Water boundary test %s", waterTestPassed and "PASSED" or "FAILED")
     task.wait(2)
     
     -- Test 9: Negative coordinates
@@ -645,7 +645,7 @@ local function runAllTests()
     testIntegrationWithDigService()
     
     log:info("\n=== All Tests Complete ===")
-    log:info("Visualizations will remain for {} seconds", VISUALIZATION_DURATION)
+    log:info("Visualizations will remain for %d seconds", VISUALIZATION_DURATION)
     
     -- Clean up visualization folder after duration
     task.delay(VISUALIZATION_DURATION, function()

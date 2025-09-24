@@ -6,6 +6,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
+local Logger = require(MiningGame:WaitForChild("Logger"))
+local log = Logger.new("AmbientBoot")
 local AmbientController = require(MiningGame:WaitForChild("AmbientController"))
 local MaterialManager = require(MiningGame:WaitForChild("MaterialManager"))
 local ClientRF = require(MiningGame:WaitForChild("ClientRF"))
@@ -20,17 +22,17 @@ task.spawn(function()
         player:GetAttributeChangedSignal("DataLoaded"):Wait()
     end
     if not Ready.wait(10) then
-        warn("[AmbientBoot] Server not ready; skipping initial palette fetch")
+        log:warn("Server not ready; skipping initial palette fetch")
         return
     end
     -- Use ClientRF with retry for material preferences
     local prefs, err = ClientRF.callWithRetry("GetMaterialPreferences", 3)
     if not err and prefs and prefs.palette then
         local pal = string.lower(prefs.palette)
-        print("[AmbientBoot] Applying saved palette:", pal)
+        log:info("Applying saved palette: %s", pal)
         MaterialManager.SetPalette(pal)
     elseif err then
-        print("[AmbientBoot] Failed to get material preferences:", err)
+        log:warn("Failed to get material preferences: %s", tostring(err))
     end
 end)
 
@@ -46,4 +48,4 @@ AmbientController.SetMaxConcurrent(SoundConfig.AmbientSettings.MaxConcurrent or 
 AmbientController.SetEnabled(true)
 AmbientController.Start()
 
-print("[AmbientBoot] Proximity ambient system started with palette + time-of-day providers")
+log:info("Proximity ambient system started with palette + time-of-day providers")

@@ -236,17 +236,17 @@ function CashShopCoinsTab:refresh()
             SoundManager.PlayUI("buttonclick")
             if not configured then
                 if _G.UIManager then _G.UIManager:showNotification("Pass not configured", "error") end
-                log:warn("Click ignored: pass not configured id={} (gamepassId={})", tostring(entry.id), tostring(entry.gamepassId))
+                log:warn("Click ignored: pass not configured id=%s (gamepassId=%s)", tostring(entry.id), tostring(entry.gamepassId))
                 return
             end
-            log:info("Purchase click: gamepass id={} (gamepassId={})", tostring(entry.id), tostring(entry.gamepassId))
+            log:info("Purchase click: gamepass id=%s (gamepassId=%s)", tostring(entry.id), tostring(entry.gamepassId))
             local r, e = ClientRF.call("PurchaseGamepass", entry.id)
             if _G.UIManager then
                 if r and r.success then _G.UIManager:showNotification("Purchase prompt opened", "info")
                 else _G.UIManager:showNotification(e or "Purchase failed", "error") end
             end
             if not (r and r.success) then
-                log:warn("Purchase RF failed id={} reason={} err={}", tostring(entry.id), (r and r.reason) or "", tostring(e))
+                log:warn("Purchase RF failed id=%s reason=%s err=%s", tostring(entry.id), (r and r.reason) or "", tostring(e))
             end
         end)
     end

@@ -65,7 +65,7 @@ local function loopDaily(eventId: string)
 		
 		local ok, err = pcall(ev.callback)
 		if not ok then
-			log:warn("Event error: {}", tostring(err))
+            log:warn("Event error: %s", tostring(err))
 		end
 		
 		if ev.recurring then

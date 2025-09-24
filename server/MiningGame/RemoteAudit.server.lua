@@ -5,6 +5,10 @@ local RunService = game:GetService("RunService")
 if not RunService:IsStudio() then return end
 
 local RemoteManager = require(script.Parent.RemoteManager)
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
+local Logger = require(MiningGame:WaitForChild("Logger"))
+local log = Logger.new("RemoteAudit")
 
 task.wait(1) -- Allow InitRemotes + registrations to finish
 
@@ -27,4 +31,4 @@ end
 
 check("RF", RemoteManager.getRegisteredRF())
 check("RE", RemoteManager.getRegisteredRE())
-print("[RF Audit] strict pass")
+log:info("strict pass")

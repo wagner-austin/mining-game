@@ -229,7 +229,7 @@ local function spawnOne(index: number)
         
         -- Apply mixed materials with deterministic seed
         local seed = PCGConfig.Seeds.SIM_AGENTS + ord * 947 + 17
-        log:debug("Applying mixed materials for agent {} with seed {}", id, seed)
+        log:debug("Applying mixed materials for agent %d with seed %d", id, seed)
         
         local cfg = themeConfigFor(ord, seed)
         MixedMaterialService:ApplyMixedMaterials(cf, CONFIG.CUBE_SIZE, cfg)
@@ -250,7 +250,7 @@ local function spawnOne(index: number)
     char.Parent = ensureFolder()
     
     -- Spawn character at cube (using safe adapter)
-    log:debug("Spawning character for agent {}...", id)
+    log:debug("Spawning character for agent %d...", id)
     safeRespawn(char, cf)
     
     -- Store agent data
@@ -262,7 +262,7 @@ local function spawnOne(index: number)
         ordinal = ord,  -- Store ordinal for consistent respawning
     }
     
-    log:info("✓ Spawned SimAgent {} - position: {}", id, tostring(cf.Position))
+    log:info("✓ Spawned SimAgent %d - position: %s", id, tostring(cf.Position))
 end
 
 -- Helper to erase terrain volume
@@ -270,7 +270,7 @@ local function eraseCubeVolume(cf: CFrame, size: number)
     local terrain = Workspace.Terrain
     -- Fill with air using FillBlock
     terrain:FillBlock(cf, Vector3.new(size, size, size), Enum.Material.Air)
-    log:debug("Erased terrain volume at {}", tostring(cf.Position))
+    log:debug("Erased terrain volume at %s", tostring(cf.Position))
 end
 
 -- Clear all agents
@@ -279,7 +279,7 @@ local function clearAll()
     for _ in pairs(agents) do
         currentCount = currentCount + 1
     end
-    log:debug("Clearing {} existing agents...", currentCount)
+    log:debug("Clearing %d existing agents...", currentCount)
     
     for _, agent in pairs(agents) do
         if agent.char and agent.char.Parent then
@@ -311,7 +311,7 @@ end
 
 -- Repopulate with N agents
 local function repopulate(count: number)
-    log:info("Repopulate start: target={}", count)
+    log:info("Repopulate start: target=%d", count)
     clearAll()
     
     count = math.min(count, CONFIG.MAX_AGENTS)
@@ -322,12 +322,12 @@ local function repopulate(count: number)
         placed = placed + 1
     end
     
-    log:info("Repopulate done: placed={} agents", placed)
+    log:info("Repopulate done: placed=%d agents", placed)
 end
 
 -- Public API
 function SimAgents:SetCount(n: number)
-    log:info("SimAgents:SetCount called with n={}", n)
+    log:info("SimAgents:SetCount called with n=%d", n)
     
     if not CONFIG.ENABLED then
         log:warn("SimAgents is disabled outside Studio")
@@ -335,7 +335,7 @@ function SimAgents:SetCount(n: number)
     end
     
     local targetCount = MathUtils.nonNegative(math.floor(n))
-    log:info("Repopulating with {} agents...", targetCount)
+    log:info("Repopulating with %d agents...", targetCount)
     repopulate(targetCount)
 end
 
@@ -350,7 +350,7 @@ end
 function SimAgents:RespawnAll()
     if not CONFIG.ENABLED then return end
     
-    log:info("RespawnAll: Recalculating positions with strategy '{}'", 
+    log:info("RespawnAll: Recalculating positions with strategy '%s'", 
         SpawnStrategies.GetCurrentStrategyName())
     
     local agentCount = 0
@@ -393,7 +393,7 @@ function SimAgents:RespawnAll()
             
             -- Apply mixed materials with deterministic seed
             local seed = PCGConfig.Seeds.SIM_AGENTS + ord * 947 + 17
-            log:debug("Applying mixed materials for agent {} with seed {}", id, seed)
+            log:debug("Applying mixed materials for agent %d with seed %d", id, seed)
             
             local cfg = themeConfigFor(ord, seed)
             MixedMaterialService:ApplyMixedMaterials(newCf, CONFIG.CUBE_SIZE, cfg)
@@ -410,10 +410,10 @@ function SimAgents:RespawnAll()
         -- Respawn character at new position
         safeRespawn(agent.char, newCf)
         
-        log:debug("Respawned agent {} at new position {}", id, tostring(newCf.Position))
+        log:debug("Respawned agent %d at new position %s", id, tostring(newCf.Position))
     end
     
-    log:info("Respawned all {} SimAgents with updated positions", agentCount)
+    log:info("Respawned all %d SimAgents with updated positions", agentCount)
 end
 
 function SimAgents:Clear()
@@ -464,11 +464,11 @@ local function setupRemotes()
 end
 
 -- Initialize
-log:info("SimAgents initializing... Studio: {}, Enabled: {}", tostring(RunService:IsStudio()), tostring(CONFIG.ENABLED))
+log:info("SimAgents initializing... Studio: %s, Enabled: %s", tostring(RunService:IsStudio()), tostring(CONFIG.ENABLED))
 
 if CONFIG.ENABLED then
     setupRemotes()
-    log:info("SimAgents initialized (Studio mode) - Max agents: {}", CONFIG.MAX_AGENTS)
+    log:info("SimAgents initialized (Studio mode) - Max agents: %d", CONFIG.MAX_AGENTS)
 else
     setupRemotes() -- Still setup remotes to return disabled status
     log:info("SimAgents disabled (not in Studio) but remotes available")

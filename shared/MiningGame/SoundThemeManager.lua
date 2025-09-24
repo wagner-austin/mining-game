@@ -5,6 +5,8 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
 local SoundConfig = require(MiningGame:WaitForChild("SoundConfig"))
+local Logger = require(MiningGame:WaitForChild("Logger"))
+local log = Logger.new("SoundThemeManager")
 
 local SoundThemeManager = {}
 local _activeName = "default"
@@ -21,7 +23,7 @@ function SoundThemeManager.Apply(name: string, overrides: {[string]: any}?)
         _overrides = nil
     end
     _changed:Fire(_activeName)
-    print("[SoundThemeManager] Applied sound pack:", name)
+    log:info("Applied sound pack: %s", name)
 end
 
 -- Get change event

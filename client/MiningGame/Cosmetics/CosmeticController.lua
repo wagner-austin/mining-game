@@ -126,9 +126,9 @@ end
 -- Apply cosmetics to a character
 function CosmeticController:_applyCosmetics(player: Player, equipped: {[string]: string})
     -- Debug: Log what's being equipped
-    print("[CosmeticController] Applying cosmetics for", player.Name)
+    log:debug("Applying cosmetics for %s", player.Name)
     for slot, itemId in pairs(equipped) do
-        print("  -", slot, ":", itemId)
+        log:debug("  - %s : %s", tostring(slot), tostring(itemId))
     end
     local character = player.Character
     if not character then return end
@@ -324,9 +324,9 @@ function CosmeticController:_onCharacterAdded(player: Player)
     task.spawn(function()
         local equipped
         if player == Players.LocalPlayer then
-            print("[CosmeticController] Getting equipped items for local player")
+            log:debug("Getting equipped items for local player")
             equipped, _ = Calls.GetEquippedItems()
-            print("[CosmeticController] Equipped items:", equipped)
+            log:debug("Equipped items: %s", tostring(equipped))
         else
             local all, _ = Calls.GetAllEquipped()
             equipped = all and all[player.UserId]
@@ -335,7 +335,7 @@ function CosmeticController:_onCharacterAdded(player: Player)
         if equipped and self._enabled then
             self:_applyCosmetics(player, equipped)
         else
-            print("[CosmeticController] No equipped items or controller disabled")
+            log:debug("No equipped items or controller disabled")
         end
     end)
 end

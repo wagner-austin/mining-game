@@ -42,7 +42,7 @@ end
 local function strategyFor(GameConfig)
     local name = Strategies.GetCurrentStrategyName()
     local strategy = Strategies[name] or Strategies.grid
-    log:debug("Using spawn strategy: {} (function={})", name, tostring(strategy))
+    log:debug("Using spawn strategy: %s (function=%s)", name, tostring(strategy))
     return strategy
 end
 
@@ -52,9 +52,9 @@ local nextOrdinal = 1
 
 -- Single source of truth for ordinal -> origin using selected strategy
 function CubePositionService:ComputeDefaultOriginForOrdinal(ord: number): CFrame
-    log:debug("ComputeDefaultOriginForOrdinal called for ordinal {}", ord)
+    log:debug("ComputeDefaultOriginForOrdinal called for ordinal %d", ord)
     local cf = strategyFor(GameConfig)(ord, GameConfig)
-    log:info("Computed origin for ordinal {}: {}", ord, tostring(cf.Position))
+    log:info("Computed origin for ordinal %d: %s", ord, tostring(cf.Position))
     return cf
 end
 
@@ -64,7 +64,7 @@ function CubePositionService:GetOrigin(playerOrUserId: Player | number): CFrame?
     if typeof(playerOrUserId) == "number" then
         local simOrigin = simulatedOrigins[playerOrUserId]
         if simOrigin then
-            log:debug("Returning simulated origin for userId {}: {}", playerOrUserId, tostring(simOrigin.Position))
+            log:debug("Returning simulated origin for userId %d: %s", playerOrUserId, tostring(simOrigin.Position))
         end
         return simOrigin
     end
@@ -72,7 +72,7 @@ function CubePositionService:GetOrigin(playerOrUserId: Player | number): CFrame?
     local player = playerOrUserId :: Player
     -- Check for manual override first
     if playerOrigins[player] then
-        log:debug("Returning manual override origin for {}: {}", player.Name, tostring(playerOrigins[player].Position))
+        log:debug("Returning manual override origin for %s: %s", player.Name, tostring(playerOrigins[player].Position))
         return playerOrigins[player]
     end
     
@@ -84,9 +84,9 @@ function CubePositionService:GetOrigin(playerOrUserId: Player | number): CFrame?
         ord = nextOrdinal
         userOrdinals[userId] = ord
         nextOrdinal = nextOrdinal + 1
-        log:info("Assigned NEW ordinal {} to userId {} ({})", ord, userId, player.Name)
+        log:info("Assigned NEW ordinal %d to userId %d (%s)", ord, userId, player.Name)
     else
-        log:debug("Using existing ordinal {} for userId {} ({})", ord, userId, player.Name)
+        log:debug("Using existing ordinal %d for userId %d (%s)", ord, userId, player.Name)
     end
     
     -- Return computed origin (SpawnService will freeze it via SetOrigin)
@@ -96,19 +96,19 @@ end
 -- Set manual override for testing
 function CubePositionService:SetOrigin(player: Player, origin: CFrame)
     playerOrigins[player] = origin
-    log:info("Set origin for {} to {}", player.Name, tostring(origin.Position))
+    log:info("Set origin for %s to %s", player.Name, tostring(origin.Position))
 end
 
 -- Register simulated position for testing
 function CubePositionService:RegisterSimulatedPosition(userId: number, cf: CFrame)
     simulatedOrigins[userId] = cf
-    log:debug("Registered simulated position for userId {} at {}", userId, tostring(cf.Position))
+    log:debug("Registered simulated position for userId %d at %s", userId, tostring(cf.Position))
 end
 
 -- Unregister simulated position
 function CubePositionService:UnregisterSimulatedPosition(userId: number)
     simulatedOrigins[userId] = nil
-    log:debug("Unregistered simulated position for userId {}", userId)
+    log:debug("Unregistered simulated position for userId %d", userId)
 end
 
 -- Player events moved to Start method

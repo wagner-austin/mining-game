@@ -217,6 +217,30 @@ local function ensureTerrainBaseplate()
     end)
 end
 
+-- Ensure a SpawnBounds part exists to define spawn area explicitly
+local function ensureSpawnBoundsPart()
+    local partName = (GameConfig.Multiplayer and GameConfig.Multiplayer.SPAWN_BOUNDS_PART) or "SpawnBounds"
+    local existing = Workspace:FindFirstChild(partName)
+    if existing and existing:IsA("BasePart") then
+        return existing
+    end
+    -- Create an invisible, non-collidable bounds part matching our default baseplate size
+    local p = Instance.new("Part")
+    p.Name = partName
+    p.Anchored = true
+    p.CanCollide = false
+    p.CanTouch = false
+    p.CanQuery = false
+    p.CastShadow = false
+    p.Transparency = 1
+    -- Match the worldgen baseplate (2048x2048) and center
+    p.Size = Vector3.new(2048, 1, 2048)
+    p.CFrame = CFrame.new(0, 10, 0)
+    p.Parent = Workspace
+    log:info("SpawnBounds created (auto) at %s size=(%d, %d)", tostring(p.Position), p.Size.X, p.Size.Z)
+    return p
+end
+
 -- Core spawn
 function WorldGenerationService.SpawnDecorations()
     local worldGen = GameConfig.WorldGen
@@ -239,8 +263,9 @@ function WorldGenerationService.SpawnDecorations()
         return 
     end
     
-    -- Ensure we have ground for decorations to spawn on
+    -- Ensure we have ground for decorations to spawn on and explicit spawn bounds
     ensureTerrainBaseplate()
+    ensureSpawnBoundsPart()
     
     local deco = GameConfig.Decorations or {}
     local treesActive = deco.TREES_ENABLED ~= false

@@ -105,7 +105,7 @@ table.insert(connections, { Disconnect = Bus:on(EventNames.CUBE_ORIGIN_CHANGED, 
     end
 
     if playerCubeOrigin then
-        log:info("Cube origin updated to: {}", tostring(playerCubeOrigin.Position))
+        log:info("Cube origin updated to: %s", tostring(playerCubeOrigin.Position))
         if visualFeedback then
             visualFeedback:SetCubeOrigin(playerCubeOrigin)
         end
@@ -288,13 +288,13 @@ local function getProfile()
     
     if profile then
         log:info("Profile loaded:")
-        print("  Coins:", profile.profile.coins)
-        print("  Gems:", profile.profile.gems)
-        print("  Total blocks dug:", profile.profile.totalBlocksDug)
-        print("  Effective stats:")
-        print("    Delay:", profile.effectiveStats.delay)
-        print("    Size:", profile.effectiveStats.size or 0)
-        print("    Luck:", profile.effectiveStats.luck)
+        log:info("  Coins: %d", profile.profile.coins or 0)
+        log:info("  Gems: %d", profile.profile.gems or 0)
+        log:info("  Total blocks dug: %d", profile.profile.totalBlocksDug or 0)
+        log:debug("  Effective stats:")
+        log:debug("    Delay: %s", tostring(profile.effectiveStats.delay))
+        log:debug("    Size: %s", tostring(profile.effectiveStats.size or 0))
+        log:debug("    Luck: %s", tostring(profile.effectiveStats.luck))
         
         -- Store cube origin for bounds checking
         if profile.cubeOrigin then
@@ -342,7 +342,7 @@ table.insert(connections, { Disconnect = Bus:on(EventNames.LOOT_DROPPED, functio
             end
         end
         local pos = p.position or p.worldPos
-        if pos then print("  Position:", pos) end
+        if pos then log:debug("  Position: %s", tostring(pos)) end
     end)
 end) })
 
@@ -355,17 +355,17 @@ table.insert(connections, { Disconnect = Bus:on(EventNames.INVENTORY_CHANGED, fu
             local items = change.items or change -- new format sends the inventory table directly
             local n = 0
             for _ in pairs(items or {}) do n += 1 end
-            print("  Snapshot items:", n)
+            log:debug("  Snapshot items: %d", n)
         else
             -- delta
             if change.action == "add" then
-                print(("  + %s x%d (total %s)"):format(change.itemId, change.count or 0, tostring(change.total)))
+                log:debug("  + %s x%d (total %s)", tostring(change.itemId), change.count or 0, tostring(change.total))
             elseif change.action == "remove" then
-                print(("  - %s x%d (total %s)"):format(change.itemId, change.count or 0, tostring(change.total)))
+                log:debug("  - %s x%d (total %s)", tostring(change.itemId), change.count or 0, tostring(change.total))
             elseif change.action == "equip" then
-                print(("  equip %s in %s"):format(tostring(change.itemId), tostring(change.slot)))
+                log:debug("  equip %s in %s", tostring(change.itemId), tostring(change.slot))
             elseif change.action == "unequip" then
-                print(("  unequip from %s"):format(tostring(change.slot)))
+                log:debug("  unequip from %s", tostring(change.slot))
             end
         end
     end)
@@ -381,9 +381,9 @@ end) })
 
 -- Controls
 log:debug("Controls:")
-print("  Press E to dig below player")
-print("  Press P to view profile")
-print("  Click to dig at mouse position")
+log:debug("  Press E to dig below player")
+log:debug("  Press P to view profile")
+log:debug("  Click to dig at mouse position")
 
 -- Keyboard input
 UserInputService.InputBegan:Connect(function(input, gameProcessed)

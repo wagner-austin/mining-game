@@ -11,6 +11,8 @@ local EventBus = require(MiningGame:WaitForChild("EventBus"))
 local EventNames = require(MiningGame:WaitForChild("EventNames"))
 local Time = require(MiningGame:WaitForChild("Time"))
 local Bus = EventBus.global()
+local Logger = require(MiningGame:WaitForChild("Logger"))
+local log = Logger.new("SoundReplication")
 
 -- Mark SOUND_PLAY as fast-path for high-frequency audio events
 Bus:markFastPath(EventNames.SOUND_PLAY)
@@ -178,7 +180,7 @@ end
 -- Handle item collected feedback via EventBus
 local offItemCollected = Bus:on(EventNames.ITEM_COLLECTED, function(data)
     -- Visual/UI feedback for item collection
-    print(string.format("Collected %s x%d [%s]", data.itemId, data.count, data.rarity or ""))
+    log:debug("Collected %s x%d [%s]", tostring(data.itemId), tonumber(data.count) or 0, tostring(data.rarity or ""))
     
     -- Skip EPIC+ items - they'll get announcement banners instead
     local rarityUpper = (data.rarity or ""):upper()
@@ -210,4 +212,4 @@ script.Destroying:Connect(function()
     end
 end)
 
-print("[SoundReplication] Client sound replication initialized")
+log:info("Client sound replication initialized")

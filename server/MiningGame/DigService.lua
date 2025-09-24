@@ -194,18 +194,18 @@ function DigService:InitializePlayerCube(player: Player)
     -- Wait for data to load
     local dataLoaded = player:GetAttribute("DataLoaded")
     if not dataLoaded then
-        log:debug("Waiting for data to load for {}", player.Name)
+        log:debug("Waiting for data to load for %s", player.Name)
         player:GetAttributeChangedSignal("DataLoaded"):Wait()
-        log:debug("Data loaded signal received for {}", player.Name)
+        log:debug("Data loaded signal received for %s", player.Name)
     end
     
     local profile = DataService:GetPlayerData(player)
     local cubeState = DataService:GetCubeData(player)
     
-    log:debug("Profile: {}, CubeState: {}", profile and "exists" or "nil", cubeState and "exists" or "nil")
+    log:debug("Profile: %s, CubeState: %s", profile and "exists" or "nil", cubeState and "exists" or "nil")
     
     if not profile or not cubeState then
-        log:warn("No data for player {}", player.Name)
+        log:warn("No data for player %s", player.Name)
         return
     end
     
@@ -217,7 +217,7 @@ function DigService:InitializePlayerCube(player: Player)
     local floorMaterial: Enum.Material? = nil
     if materialPrefs and materialPrefs.floorMaterial then
         floorMaterial = MaterialKeys.EnumFromKey[string.lower(materialPrefs.floorMaterial)]
-        log:debug("Loading saved floor material: {} -> {}", materialPrefs.floorMaterial, tostring(floorMaterial))
+        log:debug("Loading saved floor material: %s -> %s", tostring(materialPrefs.floorMaterial), tostring(floorMaterial))
     end
     
     -- Use CubeVolume to restore + register in one place
@@ -271,7 +271,7 @@ function DigService:InitializePlayerCube(player: Player)
         end
     end
     
-    log:info("Initialized cube for {} @ {}", player.Name, tostring(cubeOrigin.Position))
+    log:info("Initialized cube for %s @ %s", player.Name, tostring(cubeOrigin.Position))
 end
 
 -- Helper to check if player has an initialized cube

@@ -11,8 +11,6 @@ local GameConfig = require(Shared:WaitForChild("GameConfig"))
 local Time = require(Shared:WaitForChild("Time"))
 local Logger = require(Shared:WaitForChild("Logger"))
 local log = Logger.new("MonetizationRF")
-local Logger = require(Shared:WaitForChild("Logger"))
-local log = Logger.new("MonetizationRF")
 
 -- Return a factory function that accepts the DI container
 return function(container)
@@ -73,7 +71,7 @@ local debugOverrides: {[number]: { unownedAll: boolean?, ownedIds: {[string]: bo
             -- Validate product exists (by string id in GameConfig.Monetization.PRODUCTS)
             local product = PRODUCTS_BY_ID[productId]
             if not product then
-                log:warn("PurchaseProduct invalid id={} from {}", tostring(productId), player.Name)
+                log:warn("PurchaseProduct invalid id=%s from %s", tostring(productId), player.Name)
                 return {
                     ok = false,
                     success = false,
@@ -82,7 +80,7 @@ local debugOverrides: {[number]: { unownedAll: boolean?, ownedIds: {[string]: bo
                 }
             end
             if type(product.productId) ~= "number" or product.productId <= 0 then
-                log:warn("PurchaseProduct not configured id={}, productId={} from {}", tostring(productId), tostring(product.productId), player.Name)
+                log:warn("PurchaseProduct not configured id=%s, productId=%s from %s", tostring(productId), tostring(product.productId), player.Name)
                 return {
                     ok = false,
                     success = false,
@@ -95,10 +93,10 @@ local debugOverrides: {[number]: { unownedAll: boolean?, ownedIds: {[string]: bo
             -- Prompt the purchase via MonetizationService (uses GameConfig.Monetization.PRODUCTS)
             local prompted = MonetizationService:PromptPurchase(player, "product", productId)
             if prompted then
-                log:info("Prompted dev product {} (#{}) for {}", product.id, product.productId, player.Name)
+                log:info("Prompted dev product %s (#%s) for %s", tostring(product.id), tostring(product.productId), player.Name)
                 return { ok = true, success = true, prompted = true }
             end
-            log:warn("PromptProduct failed id={} (#{}) for {}", product.id, product.productId, player.Name)
+            log:warn("PromptProduct failed id=%s (#%s) for %s", tostring(product.id), tostring(product.productId), player.Name)
             return { ok = false, success = false, err = "PROMPT_FAILED", reason = "Failed to prompt product purchase" }
         end,
         validate = function(productId)
@@ -114,7 +112,7 @@ local debugOverrides: {[number]: { unownedAll: boolean?, ownedIds: {[string]: bo
             -- Validate gamepass exists by semantic id (e.g., "VIP")
             local pass = PASSES_BY_ID[id]
             if not pass or type(pass.gamepassId) ~= "number" or pass.gamepassId <= 0 then
-                log:warn("PurchaseGamepass invalid or unavailable id={} for {} (gamepassId={})", tostring(id), player.Name, pass and tostring(pass.gamepassId) or "nil")
+                log:warn("PurchaseGamepass invalid or unavailable id=%s for %s (gamepassId=%s)", tostring(id), player.Name, pass and tostring(pass.gamepassId) or "nil")
                 return {
                     ok = false,
                     success = false,
@@ -125,10 +123,10 @@ local debugOverrides: {[number]: { unownedAll: boolean?, ownedIds: {[string]: bo
             -- Prompt the Roblox purchase flow via service
             local prompted = MonetizationService:PromptPurchase(player, "gamepass", id)
             if prompted then
-                log:info("Prompted gamepass {} (#{}) for {}", pass.id, pass.gamepassId, player.Name)
+                log:info("Prompted gamepass %s (#%s) for %s", tostring(pass.id), tostring(pass.gamepassId), player.Name)
                 return { ok = true, success = true, prompted = true }
             end
-            log:warn("PromptGamepass failed id={} (#{}) for {}", pass.id, pass.gamepassId, player.Name)
+            log:warn("PromptGamepass failed id=%s (#%s) for %s", tostring(pass.id), tostring(pass.gamepassId), player.Name)
             return { ok = false, success = false, err = "PROMPT_FAILED", reason = "Failed to prompt gamepass purchase" }
         end,
         validate = function(id)

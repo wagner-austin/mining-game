@@ -174,7 +174,7 @@ function Service:ApplyComposition(
     -- Clear surface detection cache after terrain changes
     TerrainSurfaceDetector.ClearCache()
     
-    log:info("Applied theme '{}' to {}'s cube with seed {}", themeId, player.Name, seed)
+    log:info("Applied theme '%s' to %s's cube with seed %d", themeId, player.Name, seed)
     
     return true, nil
 end
@@ -192,7 +192,7 @@ Bus:on(EventNames.COMPOSITION_APPLY_REQUEST, function(evt)
         GameConfig.Timing.COMPOSITION_APPLY_RATE,
         GameConfig.Timing.COMPOSITION_APPLY_BURST
     ) then
-        log:warn("Rate limited composition apply for user {}", pld.userId)
+        log:warn("Rate limited composition apply for user %d", pld.userId)
         return
     end
     

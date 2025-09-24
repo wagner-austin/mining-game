@@ -42,7 +42,7 @@ function Processor.Process(service, player: Player, worldPos: Vector3)
     local cubeState = DataService:GetCubeData(player)
     local cubeData = service.playerCubes[player]
     if not profile or not cubeState or not cubeData then
-        log:error("Missing data - Profile: {}, CubeState: {}, CubeData: {}", profile ~= nil, cubeState ~= nil, cubeData ~= nil)
+        log:error("Missing data - Profile: %s, CubeState: %s, CubeData: %s", tostring(profile ~= nil), tostring(cubeState ~= nil), tostring(cubeData ~= nil))
         return { ok = false, reason = "No cube data" }
     end
 

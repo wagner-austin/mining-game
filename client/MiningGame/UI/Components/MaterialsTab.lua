@@ -66,14 +66,14 @@ function MaterialsTab.new(config: MaterialsTabConfig): MaterialsTabT
             function()
                 local prefs, err = ClientRF.call("GetMaterialPreferences")
                 if err then
-                    log:warn("GetMaterialPreferences failed: {}", err)
+                    log:warn("GetMaterialPreferences failed: %s", tostring(err))
                     return nil
                 end
                 return prefs  -- return data only
             end,
             function(prefs)
                 if prefs then
-                    log:debug("Loading saved preferences: {}", prefs)
+                    log:debug("Loading saved preferences: %s", tostring(prefs))
                     self:setHydrating(true)
                     if prefs.palette then
                         self:selectOptionById(self.paletteDropdown, string.lower(prefs.palette))
@@ -223,7 +223,7 @@ function MaterialsTab:_onPaletteSelect(option)
     end)
     
     if ok then
-        log:info("Palette set to: {}", option.label)
+        log:info("Palette set to: %s", option.label)
         
         -- Save the palette preference to server
         ClientRF.call("SetPalettePreference", option.id)
@@ -233,7 +233,7 @@ function MaterialsTab:_onPaletteSelect(option)
             -- Update preview colors based on palette
         end
     else
-        log:warn("Failed to set palette: {}", err)
+        log:warn("Failed to set palette: %s", tostring(err))
     end
 end
 
@@ -245,9 +245,9 @@ function MaterialsTab:_onFloorMaterialSelect(option)
     local res, err = ClientRF.call("ApplyFloorMaterial", option.id)
     
     if not err then
-        log:info("Floor terrain changed to: {}", option.label)
+        log:info("Floor terrain changed to: %s", option.label)
     else
-        log:warn("Failed to change floor terrain to: {} - {}", option.id, err)
+        log:warn("Failed to change floor terrain to: %s - %s", tostring(option.id), tostring(err))
     end
 end
 
@@ -255,7 +255,7 @@ function MaterialsTab:_hydrateCompositions()
     log:debug("Hydrating compositions from server")
     local data, err = ClientRF.call("ListCompositions")
     if err then
-        log:warn("ListCompositions failed: {}", err)
+        log:warn("ListCompositions failed: %s", tostring(err))
         return
     end
     if not data then
@@ -265,8 +265,8 @@ function MaterialsTab:_hydrateCompositions()
     
     -- Theme-based compositions only
     local list = data.compositions or {}
-    log:debug("Received {} items, mode: {}, active: {}", 
-        #list, data.mode, data.activeComposition)
+    log:debug("Received %d items, mode: %s, active: %s", 
+        #list, tostring(data.mode), tostring(data.activeComposition))
     
     -- Helper to get theme-appropriate colors
     local themeColors = {
@@ -319,12 +319,12 @@ function MaterialsTab:_onCompositionSelect(opt)
 
     -- Themes are always unlocked in the new system (no coin cost)
     -- Just apply directly
-    log:debug("Applying composition {}", opt.id)
+    log:debug("Applying composition %s", tostring(opt.id))
     local resA, errA = ClientRF.call("ApplyComposition", opt.id, true)
     if errA then
-        log:warn("ApplyComposition failed: {}", errA)
+        log:warn("ApplyComposition failed: %s", tostring(errA))
     else
-        log:info("Applied composition: {}", opt.id)
+        log:info("Applied composition: %s", tostring(opt.id))
     end
 end
 

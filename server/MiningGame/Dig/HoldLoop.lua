@@ -96,14 +96,14 @@ local function runHoldLoop(service, player: Player)
                 sleepSec = 0.2
             end
         elseif result and result.reason then
-            log:debug("Hold dig stopped for {}: {}", player.Name, result.reason)
+            log:debug("Hold dig stopped for %s: %s", player.Name, tostring(result.reason))
             break
         end
 
         task.wait(math.max(sleepSec, 0.05))
     end
 
-    log:info("Hold loop ended for {} after {} iterations", player.Name, iterationCount)
+    log:info("Hold loop ended for %s after %d iterations", player.Name, iterationCount)
     if holdState[player] and holdState[player].version == myVer then
         holdState[player] = nil
     end
@@ -114,7 +114,7 @@ local HoldLoop = {}
 function HoldLoop.Start(service, player: Player, initialWorldPos: Vector3)
     HoldLoop.Stop(service, player)
     holdState[player] = { active = true, target = initialWorldPos, version = (loopVersion[player] or 0) + 1 }
-    log:debug("Starting hold dig for {} at {}", player.Name, tostring(initialWorldPos))
+    log:debug("Starting hold dig for %s at %s", player.Name, tostring(initialWorldPos))
     task.spawn(function() runHoldLoop(service, player) end)
 end
 
@@ -126,7 +126,7 @@ end
 
 function HoldLoop.Stop(service, player: Player)
     if holdState[player] then
-        log:debug("Stopping hold dig for {}", player.Name)
+        log:debug("Stopping hold dig for %s", player.Name)
         holdState[player].active = false
     end
     loopVersion[player] = (loopVersion[player] or 0) + 1

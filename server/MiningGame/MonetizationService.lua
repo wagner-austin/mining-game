@@ -199,11 +199,11 @@ end
 local function handleProductPurchase(player: Player, product: Types.Product)
     local profile = DataService:GetPlayerData(player)
     if not profile then
-        log:warn("No profile found for player {} during product purchase", player.Name)
+        log:warn("No profile found for player %s during product purchase", player.Name)
         return false
     end
     
-    log:info("Processing product purchase: {} for player {}", product.id, player.Name)
+    log:info("Processing product purchase: %s for player %s", tostring(product.id), player.Name)
     log:event("product_purchased", {
         uid = player.UserId,
         productId = product.id,
@@ -311,7 +311,7 @@ local function processReceipt(receipt)
     -- Check if product is known (BLOCKER FIX #4)
     local productData = productIdToData[productId]
     if not productData then
-        log:warn("Unknown product ID: {} - returning NotProcessedYet", productId)
+        log:warn("Unknown product ID: %s - returning NotProcessedYet", tostring(productId))
         return Enum.ProductPurchaseDecision.NotProcessedYet
     end
     
@@ -333,7 +333,7 @@ local function processReceipt(receipt)
             break
         end
         -- Backoff on failure
-        log:warn("Enqueue attempt {} failed for receipt {}", attempt, receiptId)
+        log:warn("Enqueue attempt %d failed for receipt %s", attempt, receiptId)
         if attempt < 3 then
             task.wait(0.2 * attempt)
         end
@@ -341,7 +341,7 @@ local function processReceipt(receipt)
     
     if not enqueued then
         -- Failed to persist after retries - must retry later
-        log:error("Failed to enqueue receipt after retries: {}", receiptId)
+        log:error("Failed to enqueue receipt after retries: %s", receiptId)
         return Enum.ProductPurchaseDecision.NotProcessedYet
     end
     
@@ -350,7 +350,7 @@ local function processReceipt(receipt)
     if player then
         local firstTime = processPurchase(userId, "DevProduct", productId, grant.price, "Prompt", receiptId)
         if firstTime then
-            log:info("Receipt {} processed successfully for product {}", receiptId, productId)
+            log:info("Receipt %s processed successfully for product %s", tostring(receiptId), tostring(productId))
             log:event("receipt_processed", {
                 uid = userId,
                 productId = productId,
@@ -359,7 +359,7 @@ local function processReceipt(receipt)
             })
             handleProductPurchase(player, productData)
         else
-            log:debug("Receipt {} already processed, skipping", receiptId)
+            log:debug("Receipt %s already processed, skipping", tostring(receiptId))
         end
     end
     
@@ -371,11 +371,11 @@ end
 local function handleGamepassPurchase(player: Player, gamepass: Types.GamePass)
     local profile = DataService:GetPlayerData(player)
     if not profile then
-        log:warn("No profile found for player {} during gamepass purchase", player.Name)
+        log:warn("No profile found for player %s during gamepass purchase", player.Name)
         return
     end
     
-    log:info("Processing gamepass purchase: {} for player {}", gamepass.id, player.Name)
+    log:info("Processing gamepass purchase: %s for player %s", tostring(gamepass.id), player.Name)
     log:event("gamepass_purchased", {
         uid = player.UserId,
         gamepassId = gamepass.id,
@@ -405,7 +405,7 @@ end
 
 -- Check gamepass ownership on join
 local function onPlayerAdded(player)
-    log:debug("Player {} joined, checking gamepass ownership", player.Name)
+    log:debug("Player %s joined, checking gamepass ownership", player.Name)
     
     -- Wait until DataService has loaded profile (critical to avoid race)
     if player:GetAttribute("DataLoaded") ~= true then
@@ -420,7 +420,7 @@ local function onPlayerAdded(player)
     -- Process any durably queued grants (from offline purchases)
     local grants = DataService:ConsumePendingGrants(player.UserId)
     if #grants > 0 then
-        log:info("Processing {} pending grants for player {}", #grants, player.Name)
+        log:info("Processing %d pending grants for player %s", #grants, player.Name)
     end
     for _, grant in ipairs(grants) do
         local firstTime = processPurchase(
@@ -457,7 +457,7 @@ local function onPlayerAdded(player)
             end, { uid = player.UserId, gamepassId = gamepassId })
             
             if not success then
-                log:error("Backfill verify error for gamepass {} player {}", gamepassId, player.Name)
+                log:error("Backfill verify error for gamepass %s player %s", tostring(gamepassId), player.Name)
             elseif owns then
                 -- Player owns this but we haven't tracked it yet
                 local price = getProductPrice(Enum.InfoType.GamePass, gamepassId) or 0
@@ -473,7 +473,7 @@ local function onPlayerAdded(player)
                 if firstTime then
                     profile.ownedGamePasses[gamepassId] = true
                     handleGamepassPurchase(player, gamepassData)
-                    log:info("Backfilled game pass {} for {}", gamepassId, player.Name)
+                    log:info("Backfilled game pass %s for %s", tostring(gamepassId), player.Name)
                     log:event("gamepass_backfilled", {
                         uid = player.UserId,
                         gamepassId = gamepassId,
@@ -492,7 +492,7 @@ end
 
 -- Listen for game pass purchases (idempotent + tracked once)
 local function onGamePassPurchaseFinished(player, gamePassId, purchased)
-    log:info("PromptGamePassPurchaseFinished player={} gamePassId={} purchased={} ", player and player.Name or "<nil>", tostring(gamePassId), tostring(purchased))
+    log:info("PromptGamePassPurchaseFinished player=%s gamePassId=%s purchased=%s ", player and player.Name or "<nil>", tostring(gamePassId), tostring(purchased))
     if not purchased then return end
 
     local profile = DataService:GetPlayerData(player)
@@ -503,7 +503,7 @@ local function onGamePassPurchaseFinished(player, gamePassId, purchased)
         return MarketplaceService:UserOwnsGamePassAsync(player.UserId, gamePassId)
     end, { uid = player.UserId, gamePassId = gamePassId })
     if not ok or not owns then
-        log:error("Game pass verify failed {} for {}", gamePassId, player.Name)
+        log:error("Game pass verify failed %s for %s", tostring(gamePassId), player.Name)
         return
     end
 
@@ -570,12 +570,12 @@ end
 
 -- Prompt purchase function
 function MonetizationService:PromptPurchase(player: Player, purchaseType: string, purchaseId: string)
-    log:debug("Prompting {} purchase: {} for player {}", purchaseType, purchaseId, player.Name)
+    log:debug("Prompting %s purchase: %s for player %s", purchaseType, purchaseId, player.Name)
     if purchaseType == "product" then
         -- Find product
         for _, product in ipairs(GameConfig.Monetization.PRODUCTS) do
             if product.id == purchaseId and product.productId and product.productId > 0 then
-                log:info("Calling PromptProductPurchase uid={} id={} (#{})", player.UserId, product.id, product.productId)
+                log:info("Calling PromptProductPurchase uid=%d id=%s (#%s)", player.UserId, tostring(product.id), tostring(product.productId))
                 MarketplaceService:PromptProductPurchase(player, product.productId)
                 log:event("purchase_prompted", {
                     uid = player.UserId,
@@ -585,12 +585,12 @@ function MonetizationService:PromptPurchase(player: Player, purchaseType: string
                 return true
             end
         end
-        log:warn("Product not configured or not found id={} for {}", purchaseId, player.Name)
+        log:warn("Product not configured or not found id=%s for %s", tostring(purchaseId), player.Name)
     elseif purchaseType == "gamepass" then
         -- Find gamepass
         for _, gamepass in ipairs(GameConfig.Monetization.GAMEPASSES) do
             if gamepass.id == purchaseId and gamepass.gamepassId and gamepass.gamepassId > 0 then
-                log:info("Calling PromptGamePassPurchase uid={} id={} (#{})", player.UserId, gamepass.id, gamepass.gamepassId)
+                log:info("Calling PromptGamePassPurchase uid=%d id=%s (#%s)", player.UserId, tostring(gamepass.id), tostring(gamepass.gamepassId))
                 MarketplaceService:PromptGamePassPurchase(player, gamepass.gamepassId)
                 log:event("purchase_prompted", {
                     uid = player.UserId,
@@ -600,10 +600,10 @@ function MonetizationService:PromptPurchase(player: Player, purchaseType: string
                 return true
             end
         end
-        log:warn("Gamepass not configured or not found id={} for {}", purchaseId, player.Name)
+        log:warn("Gamepass not configured or not found id=%s for %s", tostring(purchaseId), player.Name)
     end
     
-    log:warn("Failed to prompt purchase: {} {} not found", purchaseType, purchaseId)
+    log:warn("Failed to prompt purchase: %s %s not found", tostring(purchaseType), tostring(purchaseId))
     return false
 end
 

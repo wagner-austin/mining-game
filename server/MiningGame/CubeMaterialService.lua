@@ -47,7 +47,7 @@ local function getTerrainMaterial(key: string): Enum.Material
     key = string.lower(key or "")
     local mat = MaterialKeys.EnumFromKey[key]
     if not mat then
-        log:warn("Unknown material key: {} -> defaulting to Rock", key)
+        log:warn("Unknown material key: %s -> defaulting to Rock", key)
         return Enum.Material.Rock
     end
     return mat
@@ -65,7 +65,7 @@ local function getCubeOrigin(player: Player): Vector3
     end
     
     -- Fallback to default position
-    log:warn("Could not find cube for player {}", player.Name)
+    log:warn("Could not find cube for player %s", player.Name)
     return Vector3.new(0, 10, 0)
 end
 
@@ -77,7 +77,7 @@ local function paintCubeVolume(player: Player, mat: Enum.Material)
     local shell = RESOLUTION -- 1 voxel thick (4 studs) to preserve dig patterns
     local origin = getCubeOrigin(player)
     
-    log:info("Painting cube volume for {} at {} with {}", 
+    log:info("Painting cube volume for %s at %s with %s", 
         player.Name, tostring(origin), tostring(mat))
     
     -- Use precomputed list of all terrain materials
@@ -122,7 +122,7 @@ local function paintCubeVolume(player: Player, mat: Enum.Material)
         for _, srcMaterial in ipairs(materialsToReplace) do
             Terrain:ReplaceMaterial(region, RESOLUTION, srcMaterial, mat)
         end
-        log:debug("Cube volume painted successfully with {}", tostring(mat))
+        log:debug("Cube volume painted successfully with %s", tostring(mat))
         -- Clear surface detection cache after terrain change
         ErrorService.safecall("TerrainSurfaceDetector.ClearCache", function()
             TerrainSurfaceDetector.ClearCache()
@@ -144,7 +144,7 @@ local function replaceFloorMaterial(player: Player, mat: Enum.Material)
         return
     end
     
-    log:info("Replacing floor material under neon bars and cube with {}", tostring(mat))
+    log:info("Replacing floor material under neon bars and cube with %s", tostring(mat))
     
     local RESOLUTION = GameConfig.Grid.CELL_SIZE_STUDS
     local replacedCount = 0
@@ -193,7 +193,7 @@ local function replaceFloorMaterial(player: Player, mat: Enum.Material)
         end
     end
     
-    log:debug("Replaced floor material under cube at {}", tostring(origin))
+    log:debug("Replaced floor material under cube at %s", tostring(origin))
     
     -- Then process each glow bar (reuse allTerrainMaterials)
     for _, edge in ipairs(indicators:GetChildren()) do
@@ -232,7 +232,7 @@ local function replaceFloorMaterial(player: Player, mat: Enum.Material)
         end
     end
     
-    log:debug("Replaced floor material under {} neon bars", replacedCount)
+    log:debug("Replaced floor material under %d neon bars", replacedCount)
     -- Clear cache after all floor changes
     ErrorService.safecall("TerrainSurfaceDetector.ClearCache", function()
         TerrainSurfaceDetector.ClearCache()

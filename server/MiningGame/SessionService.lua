@@ -44,7 +44,7 @@ function SessionService:Start()
     -- Track when players join
     table.insert(_conns, Players.PlayerAdded:Connect(function(player)
         sessionStartByUserId[player.UserId] = Time.unix()
-        log:info("Player {} session started at {}", player.Name, sessionStartByUserId[player.UserId])
+        log:info("Player %s session started at %d", player.Name, sessionStartByUserId[player.UserId])
         log:event("session_started", {
             uid = player.UserId,
             timestamp = sessionStartByUserId[player.UserId]
@@ -81,7 +81,7 @@ function SessionService:Start()
     for _, player in ipairs(Players:GetPlayers()) do
         if not sessionStartByUserId[player.UserId] then
             sessionStartByUserId[player.UserId] = Time.unix()
-            log:info("Found existing player {} - tracking from now", player.Name)
+            log:info("Found existing player %s - tracking from now", player.Name)
         end
     end
     

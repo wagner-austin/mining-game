@@ -39,7 +39,7 @@ end)
 
 if not okDS then
     log:warn("DataStore access disabled (Studio mode). Using mock data.")
-    log:warn("Error: {}", tostring(errDS))
+    log:warn("Error: %s", tostring(errDS))
     -- Create mock stores for testing
     local mockData = {}
     PlayerDataStore = {
@@ -287,6 +287,121 @@ local function ensureRequiredFields(profile: Types.PlayerStats)
     end
 end
 
+-- === Profile Migrations ===
+local function ensureMigrations(profile: Types.PlayerStats)
+    local p = (profile :: any)
+    p.migrations = p.migrations or {}
+end
+
+-- Migration: Remove legacy ore items (iron/coal/gold/etc.) and refund coins based on item value.
+local LEGACY_ORES: {[string]: boolean} = {
+    coal = true, iron = true, copper = true, silver = true, gold = true,
+    crystal = true, diamond = true, ruby = true, emerald = true, obsidian = true,
+    void_crystal = true,
+}
+
+local function migrateLegacyOresToCoins(profile: Types.PlayerStats)
+    ensureMigrations(profile)
+    local mig = ((profile :: any).migrations)
+    if mig and mig.legacyOresRefundV1 then return false end
+
+    local ItemDefinitions = require(Shared:WaitForChild("ItemDefinitions"))
+    local inv = profile.inventory or {}
+    local refunded = 0
+    for itemId, count in pairs(inv) do
+        if LEGACY_ORES[itemId] then
+            local def = ItemDefinitions.get(itemId)
+            local value = (def and def.value) or 0
+            refunded += math.max(0, value or 0) * math.max(0, count or 0)
+            inv[itemId] = nil
+        end
+    end
+    if refunded > 0 then
+        profile.coins = (profile.coins or 0) + refunded
+        local p = profile :: any
+        p.totalCoinsEarned = (p.totalCoinsEarned or 0) + refunded
+        log:info("Migration legacyOresRefundV1: refunded %d coins for removed ore items", refunded)
+        p.migrations.legacyOresRefundV1 = true
+        return true
+    else
+        local p = profile :: any
+        p.migrations.legacyOresRefundV1 = true
+        return false
+    end
+end
+
+-- Migration: Map legacy cosmetics/tools to current curated items
+local LEGACY_MAP: {[string]: string} = {
+    -- Trails
+    trail_speed_red = "trail_neon_cyan",
+    trail_speed_yellow = "trail_neon_cyan",
+    trail_speed_white = "trail_neon_cyan",
+    trail_speed_cyan = "trail_neon_cyan",
+    trail_star = "trail_neon_cyan",
+    trail_cosmic = "trail_rainbow",
+
+    -- Head cosmetics
+    head_halo = "head_halo_thick",
+    head_halo_cyan = "head_halo_thick",
+    head_halo_thin = "head_halo_thick",
+    head_horns_neon_small = "head_horns_neon",
+    head_horns_neon_large = "head_horns_neon",
+    head_glasses_cool = "head_glasses_sunglasses",
+    head_crown_bronze = "head_crown_gold",
+    head_crown_bronze_diadem = "head_crown_gold",
+    head_crown_silver = "head_crown_gold",
+    head_crown_royal = "head_crown_gold",
+    head_crown_slim_silver = "head_crown_gold",
+    head_helmet_swat = "head_glasses_sunglasses",
+    head_helmet_knight = "head_glasses_sunglasses",
+    head_helmet_astronaut = "head_glasses_sunglasses",
+    head_helmet_some = "head_glasses_sunglasses",
+
+    -- Back
+    back_backpack = "back_angel",
+
+    -- Tools to hand cosmetics
+    diamond_pickaxe = "hand_pickaxe_base",
+    gold_pickaxe = "hand_pickaxe_base",
+    iron_pickaxe = "hand_pickaxe_base",
+    pickaxe_skin_wooden = "hand_pickaxe_base",
+    hand_pickaxe_enhanced = "hand_pickaxe_base",
+    hand_sword_enhanced = "hand_sword_base",
+    hand_warhammer_enhanced = "hand_warhammer_base",
+}
+
+local function migrateLegacyCosmeticsAndTools(profile: Types.PlayerStats)
+    ensureMigrations(profile)
+    local p = profile :: any
+    if p.migrations and p.migrations.legacyCosmeticsMapV1 then return false end
+
+    local changed = false
+    local inv = profile.inventory or {}
+    for legacyId, targetId in pairs(LEGACY_MAP) do
+        local count = inv[legacyId]
+        if type(count) == "number" and count > 0 then
+            inv[targetId] = (inv[targetId] or 0) + count
+            inv[legacyId] = nil
+            changed = true
+        end
+        -- Update equipped references
+        if profile.equipped then
+            for slot, eqId in pairs(profile.equipped) do
+                if eqId == legacyId then
+                    profile.equipped[slot] = targetId
+                    changed = true
+                end
+            end
+        end
+    end
+
+    p.migrations.legacyCosmeticsMapV1 = true
+    if changed then
+        log:info("Migration legacyCosmeticsMapV1: applied mappings for legacy items")
+    end
+    return changed
+end
+
 -- Generate default cube state
 local function createDefaultCube(userId: number, materialId: string): Types.CubeState
     return {
@@ -343,13 +458,13 @@ function DataService:LoadPlayerAsync(player: Player): Types.PlayerStats?
     
     -- Check for existing session
     if isSessionLocked(userId) then
-        log:warn("Player {} has active session elsewhere", player.Name)
+        log:warn("Player %s has active session elsewhere", player.Name)
         return nil
     end
     
     -- Acquire lock
     if not acquireSessionLock(userId) then
-        log:warn("Failed to acquire lock for {}", player.Name)
+        log:warn("Failed to acquire lock for %s", player.Name)
         return nil
     end
     
@@ -362,7 +477,7 @@ function DataService:LoadPlayerAsync(player: Player): Types.PlayerStats?
     end)
     
     if not okLoad then
-        log:error("Failed to load data for {}: {}", player.Name, tostring(result))
+        log:error("Failed to load data for %s: %s", player.Name, tostring(result))
         releaseSessionLock(userId)
         return nil
     end
@@ -402,6 +517,11 @@ function DataService:LoadPlayerAsync(player: Player): Types.PlayerStats?
                  local candidate = profile.firstPlayTime or profile.lastLoginTime or DateTime.now().UnixTimestamp
                  profile.firstDigTime = candidate
              end
+             -- Run profile migrations (one-time)
+             local changed = false
+             changed = migrateLegacyOresToCoins(profile) or changed
+             changed = migrateLegacyCosmeticsAndTools(profile) or changed
+
              -- Ensure session baseline reflects the just-loaded lifetime blocks
              local currentTotalBlocks = profile.totalBlocksDug or 0
              if profile.sessionStartBlocks == nil or profile.sessionStartBlocks < currentTotalBlocks then
@@ -475,7 +595,7 @@ function DataService:LoadCubeAsync(player: Player): Types.CubeState?
     local profile = playerData[player]
     
     if not profile then
-        log:warn("No profile loaded for {}", player.Name)
+        log:warn("No profile loaded for %s", player.Name)
         return nil
     end
     
@@ -486,7 +606,7 @@ function DataService:LoadCubeAsync(player: Player): Types.CubeState?
     end)
     
     if not okCube then
-        log:error("Failed to load cube for {}: {}", player.Name, tostring(result))
+        log:error("Failed to load cube for %s: %s", player.Name, tostring(result))
         return nil
     end
     
@@ -521,7 +641,7 @@ function DataService:SavePlayerAsync(player: Player): boolean
     end)
     
     if not okSave then
-        log:error("Failed to save data for {}: {}", player.Name, tostring(err))
+        log:error("Failed to save data for %s: %s", player.Name, tostring(err))
         return false
     end
     
@@ -564,7 +684,7 @@ function DataService:SaveCubeAsync(player: Player): boolean
     end)
     
     if not okSave then
-        log:error("Failed to save cube for {}: {}", player.Name, tostring(err))
+        log:error("Failed to save cube for %s: %s", player.Name, tostring(err))
         return false
     end
     
@@ -764,7 +884,7 @@ function DataService:EnsureLoaded(player: Player): boolean
         end
         
         -- Still no data after timeout? Synthesize defaults as fallback
-        log:warn("EnsureLoaded: synthesizing default data for {}", player.Name)
+        log:warn("EnsureLoaded: synthesizing default data for %s", player.Name)
         local profile = createDefaultProfile(player.UserId)
         ensureMaterialPrefs(profile)
         ensureRequiredFields(profile)
@@ -901,7 +1021,7 @@ function DataService:EnqueueReceiptGrant(userId: number, grant: any): boolean
     end)
     
     if not okQ then
-        log:error("Failed to enqueue receipt grant for user {}, err: {}", userId, tostring(err))
+        log:error("Failed to enqueue receipt grant for user %d, err: %s", userId, tostring(err))
         return false
     end
     
@@ -933,7 +1053,7 @@ function DataService:ConsumePendingGrants(userId: number): {any}
     end)
     
     if not okC then
-        log:error("Failed to consume pending grants for {}, err: {}", userId, tostring(err))
+        log:error("Failed to consume pending grants for %d, err: %s", userId, tostring(err))
         return {}
     end
     
@@ -994,7 +1114,7 @@ onPlayerAdded = function(player: Player)
         else
             -- In Studio with no DataStore access, create default data
             if not canUseDataStore then
-                log:info("No DataStore access - creating default data for {}", player.Name)
+                log:info("No DataStore access - creating default data for %s", player.Name)
                 local profile = createDefaultProfile(player.UserId)
                 ensureMaterialPrefs(profile)
                 ensureRequiredFields(profile)
@@ -1004,7 +1124,7 @@ onPlayerAdded = function(player: Player)
                 player:SetAttribute("DataLoaded", true)
             else
                 -- Production failure - should not happen
-                log:error("Failed to load profile in production for {}", player.Name)
+                log:error("Failed to load profile in production for %s", player.Name)
                 player:Kick("Failed to load profile data. Please try again.")
             end
         end
@@ -1037,7 +1157,7 @@ spawn(autoSaveLoop)
 setupWipeCommand = function(player: Player)
     player.Chatted:Connect(function(message)
         if message == "/wipedata" then
-            log:info("Wipe command received from {}", player.Name)
+            log:info("Wipe command received from %s", player.Name)
             
             -- Wipe the player's data
             local profile = playerData[player]
@@ -1057,7 +1177,7 @@ setupWipeCommand = function(player: Player)
                 -- Force save using the actual save method
                 DataService:SaveAllAsync(player)
                 
-                log:info("Wiped data for {}", player.Name)
+                log:info("Wiped data for %s", player.Name)
                 log:event("data_wiped", {
                     uid = player.UserId,
                     timestamp = math.floor(Time.unix())
@@ -1066,7 +1186,7 @@ setupWipeCommand = function(player: Player)
                 -- Kick player to force reload
                 player:Kick("Data wiped! Please rejoin.")
             else
-                log:warn("No profile found for {}", player.Name)
+                log:warn("No profile found for %s", player.Name)
             end
         end
     end)

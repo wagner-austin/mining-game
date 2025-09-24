@@ -187,7 +187,7 @@ function DigEngine.WriteCellsToTerrain(
         return { materials = mats, occupancy = occ }
     end, { region = tostring(region) })
     if not ok then
-        log:warn("WriteCellsToTerrain: ReadVoxels failed (min={}, max={}): {}", tostring(rmin), tostring(rmax), tostring(vox))
+        log:warn("WriteCellsToTerrain: ReadVoxels failed (min=%s, max=%s): %s", tostring(rmin), tostring(rmax), tostring(vox))
         return
     end
     local materials, occupancy = vox.materials, vox.occupancy

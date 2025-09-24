@@ -10,6 +10,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local MaterialPalettes = require(script.Parent.MaterialPalettes)
 local GameConfig = require(script.Parent.GameConfig)
 local MathUtils = require(script.Parent:WaitForChild("MathUtils"))
+local Logger = require(script.Parent:WaitForChild("Logger"))
+local log = Logger.new("MaterialManager")
 
 type Palette = {
     name: string,
@@ -308,7 +310,7 @@ function MaterialManager.SetPalette(paletteName: string)
         end
     end)
     
-    print("MaterialManager: Applied palette", paletteName)
+    log:info("Applied palette %s", paletteName)
     return true
 end
 
@@ -353,7 +355,7 @@ function MaterialManager.SetCubeMaterial(materialKey: string)
         end
     end)
     
-    print("MaterialManager: Applied cube material", materialKey)
+    log:info("Applied cube material %s", materialKey)
     return true
 end
 

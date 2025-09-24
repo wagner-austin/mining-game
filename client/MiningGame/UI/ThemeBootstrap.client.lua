@@ -9,6 +9,8 @@ local ThemeManager = require(MG:WaitForChild("UI"):WaitForChild("ThemeManager"))
 local SoundTheme = require(MG:WaitForChild("SoundThemeManager"))
 local ClientRF = require(MG:WaitForChild("ClientRF"))
 local Ready = require(MG:WaitForChild("Ready"))
+local Logger = require(MG:WaitForChild("Logger"))
+local log = Logger.new("ThemeBootstrap")
 
 -- Helper to load sound pack by name
 local function packByName(name: string): any?
@@ -38,9 +40,9 @@ local function loadSavedThemes(): ()
     if not err and typeof(t) == "table" then
         ui = t.uiTheme or "default"
         snd = t.soundPack or "default"
-        print("[ThemeBootstrap] Loaded saved themes - UI:", ui, "Sound:", snd)
+        log:info("Loaded saved themes - UI: %s Sound: %s", tostring(ui), tostring(snd))
     else
-        print("[ThemeBootstrap] Using default themes (no saved data or error)")
+        log:info("Using default themes (no saved data or error)")
     end
     
     -- Apply UI theme
@@ -49,7 +51,7 @@ local function loadSavedThemes(): ()
     -- Apply sound pack with fallback
     local pack = packByName(snd)
     if not pack and snd ~= "default" then
-        print("[ThemeBootstrap] Sound pack", snd, "not found, falling back to default")
+        log:warn("Sound pack %s not found, falling back to default", tostring(snd))
         snd = "default"
     end
     SoundTheme.Apply(snd, pack)
@@ -59,8 +61,8 @@ end
 if Ready.wait(10) then
     loadSavedThemes()
 else
-    warn("[ThemeBootstrap] Server not ready after timeout; using defaults")
+    log:warn("Server not ready after timeout; using defaults")
     -- Defaults already applied by ThemeManager and SoundTheme on init
 end
 
-print("[ThemeBootstrap] Theme settings applied")
+log:info("Theme settings applied")

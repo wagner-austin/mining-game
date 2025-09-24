@@ -16,6 +16,8 @@ local ThemePacks = require(UIFolder:WaitForChild("ThemePacks"))
 local SoundTheme = require(MiningGame:WaitForChild("SoundThemeManager"))
 local SoundManager = require(MiningGame:WaitForChild("SoundManager"))
 local ClientRF = require(MiningGame:WaitForChild("ClientRF"))
+local Logger = require(MiningGame:WaitForChild("Logger"))
+local log = Logger.new("ThemeTab")
 
 -- Type definitions
 type ThemeSettings = {uiTheme: string?, soundTheme: string?, musicVolume: number?}
@@ -82,7 +84,7 @@ function ThemeTab.new(config: ThemeTabConfig): ThemeTabT
             end,
             function(settings)
                 if settings then
-                    print("[ThemeTab] Loading saved theme settings:", settings)
+                    log:info("Loaded saved theme settings")
                     
                     -- Set UI theme dropdown
                     if settings.uiTheme then
@@ -100,7 +102,7 @@ function ThemeTab.new(config: ThemeTabConfig): ThemeTabT
                         self:_setVolumeSlider(math.clamp(mv, 0, 1))
                     end
                 else
-                    print("[ThemeTab] No saved theme settings found")
+                    log:info("No saved theme settings found")
                     -- Set defaults
                     self:setHydrating(true)
                     self:selectOptionById(self.uiDropdown, "Default")
@@ -384,6 +386,8 @@ function ThemeTab:_setVolumeSlider(value: number)
     if self.musicVolumeValueLabel then
         self.musicVolumeValueLabel.Text = string.format("%d%%", math.floor(value * 100))
     end
+    -- Log at DEBUG to avoid spam while dragging
+    log:debug("Music volume set to: %d%%", math.floor(value * 100))
     
     -- Also apply to sound system
     SoundManager.SetGroupVolume("Music", value)
@@ -399,7 +403,7 @@ function ThemeTab:_onUIThemeSelect(option)
     end)
     
     if ok then
-        print(("[ThemeTab] UI theme set to: %s"):format(option.label))
+        log:info("UI theme set to: %s", tostring(option.label))
         
         -- Save the preference to server
         pcall(function()
@@ -443,7 +447,7 @@ function ThemeTab:_onSoundPackSelect(option)
     end)
     
     if ok then
-        print(("[ThemeTab] Sound pack set to: %s"):format(option.label))
+        log:info("Sound pack set to: %s", tostring(option.label))
         
         -- Save the preference to server
         pcall(function()

@@ -107,7 +107,10 @@ do
     local GameConfig = require(MiningGame:WaitForChild("GameConfig"))
     local hlog = Logger.new(Logger.CAT.Heartbeat)
     local THRESH = (GameConfig.Performance and GameConfig.Performance.HEARTBEAT_WARN_DT) or 0.066 -- ~15 FPS
+    local startMono = Time.mono()
     RunService.Heartbeat:Connect(function(dt)
+        -- Ignore early warm-up spikes for the first few seconds
+        if (Time.mono() - startMono) < 5 then return end
         if dt > THRESH then
             hlog:warn("Heartbeat spike: dt=%.3f (threshold=%.3f)", dt, THRESH)
         end

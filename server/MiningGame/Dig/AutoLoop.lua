@@ -20,7 +20,7 @@ local function runAutoDigLoop(service, player: Player)
     while autoDigState[player] and autoDigState[player].active and myVer == autoDigVersion[player] and player.Parent do
         local profile = service._container:Get("DataService"):GetPlayerData(player)
         if not profile or not profile.boosts or not profile.boosts.auto_dig or Time.unix() >= profile.boosts.auto_dig then
-            log:debug("Auto-dig expired for {}", player.Name)
+            log:debug("Auto-dig expired for %s", player.Name)
             break
         end
 
@@ -49,7 +49,7 @@ local function runAutoDigLoop(service, player: Player)
     if autoDigState[player] and autoDigState[player].version == myVer then
         autoDigState[player] = nil
     end
-    log:info("Auto-dig stopped for {}", player.Name)
+    log:info("Auto-dig stopped for %s", player.Name)
 end
 
 local AutoLoop = {}
@@ -57,19 +57,19 @@ local AutoLoop = {}
 function AutoLoop.Start(service, player: Player)
     local profile = service._container:Get("DataService"):GetPlayerData(player)
     if not profile or not profile.boosts or not profile.boosts.auto_dig or Time.unix() >= profile.boosts.auto_dig then
-        log:debug("Cannot start auto-dig: no active boost for {}", player.Name)
+        log:debug("Cannot start auto-dig: no active boost for %s", player.Name)
         return false
     end
     AutoLoop.Stop(service, player)
     autoDigState[player] = { active = true, version = (autoDigVersion[player] or 0) + 1 }
-    log:info("Starting auto-dig for {} (expires at {})", player.Name, profile.boosts.auto_dig)
+    log:info("Starting auto-dig for %s (expires at %s)", player.Name, tostring(profile.boosts.auto_dig))
     task.spawn(function() runAutoDigLoop(service, player) end)
     return true
 end
 
 function AutoLoop.Stop(service, player: Player)
     if autoDigState[player] then
-        log:debug("Stopping auto-dig for {}", player.Name)
+        log:debug("Stopping auto-dig for %s", player.Name)
         autoDigState[player].active = false
     end
     autoDigVersion[player] = (autoDigVersion[player] or 0) + 1

@@ -16,6 +16,8 @@ local SettingsButton = require(script.Parent:WaitForChild("Components"):WaitForC
 local GameConfig = require(MiningGame:WaitForChild("GameConfig"))
 local BaseChip = require(script.Parent:WaitForChild("Components"):WaitForChild("BaseChip"))
 local ClientRF = require(MiningGame:WaitForChild("ClientRF"))
+local Logger = require(MiningGame:WaitForChild("Logger"))
+local log = Logger.new("MainHUD")
 
 local MainHUD = {}
 MainHUD.__index = MainHUD
@@ -147,9 +149,9 @@ function MainHUD:init(manager)
             -- Call teleport to home remote
             local data, err = ClientRF.call("TeleportToHome")
             if not err then
-                print("[MainHUD] Teleporting home...")
+                log:info("Teleporting home...")
             else
-                print("[MainHUD] Failed to teleport home:", err)
+                log:warn("Failed to teleport home: %s", tostring(err))
             end
         end
     })
@@ -194,8 +196,8 @@ function MainHUD:init(manager)
             local chipCenterX = chipPos.X + chipSize.X / 2
             local delta = chipCenterX - screenCenterX
             
-            print(string.format("[MainHUD] Action chip center: %.1f, Screen center: %.1f, Delta: %.1f", 
-                chipCenterX, screenCenterX, delta))
+            log:debug("Action chip center: %.1f, Screen center: %.1f, Delta: %.1f", 
+                chipCenterX, screenCenterX, delta)
         end
     end)
     

@@ -6,6 +6,8 @@ local RS = game:GetService("ReplicatedStorage")
 local MiningGame = RS:WaitForChild("MiningGame")
 local EventBus = require(MiningGame:WaitForChild("EventBus"))
 local EventNames = require(MiningGame:WaitForChild("EventNames"))
+local Logger = require(MiningGame:WaitForChild("Logger"))
+local log = Logger.new("CellGizmo")
 local Bus = EventBus.global()
 
 -- Store connections for cleanup
@@ -47,4 +49,4 @@ script.Destroying:Connect(function()
     end
 end)
 
-print("[CellGizmo] Visual feedback enabled")
+log:info("Visual feedback enabled")

@@ -131,11 +131,16 @@ end
 -- Spawn bounds from Workspace (SpawnBounds or Baseplate)
 function WorldGenUtils.getSpawnBounds(): (Vector3, number, number)
     local Workspace = game:GetService("Workspace")
-    local p = Workspace:FindFirstChild("SpawnBounds")
+    local partName = ((GameConfig.Multiplayer and GameConfig.Multiplayer.SPAWN_BOUNDS_PART) or "SpawnBounds")
+    -- Strict: require explicit bounds part or explicit Baseplate
+    -- 1) Explicit bounds part present
+    local p = Workspace:FindFirstChild(partName)
     if p and p:IsA("BasePart") then return p.Position, p.Size.X, p.Size.Z end
+    -- 2) Legacy explicit Baseplate part
     local base = Workspace:FindFirstChild("Baseplate")
     if base and base:IsA("BasePart") then return base.Position, base.Size.X, base.Size.Z end
-    return Vector3.new(0,0,0), 2000, 2000
+    -- No attribute fallback: enforce explicit authoring
+    error(("Spawn bounds not found. Add a BasePart named '%s' to Workspace or set GameConfig.Multiplayer.SPAWN_BOUNDS_PART."):format(partName))
 end
 
 -- Default player keepout radius around cube origins

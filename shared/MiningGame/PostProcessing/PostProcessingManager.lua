@@ -137,19 +137,41 @@ function PostProcessingManager.new()
 end
 
 function PostProcessingManager:_initializeComposites()
-	-- Warn once about pre-existing effects to avoid log spam
-	if not self._warnedLightingScan then
-		for _, child in ipairs(Lighting:GetChildren()) do
-			local class = child.ClassName
-			if (class == "Atmosphere" or class == "BloomEffect" or class == "BlurEffect"
-				or class == "ColorCorrectionEffect" or class == "DepthOfFieldEffect" or class == "SunRaysEffect")
-				and not tostring(child.Name):match("^PP_") then
-				log:warn("Found existing %s '%s' under Lighting. Consider removing to avoid conflicts.", 
-					class, child.Name)
-			end
-		end
-		self._warnedLightingScan = true
-	end
+    -- Quarantine pre-existing Lighting effects to avoid conflicts
+    if not self._warnedLightingScan then
+        local legacyFolder = Lighting:FindFirstChild("Legacy_PostFX")
+        if not legacyFolder then
+            legacyFolder = Instance.new("Folder")
+            legacyFolder.Name = "Legacy_PostFX"
+            legacyFolder.Parent = Lighting
+        end
+        local removedCount = 0
+        for _, child in ipairs(Lighting:GetChildren()) do
+            local class = child.ClassName
+            local isEffect = (class == "Atmosphere" or class == "BloomEffect" or class == "BlurEffect"
+                or class == "ColorCorrectionEffect" or class == "DepthOfFieldEffect" or class == "SunRaysEffect")
+            if isEffect and not tostring(child.Name):match("^PP_") then
+                -- Disable where applicable, rename, and move under Legacy_PostFX
+                pcall(function()
+                    if child:IsA("PostEffect") or child:FindFirstChild("Enabled") ~= nil then
+                        (child :: any).Enabled = false
+                    end
+                end)
+                if not tostring(child.Name):match("^Legacy_") then
+                    pcall(function() child.Name = "Legacy_" .. child.Name end)
+                end
+                pcall(function() child.Parent = legacyFolder end)
+                log:info("Quarantined pre-existing %s '%s' to Lighting/Legacy_PostFX", class, child.Name)
+                removedCount += 1
+            end
+        end
+        -- If we quarantined any legacy effects, remove the folder entirely to clean up the scene
+        if removedCount > 0 then
+            pcall(function() legacyFolder:Destroy() end)
+            log:info("Removed %d legacy Lighting effect(s)", removedCount)
+        end
+        self._warnedLightingScan = true
+    end
 	
 	for _, className in ipairs(EFFECT_CLASSES) do
 		local instance = Instance.new(className)

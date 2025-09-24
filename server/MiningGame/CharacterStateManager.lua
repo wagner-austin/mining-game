@@ -200,7 +200,7 @@ function CharacterStateManager:_initPlayer(p: Player): ()
         payload = stateByPlayer[p].effects
     })
     
-    log:debug("Initialized character state for {}", p.Name)
+    log:debug("Initialized character state for %s", p.Name)
 end
 
 -- Sync effects from DataService profile.boosts
@@ -271,7 +271,7 @@ function CharacterStateManager:Damage(p: Player, amt: number): ()
     st.health = newH
     setAttr(p, "Char_Health", newH)
     
-    log:debug("{} took {} damage, health now {}/{}", p.Name, amt, newH, st.maxHealth)
+    log:debug("%s took %d damage, health now %d/%d", p.Name, amt, newH, st.maxHealth)
 end
 
 -- Heal player
@@ -283,13 +283,13 @@ function CharacterStateManager:Heal(p: Player, amt: number): ()
     st.health = newH
     setAttr(p, "Char_Health", newH)
     
-    log:debug("{} healed for {}, health now {}/{}", p.Name, amt, newH, st.maxHealth)
+    log:debug("%s healed for %d, health now %d/%d", p.Name, amt, newH, st.maxHealth)
 end
 
 -- Apply timed, server-authored effects (e.g., "wet")
 function CharacterStateManager:ApplyTimedEffect(p: Player, effectId: EffectId, durationSec: number?): boolean
     if not okEffects or not Effects or not Effects.exists(effectId) then
-        log:warn("Attempted to apply unknown effect: {}", effectId)
+        log:warn("Attempted to apply unknown effect: %s", tostring(effectId))
         return false
     end
     
@@ -310,7 +310,7 @@ function CharacterStateManager:ApplyTimedEffect(p: Player, effectId: EffectId, d
     })
     changedEvent:Fire(p)
     
-    log:debug("Applied effect {} to {} for {}s", effectId, p.Name, dur)
+    log:debug("Applied effect %s to %s for %s s", tostring(effectId), p.Name, tostring(dur))
     return true
 end
 
@@ -330,7 +330,7 @@ function CharacterStateManager:RemoveEffect(p: Player, effectId: EffectId): ()
         })
         changedEvent:Fire(p)
         
-        log:debug("Removed effect {} from {}", effectId, p.Name)
+        log:debug("Removed effect %s from %s", tostring(effectId), p.Name)
     end
 end
 

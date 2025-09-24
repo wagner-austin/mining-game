@@ -290,7 +290,7 @@ function LootService:RollCell(
         if opts.specificBoosts and opts.specificBoosts[itemDef.id] then
             weights[i] = weights[i] * opts.specificBoosts[itemDef.id]
         end
-        
+
         -- Hard gate exclusive items: only available if composition provides them
         if itemDef.exclusive and (not opts.exclusiveSet or not opts.exclusiveSet[itemDef.id]) then
             weights[i] = 0 -- Cannot drop unless composition includes it
@@ -299,6 +299,22 @@ function LootService:RollCell(
         -- Boost exclusive items when they are allowed
         if opts.exclusiveSet and opts.exclusiveSet[itemDef.id] then
             weights[i] = weights[i] * 2.0 -- Extra weight for exclusive drops
+        end
+        -- Terrain-simple mode: gate resources to the mapped terrain resource
+        local mode = (GameConfig and GameConfig.Loot and GameConfig.Loot.MODE) or "WEIGHTED_TABLE"
+        if mode == "TERRAIN_SIMPLE" and itemDef.type == "resource" then
+            local map = GameConfig.Loot.TERRAIN_RESOURCE_MAP
+            local mappedId = nil
+            -- Prefer explicit terrainKey from opts (passed from Dig/Processor via RollCells)
+            local tk = (opts :: any).terrainKey
+            if tk and map and map.byTerrainKey and map.byTerrainKey[tk] then
+                mappedId = map.byTerrainKey[tk]
+            elseif map and map.byMaterialId and map.byMaterialId[materialId] then
+                mappedId = map.byMaterialId[materialId]
+            end
+            if mappedId and itemDef.id ~= mappedId then
+                weights[i] = 0
+            end
         end
     end
     

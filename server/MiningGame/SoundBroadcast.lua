@@ -65,7 +65,7 @@ local function sanitizePayload(payload: {[string]: any}): {[string]: any}
     -- Sanitize category
     data.category = string.lower(tostring(data.category or ""))
     if not VALID_CATEGORIES[data.category] then
-        log:warn("Invalid category: {}", data.category)
+        log:warn("Invalid category: %s", data.category)
         data.category = "rewards" -- Safe default
     end
     
@@ -81,7 +81,7 @@ local function sanitizePayload(payload: {[string]: any}): {[string]: any}
             end
         end
         if not validMaterial then
-            log:warn("Invalid material key: {}", data.materialKey)
+            log:warn("Invalid material key: %s", data.materialKey)
             data.materialKey = "rock" -- Safe default
         end
     end

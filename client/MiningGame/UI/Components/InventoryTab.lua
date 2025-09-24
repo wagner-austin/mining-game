@@ -610,14 +610,8 @@ function InventoryTab:_createItemButton(itemId: string, count: number): TextButt
 
 
     if not itemDef then
-
-
         log:warn("Unknown item: %s", itemId)
-
-
         return nil
-
-
     end
 
 
