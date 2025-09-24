@@ -43,7 +43,7 @@ local data, err = ClientRF.callWithRetry("GetInventory", 3)
 
 ## RemoteFunction Categories
 
-**Total Functions: 59 across 15 specification modules**
+RemoteFunctions are organized by feature area under `server/MiningGame/RemoteFns/*`.
 
 ### Core Module (`Core.rf.lua`)
 - `GetServerUnix` - Server timestamp
@@ -51,8 +51,6 @@ local data, err = ClientRF.callWithRetry("GetInventory", 3)
 - `DebugAddCurrency` (debug-only)
 - `DebugResetCube` (debug-only)
 - `DebugResetStats` (debug-only)
-- `GetMetrics` - Player metrics
-- `GetServerMetrics` - Server performance metrics
 - `SpawnStrategy_Get` (debug-only)
 - `SpawnStrategy_List` (debug-only)
 - `SpawnStrategy_Set` (debug-only)
@@ -342,3 +340,5 @@ end
 - [EventBus System](EVENTBUS_SYSTEM.md) - Server→Client events
 - [API Best Practices](API_BEST_PRACTICES.md) - Guidelines and patterns
 - [Service Architecture](SERVICE_ARCHITECTURE.md) - Server-side services
+
+

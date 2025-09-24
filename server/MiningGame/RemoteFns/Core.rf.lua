@@ -218,43 +218,7 @@ return function(container)
         opts = { requireProfile = true, rateLimitSec = 0.5, debugOnly = true },
     },
     
-    {
-        name = "GetMetrics",
-        handler = function(ctx)
-            local metrics = UserMetricsService:GetMetrics(ctx.player)
-            if type(metrics) ~= "table" then
-                return { ok = false, success = false, err = "NO_METRICS", reason = "Failed to get metrics" }
-            end
-            -- Return metrics at top level for consistency
-            local out = table.clone(metrics)
-            out.ok = true
-            out.success = true
-            return out
-        end,
-        opts = { requireProfile = false, rateLimitSec = 0.5 },
-    },
-    
-    {
-        name = "GetServerMetrics",
-        handler = function(ctx)
-            if not canSeeServerMetrics(ctx.player) then
-                -- still a successful call, but not visible
-                return { ok = true, success = true, visible = false, players = #Players:GetPlayers() }
-            end
-            
-            local metrics = UserMetricsService:GetServerMetrics()
-            if type(metrics) ~= "table" then
-                return { ok = false, success = false, err = "NO_SERVER_METRICS", reason = "No metrics available" }
-            end
-            
-            local out = table.clone(metrics)
-            out.ok = true
-            out.success = true
-            out.visible = true
-            return out
-        end,
-        opts = { requireProfile = false, rateLimitSec = 2.0 },
-    },
+    -- Metrics RF endpoints removed in favor of EventBus push requests
     
     -- Spawn strategy management
     {

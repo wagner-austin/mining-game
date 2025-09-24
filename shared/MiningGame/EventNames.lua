@@ -13,7 +13,7 @@ local E = {
     RUNTIME_EFFECTS_CHANGED = "runtime.effects.changed",
     ACHIEVEMENT_UNLOCKED = "achievement.unlocked",
     ANNOUNCEMENT_BROADCAST = "announcement.broadcast",
-    
+
     -- Additional events
     EQUIPMENT_CHANGED = "equipment.changed",
     BOOSTS_CHANGED = "boosts.changed",
@@ -25,6 +25,13 @@ local E = {
     NOTIFICATION_PUSH = "notification.push",
     SOUND_PLAY = "sound.play",
     TERRAIN_POKE = "terrain.poke",
+
+    -- UI/global client-side cross-module events
+    THEME_CHANGED = "theme.changed",
+    SOUNDTHEME_CHANGED = "soundtheme.changed",
+    ACCOUNT_SNAPSHOT_UPDATED = "account.snapshot.updated",
+    METRICS_UPDATED = "metrics.updated",
+    SERVER_METRICS_UPDATED = "metrics.server.updated",
     
     -- Dig service events
     MEGA_DIG_REQUEST = "dig.mega_request",
@@ -80,6 +87,7 @@ export type EventName =
     "equipment.changed" | "boosts.changed" | "debug.reset" | "upgrades.changed" |
     "item.collected" | "pickup.prompt" | "reward.granted" | "notification.push" |
     "sound.play" | "terrain.poke" |
+    "theme.changed" | "soundtheme.changed" | "account.snapshot.updated" | "metrics.updated" | "metrics.server.updated" |
     "neighbor.joined" | "neighbor.left" | "cube.update" | "error.reported" |
     "dig.mega_request" | "dig.auto_start" | "composition.apply.request" |
     "cube.spawn.request" | "cube.despawn.request" |

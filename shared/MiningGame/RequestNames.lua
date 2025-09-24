@@ -7,6 +7,7 @@ local R = {
     COSMETIC_REQUEST_EQUIP   = "cosmetic.request.equip",
     SETTINGS_UPDATE          = "settings.update",
     METRICS_REQUEST          = "metrics.request",
+    SERVER_METRICS_REQUEST   = "metrics.server.request",
 }
 
 -- Build validation table for whitelists/tests
@@ -27,6 +28,6 @@ table.freeze(R)
 export type RequestName =
     "inventory.request.sell" | "inventory.request.equip" | "dig.request" |
     "upgrade.request.purchase" | "cosmetic.request.equip" | 
-    "settings.update" | "metrics.request"
+    "settings.update" | "metrics.request" | "metrics.server.request"
 
 return R

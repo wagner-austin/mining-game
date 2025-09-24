@@ -4,6 +4,7 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
 
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
@@ -12,7 +13,10 @@ local Logger = require(MiningGame:WaitForChild("Logger"))
 local log = Logger.new(Logger.CAT.UserMetrics or "UserMetricsService")
 local MathUtils = require(MiningGame:WaitForChild("MathUtils"))
 local ServiceValidator = require(MiningGame:WaitForChild("ServiceValidator"))
--- EventBus removed from this service after cleanup
+local EventBus = require(MiningGame:WaitForChild("EventBus"))
+local EventNames = require(MiningGame:WaitForChild("EventNames"))
+local RequestNames = require(MiningGame:WaitForChild("RequestNames"))
+local Bus = EventBus.global()
 local SpawnOrchestrator = require(script.Parent:WaitForChild("SpawnOrchestrator"))
 
 -- Services (injected via Init)
@@ -113,6 +117,39 @@ function UserMetricsService:Start(container)
     end)
     
     log:info("Started with player connections")
+
+    -- Optional: handle client -> server metrics request via EventBus bridge
+    Bus:on(RequestNames.METRICS_REQUEST, function(evt)
+        local from = evt and evt.from
+        local player = from
+        if typeof(player) ~= "Instance" then return end
+        local m = self:GetMetrics(player)
+        if type(m) ~= "table" then return end
+        Bus:emit(EventNames.METRICS_UPDATED, {
+            to = { kind = "player", player = player },
+            payload = m,
+        })
+    end)
+
+    -- Optional: server metrics via EventBus (dev-only visibility, mirrors RF behavior)
+    Bus:on(RequestNames.SERVER_METRICS_REQUEST, function(evt)
+        local from = evt and evt.from
+        local player = from
+        if typeof(player) ~= "Instance" then return end
+        if not RunService:IsStudio() then
+            -- Send minimal payload to indicate lack of visibility
+            Bus:emit(EventNames.SERVER_METRICS_UPDATED, {
+                to = { kind = "player", player = player },
+                payload = { visible = false }
+            })
+            return
+        end
+        local serverMetrics = self:GetServerMetrics()
+        Bus:emit(EventNames.SERVER_METRICS_UPDATED, {
+            to = { kind = "player", player = player },
+            payload = serverMetrics
+        })
+    end)
 end
 
 function UserMetricsService.new()
@@ -305,7 +342,12 @@ function UserMetricsService:GetServerMetrics()
     
     log:perf("UserMetricsService:GetServerMetrics", t0)
     log:metric("server_active_players", totalPlayers)
-    
+    -- Include EventBus event counters (best effort)
+    local okEvt, evt = pcall(function() return require(script.Parent.EventMetrics).Snapshot() end)
+    if okEvt and type(evt) == "table" then
+        serverMetrics.eventBus = evt
+    end
+
     return serverMetrics
 end
 

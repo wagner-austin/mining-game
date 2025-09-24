@@ -16,8 +16,9 @@ local EventBus = require(MiningGame.EventBus)
 local EventNames = require(MiningGame.EventNames)
 local RequestNames = require(MiningGame.RequestNames)
 local Bus = EventBus.global()
--- Frequent client updates — skip middleware cost
+-- Frequent client updates �?" skip middleware cost
 Bus:markFastPath(EventNames.DIG_FEEDBACK)
+Bus:markFastPath(EventNames.INVENTORY_DELTA)
 
 -- Wait for the EventBus RemoteEvent with timeout
 local RE = Remotes:WaitForChild("EventBus", 10)
@@ -43,6 +44,7 @@ type BridgeApi = {
     requestEquipCosmetic: (cosmeticId: string, slot: string) -> (),
     updateSetting: (key: string, value: any) -> (),
     requestMetrics: () -> (),
+    requestServerMetrics: () -> (),
 }
 
 local Bridge: BridgeApi = {} :: any
@@ -55,6 +57,7 @@ local SENDABLE_EVENTS: {[string]: boolean} = {
     [RequestNames.COSMETIC_REQUEST_EQUIP] = true,
     [RequestNames.SETTINGS_UPDATE] = true,
     [RequestNames.METRICS_REQUEST] = true,
+    [RequestNames.SERVER_METRICS_REQUEST] = true,
 }
 table.freeze(SENDABLE_EVENTS)
 
@@ -108,6 +111,10 @@ end
 
 function Bridge.requestMetrics()
     Bridge.send(RequestNames.METRICS_REQUEST, {})
+end
+
+function Bridge.requestServerMetrics()
+    Bridge.send(RequestNames.SERVER_METRICS_REQUEST, {})
 end
 
 return Bridge

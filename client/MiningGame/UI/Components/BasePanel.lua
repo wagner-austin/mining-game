@@ -409,6 +409,10 @@ function BasePanel:_refreshRevealBaseline()
     end
     
     -- Add new elements that don't have a record yet
+    -- Baseline normalization rationale:
+    -- Elements can be added while the panel is hidden (after hide() fades visuals to fully transparent).
+    -- Capturing that hidden state (≈1 transparency) as the baseline would prevent the next reveal from showing them.
+    -- We normalize such hidden baselines back to visible defaults so reveal animates them into view consistently.
     for _, c in ipairs(self.contentLayer:GetDescendants()) do
         if c:IsA("GuiObject") and c.Visible and not c:IsA("UIConstraint") then
             if not baseline[c] then
@@ -416,10 +420,14 @@ function BasePanel:_refreshRevealBaseline()
                 if c:IsA("TextLabel") or c:IsA("TextButton") or c:IsA("TextBox") then
                     rec.textOrig = c.TextTransparency
                     rec.strokeTextOrig = c.TextStrokeTransparency
+                    -- Guard: if we're coming from a hidden state (1), treat intended baseline as visible (0)
+                    if rec.textOrig ~= nil and rec.textOrig >= 0.999 then rec.textOrig = 0 end
+                    if rec.strokeTextOrig ~= nil and rec.strokeTextOrig >= 0.999 then rec.strokeTextOrig = 1 end
                 end
                 rec.bgOrig = c.BackgroundTransparency
                 if c:IsA("ImageLabel") or c:IsA("ImageButton") then
                     rec.imgOrig = c.ImageTransparency
+                    if rec.imgOrig ~= nil and rec.imgOrig >= 0.999 then rec.imgOrig = 0 end
                 end
                 if c:IsA("ScrollingFrame") then
                     rec.scrollBarOrig = c.ScrollBarImageTransparency
@@ -428,6 +436,7 @@ function BasePanel:_refreshRevealBaseline()
                 if uiStroke then
                     rec.stroke = uiStroke
                     rec.strokeOrig = uiStroke.Transparency
+                    if rec.strokeOrig ~= nil and rec.strokeOrig >= 0.999 then rec.strokeOrig = 0 end
                 end
                 baseline[c] = rec
             end

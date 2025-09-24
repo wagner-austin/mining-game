@@ -5,6 +5,9 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
 local SoundConfig = require(MiningGame:WaitForChild("SoundConfig"))
+local EventBus = require(MiningGame:WaitForChild("EventBus"))
+local EventNames = require(MiningGame:WaitForChild("EventNames"))
+local Bus = EventBus.global()
 local Logger = require(MiningGame:WaitForChild("Logger"))
 local log = Logger.new("SoundThemeManager")
 
@@ -24,6 +27,8 @@ function SoundThemeManager.Apply(name: string, overrides: {[string]: any}?)
     end
     _changed:Fire(_activeName)
     log:info("Applied sound pack: %s", name)
+    -- Cross-module notification (client-local)
+    Bus:emit(EventNames.SOUNDTHEME_CHANGED, { name = _activeName })
 end
 
 -- Get change event

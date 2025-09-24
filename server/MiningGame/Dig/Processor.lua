@@ -23,6 +23,7 @@ local log = Logger.new("DigProcessor")
 local Telemetry = require(script.Parent:WaitForChild("Telemetry"))
 
 local Processor = {}
+local Bus = EventBus.global()
 
 function Processor.Process(service, player: Player, worldPos: Vector3)
     local container = service._container
@@ -242,7 +243,7 @@ function Processor.Process(service, player: Player, worldPos: Vector3)
     local nextAtMono = now + effectiveStats.delay
     -- Emit dig feedback event for listeners (UI, analytics). Keep payload stable for clients.
     pcall(function()
-        EventBus.global():emit(EventNames.DIG_FEEDBACK, {
+        Bus:emit(EventNames.DIG_FEEDBACK, {
             to = { kind = "player", player = player },
             payload = {
                 size = effectiveStats.size,

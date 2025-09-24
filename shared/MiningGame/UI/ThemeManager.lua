@@ -6,6 +6,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
 local Theme = require(MiningGame:WaitForChild("UI"):WaitForChild("Theme"))
 local Packs = require(MiningGame:WaitForChild("UI"):WaitForChild("ThemePacks"))
+local EventBus = require(MiningGame:WaitForChild("EventBus"))
+local EventNames = require(MiningGame:WaitForChild("EventNames"))
+local Bus = EventBus.global()
 local Logger = require(MiningGame:WaitForChild("Logger"))
 local log = Logger.new("ThemeManager")
 
@@ -135,6 +138,8 @@ function ThemeManager.Apply(name: string)
     
     _changed:Fire(_name)
     log:info("Applied theme: %s", _name)
+    -- Cross-module notification (client-local)
+    Bus:emit(EventNames.THEME_CHANGED, { name = _name })
 end
 
 function ThemeManager.Changed() 

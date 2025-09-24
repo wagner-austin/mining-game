@@ -436,7 +436,8 @@ function WorldGenerationService.SpawnDecorations()
     
     log:info("World Generation Complete: %d trees, %d rocks, %d firefly groups", treesSpawned, rocksSpawned, fliesSpawned)
     -- Notify systems that worldgen is finished so dependent visuals can run safely after
-    Bus:emit(EventNames.WORLDGEN_DONE, { to = { kind = "server" } })
+    -- Server-local signal; no network target
+    Bus:emit(EventNames.WORLDGEN_DONE, {})
 end
 
 local spawning = false

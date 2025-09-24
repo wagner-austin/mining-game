@@ -206,7 +206,10 @@ function AccountDataProvider:_updateField(key: string, value: any)
 end
 
 function AccountDataProvider:_notifyChange(key: string?, value: any?)
-    self._changed:Fire(key, value, self:getSnapshot())
+    local snapshot = self:getSnapshot()
+    self._changed:Fire(key, value, snapshot)
+    -- Broadcast cross-module snapshot updates for client-local listeners
+    Bus:emit(EventNames.ACCOUNT_SNAPSHOT_UPDATED, snapshot)
 end
 
 function AccountDataProvider:_setupEventListeners()
@@ -216,7 +219,7 @@ function AccountDataProvider:_setupEventListeners()
     -- Profile updates (full snapshot from server)
     table.insert(self._busUnsubs, Bus:on(EventNames.PROFILE_UPDATED, function(profile)
         self._profile = profile
-        self._changed:Fire(nil, nil, self:getSnapshot())
+        self:_notifyChange()
     end))
     
     -- Currency changes
@@ -232,7 +235,7 @@ function AccountDataProvider:_setupEventListeners()
             end
         end
         self._profile = p
-        self._changed:Fire(nil, nil, self:getSnapshot())
+        self:_notifyChange()
     end))
     
     -- Inventory changes (full snapshot)
@@ -240,7 +243,7 @@ function AccountDataProvider:_setupEventListeners()
         local p = self._profile or self:_getDefaultProfile()
         p.inventory = inventory
         self._profile = p
-        self._changed:Fire(nil, nil, self:getSnapshot())
+        self:_notifyChange()
     end))
 
     -- Inventory deltas (incremental updates)
@@ -252,7 +255,7 @@ function AccountDataProvider:_setupEventListeners()
             p.inventory[itemId] = current + inc
         end
         self._profile = p
-        self._changed:Fire("inventoryDelta", delta, self:getSnapshot())
+        self:_notifyChange("inventoryDelta", delta)
     end))
     
     -- Debug reset via EventBus - refresh entire profile

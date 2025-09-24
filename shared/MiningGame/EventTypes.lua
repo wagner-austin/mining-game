@@ -26,7 +26,7 @@ export type AnnouncementType = "info" | "warning" | "success" | "error" | "banne
 -- Event name unions
 export type ServerToClientEventName =
     "loot.dropped" | "currency.changed" | "cube.origin.changed" |
-    "dig.feedback" | "terrain.poke" | "first.dig" |
+    "dig.feedback" | "terrain.poke" |
     "runtime.effects.changed" | "inventory.changed" |
     "achievement.unlocked" | "announcement.broadcast" | "sound.play" |
     "notification.push" | "equipment.changed" | "boosts.changed" |

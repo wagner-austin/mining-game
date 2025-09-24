@@ -206,7 +206,8 @@ function UpgradeService:PurchaseUpgrade(
     -- Emit profile update after upgrade is applied
     local EventBus = require(Shared:WaitForChild("EventBus"))
     local EventNames = require(Shared:WaitForChild("EventNames"))
-    EventBus.global():emit(EventNames.PROFILE_UPDATED, {
+    local Bus = EventBus.global()
+    Bus:emit(EventNames.PROFILE_UPDATED, {
         to = { kind = "player", player = player },
         payload = profile
     })

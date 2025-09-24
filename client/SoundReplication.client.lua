@@ -18,7 +18,7 @@ local log = Logger.new("SoundReplication")
 Bus:markFastPath(EventNames.SOUND_PLAY)
 
 -- Store connections for cleanup
-local connections: {{ Disconnect: () -> () }} = {}
+local connections: {() -> ()} = {}
 
 -- Use Time.mono() for interval timing
 local function now(): number return Time.mono() end
@@ -134,7 +134,7 @@ local offSound = Bus:on(EventNames.SOUND_PLAY, function(data)
         SoundManager.PlayMusic(data.soundType)
     end
 end)
-table.insert(connections, { Disconnect = offSound })
+table.insert(connections, offSound)
 
 -- Batch collection events to prevent duplicate toasts
 local collectionBatch = {} :: {[string]: {count: number, rarity: string, timestamp: number}}
@@ -203,12 +203,12 @@ local offItemCollected = Bus:on(EventNames.ITEM_COLLECTED, function(data)
     -- Always (re)schedule a flush; the flusher will delay if needed
     task.delay(BATCH_WINDOW, flushCollectionBatch)
 end)
-table.insert(connections, { Disconnect = offItemCollected })
+table.insert(connections, offItemCollected)
 
 -- Cleanup on script destroy
 script.Destroying:Connect(function()
-    for _, c in ipairs(connections) do
-        if c and c.Disconnect then c.Disconnect() end
+    for _, unsub in ipairs(connections) do
+        if type(unsub) == "function" then pcall(unsub) end
     end
 end)
 

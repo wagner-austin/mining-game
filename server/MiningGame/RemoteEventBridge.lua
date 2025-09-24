@@ -39,6 +39,7 @@ local FAST_PATH_EVENTS = {
     [EventNames.TERRAIN_POKE] = true,
     [EventNames.RUNTIME_EFFECTS_CHANGED] = true,
     [EventNames.SOUND_PLAY] = true,
+    [EventNames.INVENTORY_DELTA] = true,
 }
 
 -- Whitelist of server -> client events
@@ -63,6 +64,8 @@ local TO_CLIENT = {
     [EventNames.DEBUG_RESET] = true,
     [EventNames.PROFILE_UPDATED] = true,
     [EventNames.UPGRADES_CHANGED] = true,
+    [EventNames.METRICS_UPDATED] = true,
+    [EventNames.SERVER_METRICS_UPDATED] = true,
     -- [EventNames.CLOTH_UPDATE] = true, -- removed: cloth now client-driven
     -- Neighborhood events
     [EventNames.NEIGHBOR_JOINED] = true,
@@ -80,6 +83,7 @@ local FROM_CLIENT = {
     [RequestNames.COSMETIC_REQUEST_EQUIP] = true,
     [RequestNames.SETTINGS_UPDATE] = true,
     [RequestNames.METRICS_REQUEST] = true,
+    [RequestNames.SERVER_METRICS_REQUEST] = true,
 }
 
 -- Rate limiting for client events (per player per event)

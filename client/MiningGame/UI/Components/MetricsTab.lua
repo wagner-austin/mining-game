@@ -9,8 +9,13 @@ local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
 local UIFolder = MiningGame:WaitForChild("UI")
 local Theme = require(UIFolder:WaitForChild("Theme"))
 local Logger = require(MiningGame:WaitForChild("Logger"))
-local ClientRF = require(MiningGame:WaitForChild("ClientRF"))
 local UIConstants = require(UIFolder:WaitForChild("UIConstants"))
+local EventBus = require(MiningGame:WaitForChild("EventBus"))
+local EventNames = require(MiningGame:WaitForChild("EventNames"))
+local RequestNames = require(MiningGame:WaitForChild("RequestNames"))
+local Bus = EventBus.global()
+-- Client-local bridge for EventBus requests
+local RemoteEventBridge = require(script.Parent.Parent.Parent:WaitForChild("RemoteEventBridge"))
 
 -- Shorthand
 local UIx = UIConstants
@@ -62,7 +67,7 @@ function MetricsTab.new(props: Props): MetricsTabT
     self._errorBanner = nil
     self._errorTimeout = nil
     
-    -- No need to get remotes directly anymore - ClientRF handles it
+    -- Using EventBus push for metrics; no RF needed here
     
     -- Build UI
     self._errorBanner = self:createStatusBanner()
@@ -119,12 +124,42 @@ function MetricsTab.new(props: Props): MetricsTabT
     log:info("Starting initial refresh")
     self:refresh()
     
-    -- Use base component's periodic update for auto-refresh
+    -- Use base component's periodic update for auto-refresh (paused when hidden)
     self:startPeriodicUpdate(2, function()
         self:refresh()
     end)
     
+    -- Pause auto refresh when tab not visible to avoid mutating UI while hidden
+    self:addConnection(self.container:GetPropertyChangedSignal("Visible"):Connect(function()
+        if self.container.Visible then
+            -- Resume periodic updates and refresh immediately when shown
+            self:startPeriodicUpdate(2, function() self:refresh() end)
+            self:refresh()
+        else
+            -- Stop while hidden to prevent creating rows during reveal baseline capture
+            self:stopPeriodicUpdate()
+        end
+    end))
+    
     log:info("MetricsTab created successfully")
+    
+    -- Subscribe to metrics pushes (EventBus path)
+    self._unsubs = {}
+    table.insert(self._unsubs, Bus:on(EventNames.METRICS_UPDATED, function(metrics)
+        if type(metrics) == "table" then
+            pcall(function() self:_applyUserMetrics(metrics) end)
+        end
+    end))
+    
+    -- Persistently listen for server metrics pushes as well (store latest, update UI)
+    table.insert(self._unsubs, Bus:on(EventNames.SERVER_METRICS_UPDATED, function(serverMetrics)
+        if type(serverMetrics) == "table" then
+            -- Avoid mutating UI while hidden (reveal baseline stays valid)
+            if self.container and self.container.Visible then
+                pcall(function() self:_applyServerMetrics(serverMetrics) end)
+            end
+        end
+    end))
     return self :: any
 end
 
@@ -221,129 +256,106 @@ function MetricsTab:refresh()
         end
     end
     
-    -- Fetch user metrics
+    -- Fetch user metrics via EventBus: request + wait for push (fallback timeout)
     task.spawn(function()
-        log:debug("Invoking GetMetrics...")
-        local metrics, err = ClientRF.call("GetMetrics")
-        
-        log:debug("GetMetrics result - Error: %s, Has metrics: %s", tostring(err), tostring(metrics ~= nil))
-        
-        if not err and metrics then
-            log:debug("Updating UI with metrics")
-            -- Update gameplay
-            self:_updateValue("gameplay_totalBlocksDug", self:_formatMetricValue("totalBlocksDug", metrics.gameplay.totalBlocksDug))
-            self:_updateValue("gameplay_dugThisSession", self:_formatMetricValue("dugThisSession", metrics.gameplay.dugThisSession))
-            self:_updateValue("gameplay_blocksPerMinute", self:_formatMetricValue("blocksPerMinute", metrics.gameplay.blocksPerMinute))
-            
-            -- Update economy
-            self:_updateValue("economy_coins", self:_formatMetricValue("coins", metrics.economy.coins))
-            self:_updateValue("economy_gems", self:_formatMetricValue("gems", metrics.economy.gems))
-            self:_updateValue("economy_totalCoinsEarned", self:_formatMetricValue("totalCoinsEarned", metrics.economy.totalCoinsEarned))
-            self:_updateValue("economy_totalCoinsSpent", self:_formatMetricValue("totalCoinsSpent", metrics.economy.totalCoinsSpent))
-            self:_updateValue("economy_totalGemsEarned", self:_formatMetricValue("totalGemsEarned", metrics.economy.totalGemsEarned))
-            self:_updateValue("economy_totalGemsSpent", self:_formatMetricValue("totalGemsSpent", metrics.economy.totalGemsSpent))
-            self:_updateValue("economy_netWorth", self:_formatMetricValue("netWorth", metrics.economy.netWorth))
-            
-            -- Update session
-            self:_updateValue("session_sessionStartTime", self:_formatMetricValue("sessionStartTime", metrics.session.sessionStartTime))
-            self:_updateValue("session_sessionDurationSec", self:_formatMetricValue("sessionDurationSec", metrics.session.sessionDurationSec))
-            self:_updateValue("session_totalPlaytimeSec", self:_formatMetricValue("totalPlaytimeSec", metrics.session.totalPlaytimeSec))
-            self:_updateValue("session_totalSessions", self:_formatMetricValue("totalSessions", metrics.session.totalSessions))
-            self:_updateValue("session_avgSessionLengthSec", self:_formatMetricValue("avgSessionLengthSec", metrics.session.avgSessionLengthSec))
-            
-            -- Update lifecycle (if present)
-            if metrics.lifecycle then
-                self:_updateValue("lifecycle_isNewPlayer", self:_formatMetricValue("isNewPlayer", metrics.lifecycle.isNewPlayer))
-                self:_updateValue("lifecycle_isReturningPlayer", self:_formatMetricValue("isReturningPlayer", metrics.lifecycle.isReturningPlayer))
-                self:_updateValue("lifecycle_isFirstDigEver", self:_formatMetricValue("isFirstDigEver", metrics.lifecycle.isFirstDigEver))
-                self:_updateValue("lifecycle_hasDugEver", self:_formatMetricValue("hasDugEver", metrics.lifecycle.hasDugEver))
-                self:_updateValue("lifecycle_hasDugThisSession", self:_formatMetricValue("hasDugThisSession", metrics.lifecycle.hasDugThisSession))
-                self:_updateValue("lifecycle_firstPlayTime", metrics.lifecycle.firstPlayTime and self:_formatMetricValue("firstPlayTime", metrics.lifecycle.firstPlayTime) or "N/A")
-                self:_updateValue("lifecycle_firstDigTime", metrics.lifecycle.firstDigTime and self:_formatMetricValue("firstDigTime", metrics.lifecycle.firstDigTime) or "Never")
+        local received = false
+        -- One-shot waiter to count completion; UI updates handled by persistent subscriber
+        local off
+        off = Bus:on(EventNames.METRICS_UPDATED, function(_)
+            received = true
+            if off then pcall(off) end
+            doneOne()
+        end)
+        RemoteEventBridge.requestMetrics()
+        task.delay(1.5, function()
+            if not received then
+                if off then pcall(off) end
+                if self._errorBanner and self._errorBanner.show then
+                    self._errorBanner.show("Metrics request timed out", true)
+                end
+                doneOne()
             end
-            
-            -- Update progression
-            self:_updateValue("progression_speedLevel", self:_formatMetricValue("speedLevel", metrics.progression.speedLevel))
-            self:_updateValue("progression_sizeLevel", self:_formatMetricValue("sizeLevel", metrics.progression.sizeLevel))
-            self:_updateValue("progression_petsOwned", self:_formatMetricValue("petsOwned", metrics.progression.petsOwned))
-            self:_updateValue("progression_activePets", self:_formatMetricValue("activePets", metrics.progression.activePets))
-            self:_updateValue("progression_materialTier", self:_formatMetricValue("materialTier", metrics.progression.materialTier))
-            
-            -- Update monetization (if present)
-            if metrics.monetization then
-                self:_updateValue("monetization_robuxSpentLifetime", self:_formatMetricValue("robuxSpentLifetime", metrics.monetization.robuxSpentLifetime or 0))
-                self:_updateValue("monetization_robuxSpentThisSession", self:_formatMetricValue("robuxSpentThisSession", metrics.monetization.robuxSpentThisSession or 0))
-                self:_updateValue("monetization_purchasesCount", self:_formatMetricValue("purchasesCount", metrics.monetization.purchasesCount or 0))
-                self:_updateValue("monetization_devProducts", self:_formatMetricValue("devProducts", metrics.monetization.devProducts or 0))
-                self:_updateValue("monetization_gamePasses", self:_formatMetricValue("gamePasses", metrics.monetization.gamePasses or 0))
-                self:_updateValue("monetization_isPayingUser", self:_formatMetricValue("isPayingUser", metrics.monetization.isPayingUser or false))
-                self:_updateValue("monetization_daysSinceLastPurchase", 
-                    metrics.monetization.daysSinceLastPurchase and self:_formatMetricValue("daysSinceLastPurchase", metrics.monetization.daysSinceLastPurchase) or "N/A")
-            end
-        else
-            log:warn("Failed to get metrics: %s", tostring(err or "Unknown error"))
-            if self._errorBanner and self._errorBanner.show then
-                self._errorBanner.show("Failed to load metrics: " .. tostring(err or "Unknown error"), true)
-            end
-        end
-        doneOne()
+        end)
     end)
     
-    -- Fetch server metrics
+    -- Fetch server metrics via EventBus: request + wait for push (fallback timeout)
     task.spawn(function()
-        local serverMetrics, err = ClientRF.call("GetServerMetrics")
-        
-        if not err and serverMetrics and self._serverFieldsContainer then
-            -- Clear placeholder on first successful load
-            if self._serverPlaceholder then
-                self._serverPlaceholder:Destroy()
-                self._serverPlaceholder = nil
-            end
-            
-            -- Track which keys we've seen this refresh
-            local seen = {}
-            
-            -- Upsert each metric (skip metadata fields)
-            for key, value in pairs(serverMetrics) do
-                -- Skip metadata fields that aren't actual metrics
-                if key ~= "ok" and key ~= "success" and key ~= "err" and key ~= "visible" then
-                    self:_upsertServerRow(key, value)
-                    seen[key] = true
+        local received = false
+        local off
+        off = Bus:on(EventNames.SERVER_METRICS_UPDATED, function(serverMetrics)
+            received = true
+            if off then pcall(off) end
+            self:_applyServerMetrics(serverMetrics)
+            doneOne()
+        end)
+        RemoteEventBridge.requestServerMetrics()
+        task.delay(1.5, function()
+            if not received then
+                if off then pcall(off) end
+                if self._serverPlaceholder then
+                    self._serverPlaceholder.Text = "Failed to load server metrics"
                 end
+                doneOne()
             end
-            
-            -- Prune stale server metrics
-            for labelKey, valueLabel in pairs(self._labels) do
-                local serverKey = labelKey:match("^server_(.+)$")
-                if serverKey and not seen[serverKey] then
-                    -- Remove the entire row
-                    if valueLabel and valueLabel.Parent then
-                        valueLabel.Parent:Destroy()
-                    end
-                    self._labels[labelKey] = nil
-                end
-            end
-            
-            -- If no metrics, show a message
-            local hasMetrics = false
-            for _ in pairs(serverMetrics) do
-                hasMetrics = true
-                break
-            end
-            
-            if not hasMetrics then
-                local noData = self:createLabel(self._serverFieldsContainer, "No server metrics available", {
-                    position = UDim2.new(0, UIx.Spacing.INPUT_MARGIN, 0, 0),
-                    size = UDim2.new(1, -(UIx.Spacing.INPUT_MARGIN * 2), 0, UIx.Size.ROW_LABEL),
-                    alignment = Enum.TextXAlignment.Left
-                })
-                noData.Name = "NoData"
-            end
-        elseif self._serverPlaceholder then
-            self._serverPlaceholder.Text = "Failed to load server metrics"
-        end
-        doneOne()
     end)
+    end)
+end
+
+-- Apply server metrics payload to UI (handles placeholder, rows, and pruning)
+function MetricsTab:_applyServerMetrics(serverMetrics: any)
+    if not (self._serverFieldsContainer and type(serverMetrics) == "table") then return end
+    -- If server metrics are intentionally unavailable (non-Studio), show message and skip pruning
+    if serverMetrics.visible == false then
+        if self._serverPlaceholder then
+            self._serverPlaceholder.Text = "Server metrics unavailable"
+        else
+            local msg = self:createLabel(self._serverFieldsContainer, "Server metrics unavailable", {
+                position = UDim2.new(0, UIx.Spacing.INPUT_MARGIN, 0, 0),
+                size = UDim2.new(1, -(UIx.Spacing.INPUT_MARGIN * 2), 0, UIx.Size.ROW_LABEL),
+                alignment = Enum.TextXAlignment.Left
+            })
+            msg.Name = "NoData"
+        end
+        return
+    end
+    
+    -- Clear placeholder on first successful load
+    if self._serverPlaceholder then
+        self._serverPlaceholder:Destroy()
+        self._serverPlaceholder = nil
+    end
+    
+    -- Track which keys we've seen this refresh
+    local seen = {}
+    for key, value in pairs(serverMetrics) do
+        if key ~= "ok" and key ~= "success" and key ~= "err" and key ~= "visible" then
+            self:_upsertServerRow(key, value)
+            seen[key] = true
+        end
+    end
+    
+    -- Prune stale rows that weren't present in this payload
+    for labelKey, valueLabel in pairs(self._labels) do
+        local serverKey = labelKey:match("^server_(.+)$")
+        if serverKey and not seen[serverKey] then
+            if valueLabel and valueLabel.Parent then valueLabel.Parent:Destroy() end
+            self._labels[labelKey] = nil
+        end
+    end
+    
+    -- If nothing visible, show "No data"
+    local hasMetrics = false
+    for k, _ in pairs(serverMetrics) do
+        if k ~= "ok" and k ~= "success" and k ~= "err" and k ~= "visible" then hasMetrics = true; break end
+    end
+    if not hasMetrics then
+        local noData = self:createLabel(self._serverFieldsContainer, "No server metrics available", {
+            position = UDim2.new(0, UIx.Spacing.INPUT_MARGIN, 0, 0),
+            size = UDim2.new(1, -(UIx.Spacing.INPUT_MARGIN * 2), 0, UIx.Size.ROW_LABEL),
+            alignment = Enum.TextXAlignment.Left
+        })
+        noData.Name = "NoData"
+    end
 end
 
 -- Upsert a server metric row (create or update)
@@ -354,9 +366,28 @@ function MetricsTab:_upsertServerRow(key: string, value: any)
     if not valueLabel then
         -- Create new row using base component
         local displayName = self:_formatFieldName(key)
-        local row, _, newValueLabel = self:createFieldRow(self._serverFieldsContainer, key, displayName)
+        local row, leftLabel, newValueLabel = self:createFieldRow(self._serverFieldsContainer, key, displayName)
+        -- Ensure both labels are visible (avoid lingering hidden state from panel hide)
+        if leftLabel then
+            leftLabel.TextTransparency = 0
+            leftLabel.TextStrokeTransparency = 1
+        end
+        newValueLabel.TextTransparency = 0
+        newValueLabel.TextStrokeTransparency = 1
         self._labels[labelKey] = newValueLabel
         valueLabel = newValueLabel
+    else
+        -- Also ensure left label is visible for existing rows
+        local row = valueLabel.Parent
+        if row and row:IsA("Frame") then
+            for _, c in ipairs(row:GetChildren()) do
+                if c:IsA("TextLabel") and c ~= valueLabel then
+                    c.TextTransparency = 0
+                    c.TextStrokeTransparency = 1
+                    break
+                end
+            end
+        end
     end
     
     -- Update the value
@@ -456,11 +487,72 @@ function MetricsTab:destroy()
     self._serverFieldsContainer = nil
     self._serverPlaceholder = nil
     self._refreshButton = nil
-    self._getMetrics = nil
-    self._getServerMetrics = nil
+    -- no RF fallbacks
+    if self._unsubs then
+        for _, u in ipairs(self._unsubs) do pcall(u) end
+        self._unsubs = nil
+    end
     
     -- Call base destroy (handles periodic updates, connections, container)
     BaseTabComponent.destroy(self)
 end
 
+-- Apply user metrics payload to UI (shared by EventBus push and any fallback calls)
+function MetricsTab:_applyUserMetrics(metrics: any)
+    if not metrics or type(metrics) ~= "table" then return end
+    -- Gameplay
+    if metrics.gameplay then
+        self:_updateValue("gameplay_totalBlocksDug", self:_formatMetricValue("totalBlocksDug", metrics.gameplay.totalBlocksDug))
+        self:_updateValue("gameplay_dugThisSession", self:_formatMetricValue("dugThisSession", metrics.gameplay.dugThisSession))
+        self:_updateValue("gameplay_blocksPerMinute", self:_formatMetricValue("blocksPerMinute", metrics.gameplay.blocksPerMinute))
+    end
+    -- Economy
+    if metrics.economy then
+        self:_updateValue("economy_coins", self:_formatMetricValue("coins", metrics.economy.coins))
+        self:_updateValue("economy_gems", self:_formatMetricValue("gems", metrics.economy.gems))
+        self:_updateValue("economy_totalCoinsEarned", self:_formatMetricValue("totalCoinsEarned", metrics.economy.totalCoinsEarned))
+        self:_updateValue("economy_totalCoinsSpent", self:_formatMetricValue("totalCoinsSpent", metrics.economy.totalCoinsSpent))
+        self:_updateValue("economy_totalGemsEarned", self:_formatMetricValue("totalGemsEarned", metrics.economy.totalGemsEarned))
+        self:_updateValue("economy_totalGemsSpent", self:_formatMetricValue("totalGemsSpent", metrics.economy.totalGemsSpent))
+        self:_updateValue("economy_netWorth", self:_formatMetricValue("netWorth", metrics.economy.netWorth))
+    end
+    -- Session
+    if metrics.session then
+        self:_updateValue("session_sessionStartTime", self:_formatMetricValue("sessionStartTime", metrics.session.sessionStartTime))
+        self:_updateValue("session_sessionDurationSec", self:_formatMetricValue("sessionDurationSec", metrics.session.sessionDurationSec))
+        self:_updateValue("session_totalPlaytimeSec", self:_formatMetricValue("totalPlaytimeSec", metrics.session.totalPlaytimeSec))
+        self:_updateValue("session_totalSessions", self:_formatMetricValue("totalSessions", metrics.session.totalSessions))
+        self:_updateValue("session_avgSessionLengthSec", self:_formatMetricValue("avgSessionLengthSec", metrics.session.avgSessionLengthSec))
+    end
+    -- Lifecycle
+    if metrics.lifecycle then
+        self:_updateValue("lifecycle_isNewPlayer", self:_formatMetricValue("isNewPlayer", metrics.lifecycle.isNewPlayer))
+        self:_updateValue("lifecycle_isReturningPlayer", self:_formatMetricValue("isReturningPlayer", metrics.lifecycle.isReturningPlayer))
+        self:_updateValue("lifecycle_isFirstDigEver", self:_formatMetricValue("isFirstDigEver", metrics.lifecycle.isFirstDigEver))
+        self:_updateValue("lifecycle_hasDugEver", self:_formatMetricValue("hasDugEver", metrics.lifecycle.hasDugEver))
+        self:_updateValue("lifecycle_hasDugThisSession", self:_formatMetricValue("hasDugThisSession", metrics.lifecycle.hasDugThisSession))
+        self:_updateValue("lifecycle_firstPlayTime", metrics.lifecycle.firstPlayTime and self:_formatMetricValue("firstPlayTime", metrics.lifecycle.firstPlayTime) or "N/A")
+        self:_updateValue("lifecycle_firstDigTime", metrics.lifecycle.firstDigTime and self:_formatMetricValue("firstDigTime", metrics.lifecycle.firstDigTime) or "Never")
+    end
+    -- Progression
+    if metrics.progression then
+        self:_updateValue("progression_speedLevel", self:_formatMetricValue("speedLevel", metrics.progression.speedLevel))
+        self:_updateValue("progression_sizeLevel", self:_formatMetricValue("sizeLevel", metrics.progression.sizeLevel))
+        self:_updateValue("progression_petsOwned", self:_formatMetricValue("petsOwned", metrics.progression.petsOwned))
+        self:_updateValue("progression_activePets", self:_formatMetricValue("activePets", metrics.progression.activePets))
+        self:_updateValue("progression_materialTier", self:_formatMetricValue("materialTier", metrics.progression.materialTier))
+    end
+    -- Monetization
+    if metrics.monetization then
+        self:_updateValue("monetization_robuxSpentLifetime", self:_formatMetricValue("robuxSpentLifetime", metrics.monetization.robuxSpentLifetime or 0))
+        self:_updateValue("monetization_robuxSpentThisSession", self:_formatMetricValue("robuxSpentThisSession", metrics.monetization.robuxSpentThisSession or 0))
+        self:_updateValue("monetization_purchasesCount", self:_formatMetricValue("purchasesCount", metrics.monetization.purchasesCount or 0))
+        self:_updateValue("monetization_devProducts", self:_formatMetricValue("devProducts", metrics.monetization.devProducts or 0))
+        self:_updateValue("monetization_gamePasses", self:_formatMetricValue("gamePasses", metrics.monetization.gamePasses or 0))
+        self:_updateValue("monetization_isPayingUser", self:_formatMetricValue("isPayingUser", metrics.monetization.isPayingUser or false))
+        self:_updateValue("monetization_daysSinceLastPurchase", metrics.monetization.daysSinceLastPurchase and self:_formatMetricValue("daysSinceLastPurchase", metrics.monetization.daysSinceLastPurchase) or "N/A")
+    end
+end
+
 return MetricsTab
+

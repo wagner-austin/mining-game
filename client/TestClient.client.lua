@@ -61,9 +61,11 @@ log:debug("ClientRF loaded")
 local EventBus = require(MiningGame:WaitForChild("EventBus"))
 local EventNames = require(MiningGame:WaitForChild("EventNames"))
 local Bus = EventBus.global()
+-- Bridge lives under client/MiningGame
+local RemoteEventBridge = require(script.Parent:WaitForChild("MiningGame"):WaitForChild("RemoteEventBridge"))
 
 -- Store connections for cleanup
-local connections = {} :: {{ Disconnect: () -> () }}
+local connections = {} :: {() -> ()}
 
 -- Interval-safe time source
 -- Use monotonic time for local cooldown calculations
@@ -90,7 +92,7 @@ local lastDigTime = 0 -- Track when we last attempted a dig
 local playerCubeOrigin = nil
 
 -- Listen for cube origin changes via EventBus
-table.insert(connections, { Disconnect = Bus:on(EventNames.CUBE_ORIGIN_CHANGED, function(payload)
+table.insert(connections, Bus:on(EventNames.CUBE_ORIGIN_CHANGED, function(payload)
     ClientError.try("CUBE_ORIGIN_CHANGED", function()
         -- payload.origin may be Vector3 (per EventTypes), handle a few shapes defensively
         local originAny = payload and (payload.origin or payload.cframe or payload.CFrame)
@@ -111,7 +113,7 @@ table.insert(connections, { Disconnect = Bus:on(EventNames.CUBE_ORIGIN_CHANGED, 
         end
     end
     end)
-end) })
+end))
 
 --[[
     Get the terrain material at a given position for accurate sound playback.
@@ -332,7 +334,7 @@ end
 -- (Removed) DIG_FEEDBACK listener: RF result drives visuals directly in this test client.
 
 -- Listen for loot drops via EventBus
-table.insert(connections, { Disconnect = Bus:on(EventNames.LOOT_DROPPED, function(p)
+table.insert(connections, Bus:on(EventNames.LOOT_DROPPED, function(p)
     ClientError.try("LOOT_DROPPED", function()
         log:debug("Loot dropped!")
         local counts = p.counts or p.items
@@ -344,10 +346,10 @@ table.insert(connections, { Disconnect = Bus:on(EventNames.LOOT_DROPPED, functio
         local pos = p.position or p.worldPos
         if pos then log:debug("  Position: %s", tostring(pos)) end
     end)
-end) })
+end))
 
 -- Listen for inventory changes via EventBus (snapshot or legacy delta)
-table.insert(connections, { Disconnect = Bus:on(EventNames.INVENTORY_CHANGED, function(change)
+table.insert(connections, Bus:on(EventNames.INVENTORY_CHANGED, function(change)
     ClientError.try("INVENTORY_CHANGED", function()
         log:debug("Inventory changed:")
         local isSnapshot = (type(change) == "table") and (change.items ~= nil or change.action == nil)
@@ -369,15 +371,31 @@ table.insert(connections, { Disconnect = Bus:on(EventNames.INVENTORY_CHANGED, fu
             end
         end
     end)
-end) })
+end))
 
 -- Listen for announcements via EventBus
-table.insert(connections, { Disconnect = Bus:on(EventNames.ANNOUNCEMENT_BROADCAST, function(msg)
+table.insert(connections, Bus:on(EventNames.ANNOUNCEMENT_BROADCAST, function(msg)
     ClientError.try("ANNOUNCEMENT_BROADCAST", function()
         local message = msg.message or msg.text or "(no message)"
         log:info("Notification: %s", message)
     end)
-end) })
+end))
+
+-- Listen for server-wide metrics updates (EventBus path)
+table.insert(connections, Bus:on(EventNames.SERVER_METRICS_UPDATED, function(serverMetrics)
+    if RunService:IsStudio() then
+        log:debug("Server metrics updated push (keys=%d)", type(serverMetrics) == "table" and table.getn(serverMetrics) or 0)
+    end
+end))
+
+-- Listen for metrics updates (EventBus path)
+table.insert(connections, Bus:on(EventNames.METRICS_UPDATED, function(metrics)
+    if RunService:IsStudio() then
+        ClientError.try("METRICS_UPDATED", function()
+            log:debug("Metrics updated push received (ok=%s)", tostring(metrics and true or false))
+        end)
+    end
+end))
 
 -- Controls
 log:debug("Controls:")
@@ -395,6 +413,15 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
             requestDigAt(humanoidRootPart.Position + Vector3.new(0, -10, 0))
         elseif input.KeyCode == Enum.KeyCode.P then
             getProfile()
+        elseif input.KeyCode == Enum.KeyCode.M then
+            -- M: request user metrics; Shift+M: request server metrics
+            if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift) then
+                if RunService:IsStudio() then log:debug("Requesting SERVER metrics via EventBus...") end
+                RemoteEventBridge.requestServerMetrics()
+            else
+                if RunService:IsStudio() then log:debug("Requesting user metrics via EventBus...") end
+                RemoteEventBridge.requestMetrics()
+            end
         end
     end)
 end)
@@ -541,9 +568,10 @@ end)
 
 -- Cleanup on script destroy
 script.Destroying:Connect(function()
-    for _, c in ipairs(connections) do
-        if c and c.Disconnect then c.Disconnect() end
+    for _, unsub in ipairs(connections) do
+        if type(unsub) == "function" then pcall(unsub) end
     end
 end)
 
 log:info("Test client ready! Press E to dig, P for profile")
+

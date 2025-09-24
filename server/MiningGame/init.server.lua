@@ -50,6 +50,7 @@ log:info("RF precreate complete: %d created, %d existed", precreateStats.created
 local EventBus = require(MiningGame:WaitForChild("EventBus"))
 local GameConfig = require(MiningGame:WaitForChild("GameConfig"))
 local Bus = EventBus.global()
+local EventMetrics = require(script.EventMetrics)
 
 -- Throttled drop logging to prevent spam during event floods
 do
@@ -68,6 +69,14 @@ do
     })
 end
 log:info("EventBus configured with maxQueue=%d", (GameConfig.Debug and GameConfig.Debug.EVENTBUS_MAX_QUEUE) or 1000)
+
+-- Add lightweight metrics middleware to count events (server-side only)
+Bus:use(function(ctx, next)
+    pcall(function()
+        EventMetrics.Inc(ctx.event)
+    end)
+    next()
+end)
 
 -- Step 2: Start services via the new container
 local ServiceManager = require(script.ServiceManager)

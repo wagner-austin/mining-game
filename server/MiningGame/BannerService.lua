@@ -268,7 +268,7 @@ local function spawnFor(player: Player, baseModel: Model)
     -- Announce ready (route directly to this player) and re-emit briefly to catch late listeners
     ErrorService.safecall("BannerService.EmitReady", function()
         local target = { kind = "player", player = player }
-        local payload = { to = target, banners = ready }
+        local payload = { banners = ready }
         Bus:emit(EventNames.BANNER_READY, { to = target, payload = payload })
         task.delay(1.0, function()
             Bus:emit(EventNames.BANNER_READY, { to = target, payload = payload })
@@ -325,7 +325,7 @@ function Service:Start(container)
                 end
             end
             if #all > 0 then
-                Bus:emit(EventNames.BANNER_READY, { to = { kind = "player", player = viewer }, payload = { to = { kind = "player", player = viewer }, banners = all } })
+                Bus:emit(EventNames.BANNER_READY, { to = { kind = "player", player = viewer }, payload = { banners = all } })
             end
         end)
     end)

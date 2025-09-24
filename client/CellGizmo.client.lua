@@ -11,7 +11,7 @@ local log = Logger.new("CellGizmo")
 local Bus = EventBus.global()
 
 -- Store connections for cleanup
-local connections = {} :: {{ Disconnect: () -> () }}
+local connections = {} :: {() -> ()}
 
 local function flash(pos: Vector3)
     local p = Instance.new("Part")
@@ -40,12 +40,12 @@ local off = Bus:on(EventNames.TERRAIN_POKE, function(payload)
         flash(payload.pos)
     end
 end)
-table.insert(connections, { Disconnect = off })
+table.insert(connections, off)
 
 -- Cleanup on script destroy (for hot-reloads)
 script.Destroying:Connect(function()
-    for _, c in ipairs(connections) do
-        if c and c.Disconnect then c.Disconnect() end
+    for _, unsub in ipairs(connections) do
+        if type(unsub) == "function" then pcall(unsub) end
     end
 end)
 
