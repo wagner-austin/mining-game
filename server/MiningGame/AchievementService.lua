@@ -310,42 +310,45 @@ end
 
 -- Record rarity find
 function AchievementService.RecordRarityFind(player: Player, rarity: string)
-    local profile = DataService:GetPlayerData(player)
-    if not profile then return end
-    
-    profile.achievements = profile.achievements or {}
-    profile.statCounters = profile.statCounters or {}
-    
-    -- Update stat counters
-    if rarity == "RARE" then
-        profile.statCounters.rares_found = (profile.statCounters.rares_found or 0) + 1
-        if not profile.achievements.first_rare then
-            awardAchievement(player, "first_rare")
+    local DigPerformance = require(script.Parent.DigPerformance)
+    return DigPerformance.measureSection("Ach_RarityFind", function()
+        local profile = DataService:GetPlayerData(player)
+        if not profile then return end
+        
+        profile.achievements = profile.achievements or {}
+        profile.statCounters = profile.statCounters or {}
+        
+        -- Update stat counters
+        if rarity == "RARE" then
+            profile.statCounters.rares_found = (profile.statCounters.rares_found or 0) + 1
+            if not profile.achievements.first_rare then
+                awardAchievement(player, "first_rare")
+            end
+        elseif rarity == "EPIC" then
+            profile.statCounters.epics_found = (profile.statCounters.epics_found or 0) + 1
+            if not profile.achievements.found_epic then
+                awardAchievement(player, "found_epic")
+            end
+        elseif rarity == "LEGENDARY" then
+            profile.statCounters.legendaries_found = (profile.statCounters.legendaries_found or 0) + 1
+            if not profile.achievements.found_legendary then
+                awardAchievement(player, "found_legendary")
+            end
+            log:event("legendary_found", {
+                uid = player.UserId,
+                total = profile.statCounters.legendaries_found
+            })
+        elseif rarity == "MYTHIC" then
+            profile.statCounters.mythics_found = (profile.statCounters.mythics_found or 0) + 1
+            if not profile.achievements.found_mythic then
+                awardAchievement(player, "found_mythic")
+            end
+            log:event("mythic_found", {
+                uid = player.UserId,
+                total = profile.statCounters.mythics_found
+            })
         end
-    elseif rarity == "EPIC" then
-        profile.statCounters.epics_found = (profile.statCounters.epics_found or 0) + 1
-        if not profile.achievements.found_epic then
-            awardAchievement(player, "found_epic")
-        end
-    elseif rarity == "LEGENDARY" then
-        profile.statCounters.legendaries_found = (profile.statCounters.legendaries_found or 0) + 1
-        if not profile.achievements.found_legendary then
-            awardAchievement(player, "found_legendary")
-        end
-        log:event("legendary_found", {
-            uid = player.UserId,
-            total = profile.statCounters.legendaries_found
-        })
-    elseif rarity == "MYTHIC" then
-        profile.statCounters.mythics_found = (profile.statCounters.mythics_found or 0) + 1
-        if not profile.achievements.found_mythic then
-            awardAchievement(player, "found_mythic")
-        end
-        log:event("mythic_found", {
-            uid = player.UserId,
-            total = profile.statCounters.mythics_found
-        })
-    end
+    end)
 end
 
 -- Record blocks dug (called from DigService)

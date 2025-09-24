@@ -18,6 +18,7 @@ local Snapper = require(script.Parent:WaitForChild("Snapper"))
 local Picker = require(script.Parent:WaitForChild("Picker"))
 local VolumeRegistry = require(script.Parent:WaitForChild("VolumeRegistry"))
 local SurfaceSolver = require(script.Parent:WaitForChild("SurfaceSolver"))
+local DigPerformance = require(script.Parent.Parent.DigPerformance)
 
 local log = Logger.new("DigProcessor")
 local Telemetry = require(script.Parent:WaitForChild("Telemetry"))
@@ -50,7 +51,10 @@ function Processor.Process(service, player: Player, worldPos: Vector3)
     -- Anti-cheat range check will be performed after snap to use adjusted position
 
     -- Pick volume (cube preferred), then snap inside
-    local pickedVol = service:PickVolume(worldPos, player)
+    local pickedVol
+    DigPerformance.measureSection("PickVolume", function()
+        pickedVol = service:PickVolume(worldPos, player)
+    end)
     local volOrigin: CFrame
     local volSizeHalf: Vector3
     local volState
@@ -75,7 +79,10 @@ function Processor.Process(service, player: Player, worldPos: Vector3)
     local cornerEps = math.max(1.5, cellSize * GameConfig.Digging.VOLUME_CORNER_TOLERANCE)
 
     local originalPos = worldPos
-    local okNear, adjustedWorldPos = Snapper.snapInsideIfNearAABB(worldPos, volOrigin, volSizeHalf, faceEps, edgeEps, cornerEps)
+    local okNear, adjustedWorldPos
+    DigPerformance.measureSection("SnapInside", function()
+        okNear, adjustedWorldPos = Snapper.snapInsideIfNearAABB(worldPos, volOrigin, volSizeHalf, faceEps, edgeEps, cornerEps)
+    end)
     if not okNear and isCube then
         local altVol = Picker.pickIsland(worldPos, VolumeRegistry.GetVolumes(), VolumeRegistry.GetHash())
         if altVol then
@@ -113,7 +120,10 @@ function Processor.Process(service, player: Player, worldPos: Vector3)
     end
 
     -- Surface validation (for cubes); for islands we'll reliably pick a face by geometry
-    local hasSurface, surfacePos, surfaceNormal = SurfaceSolver.find(originalPos, adjustedWorldPos, cellSize)
+    local hasSurface, surfacePos, surfaceNormal
+    DigPerformance.measureSection("SurfaceCheck", function()
+        hasSurface, surfacePos, surfaceNormal = SurfaceSolver.find(originalPos, adjustedWorldPos, cellSize)
+    end)
 
     -- Effective stats and cooldowns
     local gamepasses = UpgradeService:GetPlayerGamepasses(player)
@@ -168,14 +178,17 @@ function Processor.Process(service, player: Player, worldPos: Vector3)
             minX, maxX, minY, maxY, minZ, maxZ)
     end
 
-    local dugCells, soundHint = GridService:ApplyDig(
+    local dugCells, soundHint
+    DigPerformance.measureSection("ApplyDig", function()
+        dugCells, soundHint = GridService:ApplyDig(
         player,
         volOrigin,
         volState,
         cellX, cellY, cellZ,
         effectiveStats.size,
         digOptions
-    )
+        )
+    end)
     if #dugCells == 0 then
         return { ok = false, reason = "No cells dug", centerCell = centerCell }
     end
@@ -186,7 +199,10 @@ function Processor.Process(service, player: Player, worldPos: Vector3)
         local themeId = (pickedVol and pickedVol.meta and pickedVol.meta.themeId) or nil
         local terrainKey = soundHint and soundHint.materialKey or nil
         local compositionInfo = { miner = player, ownerId = volState.ownerId, compositionId = themeId, terrainKey = terrainKey }
-        local drops = LootService:RollCells(volState.materialId, dugCells, player.UserId, effectiveStats.luck, compositionInfo)
+        local drops
+        DigPerformance.measureSection("LootRoll", function()
+            drops = LootService:RollCells(volState.materialId, dugCells, player.UserId, effectiveStats.luck, compositionInfo)
+        end)
 
         -- Aggregate counts and build entries with world positions
         local entries = {}
@@ -241,6 +257,33 @@ function Processor.Process(service, player: Player, worldPos: Vector3)
 
     Telemetry.success()
     local nextAtMono = now + effectiveStats.delay
+    -- Emit a concise profile of the last dig's hot sections to aid spike diagnosis
+    do
+        local snap = DigPerformance.getSnapshot and DigPerformance.getSnapshot() or nil
+        if snap then
+            local keys = {
+                "PickVolume","SnapInside","SurfaceCheck","CellIteration",
+                "ReadVoxels","WriteVoxels","LootContextBuild","LootPickLoop",
+                "SpawnEntries","CreateDropModel","AC_Tick"
+            }
+            local parts = {}
+            for _, k in ipairs(keys) do
+                local t = snap[k]
+                if t and (t.last or 0) > 0 then
+                    table.insert(parts, { name = k, ms = (t.last or 0) * 1000 })
+                end
+            end
+            table.sort(parts, function(a,b) return a.ms > b.ms end)
+            local top = {}
+            local limit = math.min(4, #parts)
+            for i = 1, limit do
+                table.insert(top, string.format("%s=%.2fms", parts[i].name, parts[i].ms))
+            end
+            if #top > 0 then
+                log:info("[DigProfile] cells=%d size=%d :: %s", #dugCells, effectiveStats.size or -1, table.concat(top, ", "))
+            end
+        end
+    end
     -- Emit dig feedback event for listeners (UI, analytics). Keep payload stable for clients.
     pcall(function()
         Bus:emit(EventNames.DIG_FEEDBACK, {

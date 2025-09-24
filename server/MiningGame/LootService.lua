@@ -24,6 +24,7 @@ local Types = require(Shared:WaitForChild("Types"))
 local RNG = require(Shared:WaitForChild("Utils"):WaitForChild("RNG"))
 local CubeThemes = require(Shared:WaitForChild("CubeThemes"))
 local CosmeticDefinitions = require(Shared:WaitForChild("CosmeticDefinitions"))
+local DigPerformance = require(script.Parent.DigPerformance)
 
 local ServiceValidator = require(Shared:WaitForChild("ServiceValidator"))
 
@@ -176,97 +177,33 @@ local function pickWeightedItem(rng: Random, weights: {number}): number
     return #weights -- Fallback to last item
 end
 
---[[
-    Roll for loot in a specific cell using deterministic RNG.
-    Each cell has a consistent loot result based on its coordinates.
-    
-    @param materialId: string - The cube's material ID for multipliers
-    @param cellX: number - Cell X coordinate
-    @param cellY: number - Cell Y coordinate  
-    @param cellZ: number - Cell Z coordinate
-    @param seed: number - Additional seed value (usually player ID)
-    @param luckMultiplier: number? - Player's luck stat multiplier
-    @param opts: {chanceMult: number?, rarityBoost: number?, specificBoosts: {[string]: number}?, exclusiveSet: {[string]: boolean}?}? - Composition modifiers
-    @return Types.LootDrop? - The loot drop if successful, nil otherwise
-]]
-function LootService:RollCell(
-    materialId: string,
-    cellX: number,
-    cellY: number,
-    cellZ: number,
-    seed: number,
-    luckMultiplier: number?,
-    opts: {chanceMult: number?, rarityBoost: number?, specificBoosts: {[string]: number}?, exclusiveSet: {[string]: boolean}?}?
-): Types.LootDrop?
+-- Fast picker using precomputed total
+local function pickWeightedItemFast(rng: Random, weights: {number}, total: number): number
+    if total <= 0 then return 0 end
+    local roll = rng:NextNumber() * total
+    local cumulative = 0
+    for i, w in ipairs(weights) do
+        cumulative = cumulative + w
+        if roll <= cumulative then
+            return i
+        end
+    end
+    return #weights
+end
 
+-- Build a per-dig weighted context once, applying the same adjustments the per-cell path does.
+local function buildLootContext(materialId: string, luckMultiplier: number, opts: RollCellOpts): ({weights: {number}, total: number, aliasProb: {number}?, aliasAlias: {number}?})
     luckMultiplier = luckMultiplier or 1.0
     opts = opts or {}
 
-    -- Create deterministic RNG for this cell
-    local rng = RNG.fromCell(cellX, cellY, cellZ, seed)
-
-    -- First check: does this cell have loot?
-    local baseChance = GameConfig.Loot.BASE_DROP_CHANCE
-    local chanceMult = opts.chanceMult or 1.0
-    local dropChance = baseChance * chanceMult * math.min(2, luckMultiplier)
-    -- Clamp to avoid always-hit and keep RNG meaningful
-    dropChance = math.clamp(dropChance, 0, 0.9999)
-
-    if rng:NextNumber() > dropChance then
-        return nil
-    end
-
-    -- Weighted-table mode (original behavior) with resource gating by terrain
-    -- Get material multiplier
-    local materialMult = materialMultipliers[materialId] or 1.0
     -- Combined rarity boost (use override from composition if present)
-    local rarityBoost = (opts.rarityBoost or materialMult) * luckMultiplier
+    local materialMult = materialMultipliers[materialId] or 1.0
+    local rarityBoost = ((opts.rarityBoost or materialMult) or 1.0) * (luckMultiplier or 1.0)
 
-    -- DEBUG: Force rarity if configured
-    if GameConfig.Features.DEBUG_FORCE_RARITY then
-        local forcedRarity = GameConfig.Features.DEBUG_FORCE_RARITY
-        
-        -- Helper to check if item type is allowed
-        local function isAllowed(def)
-            if def.type == "cosmetic" and not GameConfig.Features.COSMETICS_IN_LOOT then 
-                return false 
-            end
-            return true
-        end
-        
-        local rarityItems = {}
-        for i, def in ipairs(itemDefinitions) do
-            if def.rarity == forcedRarity and isAllowed(def) then
-                table.insert(rarityItems, i)
-            end
-        end
-        
-        if #rarityItems > 0 then
-            local itemIndex = rarityItems[rng:NextInteger(1, #rarityItems)]
-            local pickedItem = itemDefinitions[itemIndex]
-            
-            -- Return properly typed LootDrop
-            local loot: Types.LootDrop = {
-                id       = pickedItem.id,
-                name     = pickedItem.name,
-                rarity   = pickedItem.rarity,
-                type     = pickedItem.type,
-                value    = pickedItem.value,
-                stats    = pickedItem.stats,
-                effect   = pickedItem.effect,
-                duration = pickedItem.duration,
-                cellX    = cellX,
-                cellY    = cellY,
-                cellZ    = cellZ,
-            }
-            return loot
-        end
-    end
-    
-    -- Second roll: what item?
+    -- Start from base weighted table (already applies TYPE_MULTIPLIER)
     local weights = buildWeightedTable(rarityBoost)
 
-    -- Resource gating: prefer terrain key (dominant voxel material) when provided in opts
+    -- Resource gating: prefer terrain key (dominant voxel material) when provided
     do
         local mappedId = nil
         local tk = (opts :: any).terrainKey
@@ -283,75 +220,53 @@ function LootService:RollCell(
             end
         end
     end
-    
-    -- Apply specific item boosts and enforce exclusive items
+
+    -- Apply specific item boosts and exclusive item rules
     for i, itemDef in ipairs(itemDefinitions) do
-        -- Apply specific boosts
         if opts.specificBoosts and opts.specificBoosts[itemDef.id] then
             weights[i] = weights[i] * opts.specificBoosts[itemDef.id]
         end
-
-        -- Hard gate exclusive items: only available if composition provides them
         if itemDef.exclusive and (not opts.exclusiveSet or not opts.exclusiveSet[itemDef.id]) then
-            weights[i] = 0 -- Cannot drop unless composition includes it
+            weights[i] = 0
         end
-        
-        -- Boost exclusive items when they are allowed
         if opts.exclusiveSet and opts.exclusiveSet[itemDef.id] then
-            weights[i] = weights[i] * 2.0 -- Extra weight for exclusive drops
-        end
-        -- Terrain-simple mode: gate resources to the mapped terrain resource
-        local mode = (GameConfig and GameConfig.Loot and GameConfig.Loot.MODE) or "WEIGHTED_TABLE"
-        if mode == "TERRAIN_SIMPLE" and itemDef.type == "resource" then
-            local map = GameConfig.Loot.TERRAIN_RESOURCE_MAP
-            local mappedId = nil
-            -- Prefer explicit terrainKey from opts (passed from Dig/Processor via RollCells)
-            local tk = (opts :: any).terrainKey
-            if tk and map and map.byTerrainKey and map.byTerrainKey[tk] then
-                mappedId = map.byTerrainKey[tk]
-            elseif map and map.byMaterialId and map.byMaterialId[materialId] then
-                mappedId = map.byMaterialId[materialId]
-            end
-            if mappedId and itemDef.id ~= mappedId then
-                weights[i] = 0
-            end
+            weights[i] = weights[i] * 2.0
         end
     end
-    
-    -- Guard against zero-weight scenarios
-    local totalWeight = 0
-    for _, w in ipairs(weights) do 
-        totalWeight = totalWeight + w 
+
+    local total = 0
+    for _, w in ipairs(weights) do total += w end
+
+    -- Build alias table for O(1) picks if we have any mass
+    local n = #weights
+    if total > 0 and n > 0 then
+        local scaled = table.create(n)
+        local prob = table.create(n)
+        local alias = table.create(n)
+        local small = {}
+        local large = {}
+        local scale = n / total
+        for i = 1, n do
+            local v = (weights[i] or 0) * scale
+            scaled[i] = v
+            if v < 1 then table.insert(small, i) else table.insert(large, i) end
+        end
+        while #small > 0 and #large > 0 do
+            local l = table.remove(small)
+            local g = table.remove(large)
+            prob[l] = scaled[l]
+            alias[l] = g
+            scaled[g] = (scaled[g] + scaled[l]) - 1
+            if scaled[g] < 1 then table.insert(small, g) else table.insert(large, g) end
+        end
+        for _, i in ipairs(large) do prob[i] = 1; alias[i] = i end
+        for _, i in ipairs(small) do prob[i] = 1; alias[i] = i end
+        return { weights = weights, total = total, aliasProb = prob, aliasAlias = alias }
     end
-    if totalWeight <= 0 then 
-        return nil 
-    end
-    
-    local itemIndex = pickWeightedItem(rng, weights)
-    local itemDef = itemDefinitions[itemIndex]
-    
-    if not itemDef then
-        return nil
-    end
-    
-    -- Create loot drop with cell position
-    local loot: Types.LootDrop = {
-        id = itemDef.id,
-        name = itemDef.name,
-        rarity = itemDef.rarity,
-        type = itemDef.type,
-        value = itemDef.value,
-        stats = itemDef.stats,
-        effect = itemDef.effect,
-        duration = itemDef.duration,
-        -- Store the cell that dropped this loot
-        cellX = cellX,
-        cellY = cellY,
-        cellZ = cellZ,
-    }
-    
-    return loot
+    return { weights = weights, total = total }
 end
+
+-- Legacy per-cell RollCell removed; selection uses optimized per-dig context in RollCells
 
 --[[
     Roll for loot in multiple cells at once for efficiency.
@@ -447,7 +362,7 @@ function LootService:RollCells(
         end
     end
     
-    -- Build opts to pass to RollCell
+    -- Build opts to pass to RollCell / context builder
     local opts = {
         chanceMult = chanceMult,
         rarityBoost = rarityBoostOverride,
@@ -457,23 +372,53 @@ function LootService:RollCells(
     if compositionInfo and compositionInfo.terrainKey then
         (opts :: any).terrainKey = compositionInfo.terrainKey
     end
-    
-    -- Roll each cell with the composed options
-    for _, cell in ipairs(cells) do
-        local loot = self:RollCell(
-            materialId,
-            cell.x,
-            cell.y,
-            cell.z,
-            seed,
-            luckMultiplier,
-            opts
-        )
-        
-        if loot then
-            table.insert(drops, loot)
+
+    local ctx
+    DigPerformance.measureSection("LootContextBuild", function()
+        ctx = buildLootContext(materialId, luckMultiplier or 1.0, opts)
+    end)
+    local baseChance = GameConfig.Loot.BASE_DROP_CHANCE
+    local luck = math.max(0, luckMultiplier or 1.0)
+    local cappedLuck = math.min(2, luck)
+    local dropChance = math.clamp(baseChance * chanceMult * cappedLuck, 0, 0.9999)
+    DigPerformance.measureSection("LootPickLoop", function()
+        local useAlias = (ctx.aliasProb ~= nil and ctx.aliasAlias ~= nil)
+        for _, cell in ipairs(cells) do
+            local rng = RNG.fromCell(cell.x, cell.y, cell.z, seed)
+            if rng:NextNumber() <= dropChance then
+                local idx
+                if useAlias then
+                    local n = #ctx.aliasProb
+                    local col = rng:NextInteger(1, n)
+                    local coin = rng:NextNumber()
+                    if coin < ctx.aliasProb[col] then
+                        idx = col
+                    else
+                        idx = ctx.aliasAlias[col]
+                    end
+                else
+                    idx = pickWeightedItemFast(rng, ctx.weights, ctx.total)
+                end
+                local itemDef = itemDefinitions[idx]
+                if itemDef then
+                    local loot: Types.LootDrop = {
+                        id       = itemDef.id,
+                        name     = itemDef.name,
+                        rarity   = itemDef.rarity,
+                        type     = itemDef.type,
+                        value    = itemDef.value,
+                        stats    = itemDef.stats,
+                        effect   = itemDef.effect,
+                        duration = itemDef.duration,
+                        cellX    = cell.x,
+                        cellY    = cell.y,
+                        cellZ    = cell.z,
+                    }
+                    table.insert(drops, loot)
+                end
+            end
         end
-    end
+    end)
     
     return drops
 end

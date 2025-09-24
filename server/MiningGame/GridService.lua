@@ -32,7 +32,7 @@ local MaterialKeys = require(Shared:WaitForChild("MaterialKeys"))
 local MaterialDefinitions = require(Shared:WaitForChild("MaterialDefinitions"))
 
 -- Performance tracking (optional)
-local DigPerformance = require(script.Parent:WaitForChild("DigPerformance"))
+local DigPerformance = require(script.Parent.DigPerformance)
 
 -- Visual indicators module
 local CubeVisuals = require(script.Parent:WaitForChild("CubeVisuals"))

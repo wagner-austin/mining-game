@@ -21,6 +21,8 @@ export type StateT = {
     playerDropCounts: {[Player]: number},
     playerPickupCooldowns: {[Player]: number},
     hoverTweens: {[Model]: Tween},
+    _bucket: {[string]: {[Model]: boolean}},
+    _modelKey: {[Model]: string},
 }
 
 export type RegistryT = {
@@ -41,13 +43,43 @@ function DropRegistry.new(ctx): RegistryT
         playerDropCounts = {},
         playerPickupCooldowns = {},
         hoverTweens = setmetatable({}, { __mode = "k" }),
+        _bucket = {},
+        _modelKey = setmetatable({}, { __mode = "k" }),
     }
+
+    local BUCKET_SIZE = 64 -- studs; larger than max pickup range to bound buckets searched
+
+    local function keyForPosition(pos: Vector3): string
+        local gx = math.floor(pos.X / BUCKET_SIZE)
+        local gz = math.floor(pos.Z / BUCKET_SIZE)
+        return tostring(gx) .. ":" .. tostring(gz)
+    end
+
+    local function addToBucket(model: Model)
+        if not (model and model.PrimaryPart) then return end
+        local key = keyForPosition(model.PrimaryPart.Position)
+        local b = state._bucket[key]
+        if not b then b = {}; state._bucket[key] = b end
+        b[model] = true
+        state._modelKey[model] = key
+    end
+
+    local function removeFromBucket(model: Model)
+        local key = state._modelKey[model]
+        if key then
+            local b = state._bucket[key]
+            if b then b[model] = nil end
+            state._modelKey[model] = nil
+        end
+    end
 
     local function registerDrop(model: Model, data: DropData)
         state.activeDrops[model] = data
         if data.owner then
             state.playerDropCounts[data.owner] = (state.playerDropCounts[data.owner] or 0) + 1
         end
+        -- index into spatial bucket for faster queries
+        addToBucket(model)
     end
 
     local function removeDrop(model: Model)
@@ -63,16 +95,30 @@ function DropRegistry.new(ctx): RegistryT
         state.hoverTweens[model] = nil
 
         state.activeDrops[model] = nil
+        removeFromBucket(model)
         if model then model:Destroy() end
     end
 
     local function getNearbyDrops(position: Vector3, range: number): {Model}
         local nearbyDrops = {}
-        for dropModel, dropData in pairs(state.activeDrops) do
-            if dropModel.PrimaryPart and not dropData.claimed then
-                local distance = (dropModel.PrimaryPart.Position - position).Magnitude
-                if distance <= range then
-                    table.insert(nearbyDrops, dropModel)
+        local gx0 = math.floor((position.X - range) / BUCKET_SIZE)
+        local gx1 = math.floor((position.X + range) / BUCKET_SIZE)
+        local gz0 = math.floor((position.Z - range) / BUCKET_SIZE)
+        local gz1 = math.floor((position.Z + range) / BUCKET_SIZE)
+        for gx = gx0, gx1 do
+            for gz = gz0, gz1 do
+                local key = tostring(gx) .. ":" .. tostring(gz)
+                local bucket = state._bucket[key]
+                if bucket then
+                    for dropModel, _ in pairs(bucket) do
+                        local data = state.activeDrops[dropModel]
+                        if data and not data.claimed and dropModel.PrimaryPart then
+                            local distance = (dropModel.PrimaryPart.Position - position).Magnitude
+                            if distance <= range then
+                                table.insert(nearbyDrops, dropModel)
+                            end
+                        end
+                    end
                 end
             end
         end

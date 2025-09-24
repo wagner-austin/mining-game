@@ -67,18 +67,18 @@ return function(container)
     {
         name = "RequestDig",
         handler = function(ctx, position)
-            -- Visibility into incoming dig requests
+            -- Keep dig RF logs lightweight to avoid per-click overhead
             pcall(function()
-                log:info("RequestDig: player=%s pos=%s", ctx.player and ctx.player.Name or "?", tostring(position))
+                log:debug("RequestDig: player=%s pos=%s", ctx.player and ctx.player.Name or "?", tostring(position))
             end)
             -- Client sends position directly, not wrapped in a request object
             -- ProcessDigRequest already returns a Result-like format with ok field
             local res = DigService:ProcessDigRequest(ctx.player, position)
             pcall(function()
                 if res and res.ok then
-                    log:info("RequestDig: OK cells=%s next=%.3f", tostring(res.cellsDug or 0), tonumber(res.nextAllowedAt or 0))
+                    log:debug("RequestDig: OK cells=%s next=%.3f", tostring(res.cellsDug or 0), tonumber(res.nextAllowedAt or 0))
                 else
-                    log:info("RequestDig: FAIL reason=%s", (res and tostring(res.reason)) or "(nil)")
+                    log:debug("RequestDig: FAIL reason=%s", (res and tostring(res.reason)) or "(nil)")
                 end
             end)
             return res

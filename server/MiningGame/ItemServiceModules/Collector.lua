@@ -117,12 +117,9 @@ function Collector.new(ctx): CollectorT
             end
             rareSignals(collector, dropData.itemId, dropData.rarity)
 
-            log:event("item_auto_collected", {
-                uid = collector.UserId,
-                itemId = dropData.itemId,
-                count = addedCount,
-                rarity = dropData.rarity,
-            })
+            -- Demote noisy event to DEBUG for performance
+            log:debug("[EVENT] item_auto_collected | uid=%s, itemId=%s, count=%d, rarity=%s",
+                tostring(collector.UserId), tostring(dropData.itemId), addedCount, tostring(dropData.rarity))
 
             local remaining = dropData.count - addedCount
             if remaining > 0 then
@@ -190,12 +187,9 @@ function Collector.new(ctx): CollectorT
             emitCollected(collector, dropData.itemId, addedCount, dropData.rarity)
             rareSignals(collector, dropData.itemId, dropData.rarity)
 
-            log:event("item_collected", {
-                uid = collector.UserId,
-                itemId = dropData.itemId,
-                count = addedCount,
-                rarity = dropData.rarity,
-            })
+            -- Demote noisy event to DEBUG for performance
+            log:debug("[EVENT] item_collected | uid=%s, itemId=%s, count=%d, rarity=%s",
+                tostring(collector.UserId), tostring(dropData.itemId), addedCount, tostring(dropData.rarity))
 
             if dropModel.PrimaryPart then
                 SoundBroadcast.Collect(collector, dropModel.PrimaryPart.Position, dropData.rarity)

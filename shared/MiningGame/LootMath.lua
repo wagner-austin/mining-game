@@ -115,23 +115,18 @@ local function _pickProbabilityById(rarityBoost: number, ctx: Context): {[string
     local total = 0
     for _, it in ipairs(list) do
         local w = _finalWeight(it, rarityBoost, ctx.specificBoosts, ctx.exclusiveSet)
-        -- Resource gating only applies in TERRAIN_SIMPLE mode.
-        -- In WEIGHTED_TABLE mode we allow all resources per rarity weights.
+        -- Server gates resources to a single mapped id per terrain/material in all modes.
         if it.type == "resource" then
-            local mode = (GameConfig and GameConfig.Loot and GameConfig.Loot.MODE) or "WEIGHTED_TABLE"
-            if mode == "TERRAIN_SIMPLE" then
-                -- Prefer terrain key mapping; fallback to cube material mapping
-                local mappedId = nil
-                local tk = tostring(ctx.terrainKey or "")
-                if tk ~= "" and terrainResourceMapByTerrainKey[tk] then
-                    mappedId = terrainResourceMapByTerrainKey[tk]
-                else
-                    local matId = tostring(ctx.materialId or "")
-                    mappedId = terrainResourceMapByMaterialId[matId]
-                end
-                if mappedId and it.id ~= mappedId then
-                    w = 0
-                end
+            local mappedId = nil
+            local tk = tostring(ctx.terrainKey or "")
+            if tk ~= "" and terrainResourceMapByTerrainKey[tk] then
+                mappedId = terrainResourceMapByTerrainKey[tk]
+            else
+                local matId = tostring(ctx.materialId or "")
+                mappedId = terrainResourceMapByMaterialId[matId]
+            end
+            if mappedId and it.id ~= mappedId then
+                w = 0
             end
         end
         weights[it.id] = w

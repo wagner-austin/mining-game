@@ -17,7 +17,7 @@ local ChunkCodec = require(Shared:WaitForChild("Utils"):WaitForChild("ChunkCodec
 local MaterialKeys = require(Shared:WaitForChild("MaterialKeys"))
 -- Use server ErrorService directly to avoid infinite WaitForChild on shared
 local ErrorService = require(script.Parent.Parent.ErrorService)
-local DigPerformance = require(script.Parent.Parent:WaitForChild("DigPerformance"))
+local DigPerformance = require(script.Parent.Parent.DigPerformance)
 
 local log = Logger.new("GridDigEngine")
 
@@ -109,11 +109,28 @@ function DigEngine.ApplyDig(
     local cellsToWrite = table.create(math.min(expected, 10000))
     local dugCount, writeCount = 0, 0
 
+    -- Batch per-chunk bit updates to avoid O(cells * chunkSize) cost.
+    local touchedChunks: {[string]: {chunk: any, bits: {boolean}}} = {}
+
     DigPerformance.measureSection("CellIteration", function()
         for y = yMax, yMin, -1 do
             for x = xMin, xMax do
                 for z = zMin, zMax do
-                    if markCellDug(state, x, y, z) then
+                    local chunkX, chunkY, chunkZ = GridMath.cellToChunk(x, y, z, CHUNK_SIZE)
+                    local chunk = getOrCreateChunk(state, chunkX, chunkY, chunkZ)
+                    local key = GridMath.chunkKey(chunkX, chunkY, chunkZ)
+                    local entry = touchedChunks[key]
+                    if not entry then
+                        entry = { chunk = chunk, bits = ChunkCodec.unpack(chunk.dugBits, CELLS_PER_CHUNK) }
+                        touchedChunks[key] = entry
+                    end
+                    local localX, localY, localZ = GridMath.cellToChunkLocal(x, y, z, CHUNK_SIZE)
+                    local index = GridMath.chunkLocalToIndex(localX, localY, localZ, CHUNK_SIZE)
+                    if not entry.bits[index] then
+                        entry.bits[index] = true
+                        chunk.dirty = true
+                        chunk.lastModified = Time.unix()
+                        state.totalDug = state.totalDug + 1
                         dugCount += 1; writeCount += 1
                         local cell = {x=x,y=y,z=z}
                         dugCells[dugCount] = cell
@@ -121,6 +138,10 @@ function DigEngine.ApplyDig(
                     end
                 end
             end
+        end
+        -- Pack updated chunks once per chunk
+        for _, e in pairs(touchedChunks) do
+            e.chunk.dugBits = ChunkCodec.pack(e.bits, CELLS_PER_CHUNK)
         end
     end)
 
@@ -178,59 +199,139 @@ function DigEngine.WriteCellsToTerrain(
     local rmax = snapUp(wmax, s)
     local delta = rmax - rmin
     if delta.X <= 0 or delta.Y <= 0 or delta.Z <= 0 then return end
-    local region = Region3.new(rmin, rmax):ExpandToGrid(s)
 
-    local ok, vox = ErrorService.safecall("Terrain:ReadVoxels", function()
-        local mats, occ = DigPerformance.measureSection("ReadVoxels", function()
-            return Terrain:ReadVoxels(region, VOX)
-        end)
-        return { materials = mats, occupancy = occ }
-    end, { region = tostring(region) })
-    if not ok then
-        log:warn("WriteCellsToTerrain: ReadVoxels failed (min=%s, max=%s): %s", tostring(rmin), tostring(rmax), tostring(vox))
-        return
-    end
-    local materials, occupancy = vox.materials, vox.occupancy
-    local size = materials.Size
-    local regionMin = region.CFrame.Position - region.Size/2
-    local maxVX, maxVY, maxVZ = size.X, size.Y, size.Z
-    local invVoxel = 1 / VOX
+    local yLayers = maxY - minY + 1
+    local SLICE_THRESHOLD_CELLS = 64
+    local doSlice = (yLayers > 1 and #cells >= SLICE_THRESHOLD_CELLS)
 
     local materialCounts = {}
     local firstWorldPosForSound = nil
-
     local beforeOcc
-    for i = 1, #cells do
-        local c = cells[i]
-        local localPos = Vector3.new((c.x + 0.5) * CELL_SIZE, (c.y + 0.5) * CELL_SIZE, (c.z + 0.5) * CELL_SIZE)
-        local world = cubeOrigin.Position + localPos
-        local vx = math.clamp(math.floor((world.X - regionMin.X) * invVoxel) + 1, 1, maxVX)
-        local vy = math.clamp(math.floor((world.Y - regionMin.Y) * invVoxel) + 1, 1, maxVY)
-        local vz = math.clamp(math.floor((world.Z - regionMin.Z) * invVoxel) + 1, 1, maxVZ)
 
-        -- Track dominant material for sound
-        local mat = materials[vx][vy][vz]
-        local key = MaterialKeys.KeyFromEnum[mat] or "rock"
-        materialCounts[key] = (materialCounts[key] or 0) + 1
-        if not firstWorldPosForSound then firstWorldPosForSound = world end
-
-        if i == 1 and GameConfig.Digging.DEBUG_ISLAND_DIAG then
-            beforeOcc = occupancy[vx][vy][vz]
-            log:debug("[IslandDiag] region=(%s -> %s) firstCellWorld=%s voxelIndex=%d,%d,%d occBefore=%.2f",
-                tostring(rmin), tostring(rmax), tostring(world), vx, vy, vz, beforeOcc)
+    local function writeSlice(yMinCell: number, yMaxCell: number, cellsInSlice: {Cell})
+        local sMinX, sMaxX = math.huge, -math.huge
+        local sMinZ, sMaxZ = math.huge, -math.huge
+        for _, c in ipairs(cellsInSlice) do
+            if c.x < sMinX then sMinX = c.x end
+            if c.z < sMinZ then sMinZ = c.z end
+            if c.x > sMaxX then sMaxX = c.x end
+            if c.z > sMaxZ then sMaxZ = c.z end
         end
-        -- Carve out (air)
-        materials[vx][vy][vz] = Enum.Material.Air
-        occupancy[vx][vy][vz] = 0
+        local exS, eyS, ezS = {sMinX, sMaxX+1}, {yMinCell, yMaxCell+1}, {sMinZ, sMaxZ+1}
+        local wminS = Vector3.new(math.huge, math.huge, math.huge)
+        local wmaxS = Vector3.new(-math.huge, -math.huge, -math.huge)
+        for _, cx in ipairs(exS) do for _, cy in ipairs(eyS) do for _, cz in ipairs(ezS) do
+            local p = worldCornerForCellMinCorner(cx, cy, cz)
+            if p.X < wminS.X then wminS = Vector3.new(p.X, wminS.Y, wminS.Z) end
+            if p.Y < wminS.Y then wminS = Vector3.new(wminS.X, p.Y, wminS.Z) end
+            if p.Z < wminS.Z then wminS = Vector3.new(wminS.X, wminS.Y, p.Z) end
+            if p.X > wmaxS.X then wmaxS = Vector3.new(p.X, wmaxS.Y, wmaxS.Z) end
+            if p.Y > wmaxS.Y then wmaxS = Vector3.new(wmaxS.X, p.Y, wmaxS.Z) end
+            if p.Z > wmaxS.Z then wmaxS = Vector3.new(wmaxS.X, wmaxS.Y, p.Z) end
+        end end end
+        local rminS = snapDown(wminS, s)
+        local rmaxS = snapUp(wmaxS, s)
+        local regionS = Region3.new(rminS, rmaxS):ExpandToGrid(s)
+
+        local okS, voxS = ErrorService.safecall("Terrain:ReadVoxels", function()
+            local mats, occ = DigPerformance.measureSection("ReadVoxels", function()
+                return Terrain:ReadVoxels(regionS, VOX)
+            end)
+            return { materials = mats, occupancy = occ }
+        end, { region = tostring(regionS) })
+        if not okS then
+            log:warn("WriteCellsToTerrain(slice): ReadVoxels failed (min=%s, max=%s): %s", tostring(rminS), tostring(rmaxS), tostring(voxS))
+            return
+        end
+        local materialsS, occupancyS = voxS.materials, voxS.occupancy
+        local sizeS = materialsS.Size
+        local regionMinS = regionS.CFrame.Position - regionS.Size/2
+        local maxVXS, maxVYS, maxVZS = sizeS.X, sizeS.Y, sizeS.Z
+        local invVoxel = 1 / VOX
+
+        for i = 1, #cellsInSlice do
+            local c = cellsInSlice[i]
+            local localPos = Vector3.new((c.x + 0.5) * CELL_SIZE, (c.y + 0.5) * CELL_SIZE, (c.z + 0.5) * CELL_SIZE)
+            local world = cubeOrigin.Position + localPos
+            local vx = math.clamp(math.floor((world.X - regionMinS.X) * invVoxel) + 1, 1, maxVXS)
+            local vy = math.clamp(math.floor((world.Y - regionMinS.Y) * invVoxel) + 1, 1, maxVYS)
+            local vz = math.clamp(math.floor((world.Z - regionMinS.Z) * invVoxel) + 1, 1, maxVZS)
+
+            local mat = materialsS[vx][vy][vz]
+            local key = MaterialKeys.KeyFromEnum[mat] or "rock"
+            materialCounts[key] = (materialCounts[key] or 0) + 1
+            if not firstWorldPosForSound then firstWorldPosForSound = world end
+
+            materialsS[vx][vy][vz] = Enum.Material.Air
+            occupancyS[vx][vy][vz] = 0
+        end
+
+        ErrorService.safecall("Terrain:WriteVoxels", function()
+            DigPerformance.measureSection("WriteVoxels", function()
+                Terrain:WriteVoxels(regionS, VOX, materialsS, occupancyS)
+            end)
+        end)
     end
 
-    ErrorService.safecall("Terrain:WriteVoxels", function()
-        DigPerformance.measureSection("WriteVoxels", function()
-            Terrain:WriteVoxels(region, VOX, materials, occupancy)
-        end)
-    end)
+    if doSlice then
+        local byY: {[number]: {Cell}} = {}
+        for _, c in ipairs(cells) do
+            local group = byY[c.y]
+            if not group then group = {}; byY[c.y] = group end
+            table.insert(group, c)
+        end
+        for y = maxY, minY, -1 do
+            local g = byY[y]
+            if g and #g > 0 then writeSlice(y, y, g) end
+        end
+    else
+        local region = Region3.new(rmin, rmax):ExpandToGrid(s)
 
-    -- Pick dominant material key for sound
+        local ok, vox = ErrorService.safecall("Terrain:ReadVoxels", function()
+            local mats, occ = DigPerformance.measureSection("ReadVoxels", function()
+                return Terrain:ReadVoxels(region, VOX)
+            end)
+            return { materials = mats, occupancy = occ }
+        end, { region = tostring(region) })
+        if not ok then
+            log:warn("WriteCellsToTerrain: ReadVoxels failed (min=%s, max=%s): %s", tostring(rmin), tostring(rmax), tostring(vox))
+            return
+        end
+        local materials, occupancy = vox.materials, vox.occupancy
+        local size = materials.Size
+        local regionMin = region.CFrame.Position - region.Size/2
+        local maxVX, maxVY, maxVZ = size.X, size.Y, size.Z
+        local invVoxel = 1 / VOX
+
+        for i = 1, #cells do
+            local c = cells[i]
+            local localPos = Vector3.new((c.x + 0.5) * CELL_SIZE, (c.y + 0.5) * CELL_SIZE, (c.z + 0.5) * CELL_SIZE)
+            local world = cubeOrigin.Position + localPos
+            local vx = math.clamp(math.floor((world.X - regionMin.X) * invVoxel) + 1, 1, maxVX)
+            local vy = math.clamp(math.floor((world.Y - regionMin.Y) * invVoxel) + 1, 1, maxVY)
+            local vz = math.clamp(math.floor((world.Z - regionMin.Z) * invVoxel) + 1, 1, maxVZ)
+
+            local mat = materials[vx][vy][vz]
+            local key = MaterialKeys.KeyFromEnum[mat] or "rock"
+            materialCounts[key] = (materialCounts[key] or 0) + 1
+            if not firstWorldPosForSound then firstWorldPosForSound = world end
+
+            if i == 1 and GameConfig.Digging.DEBUG_ISLAND_DIAG then
+                beforeOcc = occupancy[vx][vy][vz]
+                log:debug("[IslandDiag] region=(%s -> %s) firstCellWorld=%s voxelIndex=%d,%d,%d occBefore=%.2f",
+                    tostring(rmin), tostring(rmax), tostring(world), vx, vy, vz, beforeOcc)
+            end
+            materials[vx][vy][vz] = Enum.Material.Air
+            occupancy[vx][vy][vz] = 0
+        end
+
+        ErrorService.safecall("Terrain:WriteVoxels", function()
+            DigPerformance.measureSection("WriteVoxels", function()
+                Terrain:WriteVoxels(region, VOX, materials, occupancy)
+            end)
+        end)
+    end
+
     local bestKey, bestCount = "rock", -1
     for k, v in pairs(materialCounts) do
         if v > bestCount then bestKey, bestCount = k, v end

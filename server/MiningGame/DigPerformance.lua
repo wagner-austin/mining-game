@@ -41,6 +41,16 @@ function DigPerformance.measureSection(name: string, func: () -> ...any): ...any
     return table.unpack(results)
 end
 
+-- Return a shallow snapshot of timings { [name] = { last=, avg=, min=, max=, count= } }
+function DigPerformance.getSnapshot(): {[string]: {last: number, avg: number, min: number, max: number, count: number}}
+    local snap = {}
+    for name, t in pairs(timings) do
+        local avg = (t.count > 0) and (t.total / t.count) or 0
+        snap[name] = { last = t.last or 0, avg = avg, min = t.min or 0, max = t.max or 0, count = t.count or 0 }
+    end
+    return snap
+end
+
 function DigPerformance.getReport(): string
     local lines = {"=== Dig Performance Report ==="}
     

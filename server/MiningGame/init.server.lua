@@ -48,6 +48,8 @@ log:info("RF precreate complete: %d created, %d existed", precreateStats.created
 
 -- Step 1.5: Configure EventBus before services start
 local EventBus = require(MiningGame:WaitForChild("EventBus"))
+-- DigPerformance lives as a sibling ModuleScript under this Script container
+local DigPerformance = require(script:WaitForChild("DigPerformance"))
 local GameConfig = require(MiningGame:WaitForChild("GameConfig"))
 local Bus = EventBus.global()
 local EventMetrics = require(script.EventMetrics)
@@ -122,6 +124,26 @@ do
         if (Time.mono() - startMono) < 5 then return end
         if dt > THRESH then
             hlog:warn("Heartbeat spike: dt=%.3f (threshold=%.3f)", dt, THRESH)
+            -- Attach last-section timings to help diagnose spikes
+            if DigPerformance and DigPerformance.getSnapshot then
+                local snap = DigPerformance.getSnapshot()
+                -- Pick a few key sections to report
+                local keys = {
+                    "PickVolume","SnapInside","SurfaceCheck","CellIteration",
+                    "ReadVoxels","WriteVoxels","LootContextBuild","LootPickLoop",
+                    "SpawnEntries","CreateDropModel","AC_Tick"
+                }
+                local parts = {}
+                for _, k in ipairs(keys) do
+                    local t = snap[k]
+                    if t and (t.last or 0) > 0 then
+                        table.insert(parts, string.format("%s=%.2fms", k, (t.last or 0)*1000))
+                    end
+                end
+                if #parts > 0 then
+                    hlog:warn("Spike context: %s", table.concat(parts, ", "))
+                end
+            end
         end
     end)
 end

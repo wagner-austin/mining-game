@@ -42,7 +42,10 @@ function Spawner.new(ctx): SpawnerT
     end
 
     local function createItemModel(itemDef: any, position: Vector3, count: number): Model
-        return DropModelFactory.create(itemDef, position, count)
+        local DigPerformance = require(script.Parent.Parent.DigPerformance)
+        return DigPerformance.measureSection("CreateDropModel", function()
+            return DropModelFactory.create(itemDef, position, count)
+        end)
     end
 
     local autoCollectFn: ((Model, Player) -> boolean)? = nil
@@ -125,7 +128,9 @@ function Spawner.new(ctx): SpawnerT
         log:debug("Drop registered in activeDrops. Total active drops: %d", activeCount)
 
         if owner then
-            log:event("item_dropped", { uid = owner.UserId, itemId = itemId, count = count, rarity = itemDef.rarity, position = tostring(position) })
+            -- Demote to DEBUG to avoid per-drop INFO noise
+            log:debug("[EVENT] item_dropped | uid=%s, count=%d, position=%.0f, %.0f, %.0f, rarity=%s, itemId=%s",
+                tostring(owner.UserId), count, position.X, position.Y, position.Z, tostring(itemDef.rarity), tostring(itemId))
         end
 
         task.delay(ITEM_LIFETIME, function()
@@ -167,6 +172,8 @@ function Spawner.new(ctx): SpawnerT
     end
 
     local function spawnCapped(entries: {{itemId: string, position: Vector3}}, owner: Player?): {Model}
+        local DigPerformance = require(script.Parent.Parent.DigPerformance)
+        return DigPerformance.measureSection("SpawnEntries", function()
         local drops = {}
         local toInventory: {[string]: number} = {}
         local typed = {}
@@ -197,6 +204,7 @@ function Spawner.new(ctx): SpawnerT
         end
 
         return drops
+        end)
     end
 
     local function SpawnLootEntriesFromDig(entries: {{itemId: string, position: Vector3}}, owner: Player?): {Model}
