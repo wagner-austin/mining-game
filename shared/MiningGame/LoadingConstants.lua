@@ -5,7 +5,7 @@
 return table.freeze({
     TIMEOUTS = {
         AssetPreload    = 3.0,  -- Batch asset preloading
-        ModuleRequire   = 2.0,  -- Dynamic module loading
+        ModuleRequire   = 8.0,  -- Dynamic module loading (allow for first-load hitches)
         CosmeticClient  = 1.0,  -- Client cosmetic assets
         ServiceInit     = 5.0,  -- Service initialization
         RemoteCall      = 10.0, -- Remote function calls
@@ -18,8 +18,8 @@ return table.freeze({
             backoff = 0.25     -- Quarter second between attempts
         },
         ModuleRequire = {
-            attempts = 1,      -- No retry for modules (fail fast)
-            backoff = 0
+            attempts = 2,      -- Retry once in case of transient startup stalls
+            backoff = 0.25
         },
         CosmeticClient = {
             attempts = 1,      -- No retry (show placeholder)

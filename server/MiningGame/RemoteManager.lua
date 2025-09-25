@@ -8,6 +8,7 @@ local Players = game:GetService("Players")
 local Shared = ReplicatedStorage:WaitForChild("MiningGame")
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local Logger = require(Shared:WaitForChild("Logger"))
+local DigPerformance = require(script.Parent.DigPerformance)
 local Result = require(Shared:WaitForChild("Result"))
 local Types = require(Shared:WaitForChild("Types"))
 
@@ -248,8 +249,10 @@ function RemoteManager.registerRF<T>(
         end
         
         -- Execute handler with error catching
-        local ok: boolean, result: any = xpcall(function()
-            return handler(ctx, table.unpack(args, 1, args.n))
+    local ok: boolean, result: any = xpcall(function()
+            return DigPerformance.measureSection("RF_Invoke", function()
+                return handler(ctx, table.unpack(args, 1, args.n))
+            end)
         end, debug.traceback)
         
         if not ok then

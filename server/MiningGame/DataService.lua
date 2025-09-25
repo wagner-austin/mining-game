@@ -15,6 +15,7 @@ local Types = require(Shared:WaitForChild("Types"))
 local Logger = require(Shared:WaitForChild("Logger"))
 local MathUtils = require(Shared:WaitForChild("MathUtils"))
 local ErrorService = require(script.Parent.ErrorService)
+local DigPerformance = require(script.Parent.DigPerformance)
 local log = Logger.new("DataService")
 local Remotes = require(Shared:WaitForChild("Remotes"))
 
@@ -637,7 +638,9 @@ function DataService:SavePlayerAsync(player: Player): boolean
     local key = "Player_" .. tostring(userId)
     
     local okSave, err = ErrorService.safecall("PlayerDataStore:SetAsync", function()
-        PlayerDataStore:SetAsync(key, profile)
+        DigPerformance.measureSection("DS_Set_Player", function()
+            PlayerDataStore:SetAsync(key, profile)
+        end)
     end)
     
     if not okSave then
@@ -680,7 +683,9 @@ function DataService:SaveCubeAsync(player: Player): boolean
     end
     
     local okSave, err = ErrorService.safecall("CubeDataStore:SetAsync", function()
-        CubeDataStore:SetAsync(key, compactCube)
+        DigPerformance.measureSection("DS_Set_Cube", function()
+            CubeDataStore:SetAsync(key, compactCube)
+        end)
     end)
     
     if not okSave then
@@ -694,9 +699,11 @@ end
 
 -- Save all data for a player
 function DataService:SaveAllAsync(player: Player): boolean
-    local success1 = self:SavePlayerAsync(player)
-    local success2 = self:SaveCubeAsync(player)
-    return success1 and success2
+    return DigPerformance.measureSection("DS_SaveAll", function()
+        local success1 = self:SavePlayerAsync(player)
+        local success2 = self:SaveCubeAsync(player)
+        return success1 and success2
+    end)
 end
 
 -- Queue a save for later
@@ -1072,7 +1079,9 @@ local function autoSaveLoop()
         for player, needsSave in pairs(saveQueue) do
             if needsSave and player.Parent then
                 spawn(function()
-                    DataService:SaveAllAsync(player)
+                    DigPerformance.measureSection("DS_SaveAllSpawn", function()
+                        DataService:SaveAllAsync(player)
+                    end)
                 end)
                 saveQueue[player] = false
             end

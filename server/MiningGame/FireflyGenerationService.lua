@@ -19,6 +19,7 @@ local WorldGenUtils = require(Shared:WaitForChild("WorldGenUtils"))
 
 local log = Logger.new("FireflyGenerationService")
 local Bus = EventBus.global()
+local DigPerformance = require(script.Parent.DigPerformance)
 
 local FireflyGenerationService = {}
 local _eventsRegistered = false
@@ -159,7 +160,10 @@ function FireflyGenerationService:GenerateInArea(opts: GenerateOpts): {Vector3}
         if not WorldGenUtils.isTooCloseToPlayerCube(x, z, cubes, keepout) and not WorldGenUtils.isTooClose(x, z, positions, minSpacing) then
             local g = WorldGenUtils.findGroundPosition(x, z, { allowWater = allowWater })
             if g then
-                local anchor = spawnCluster(g, rng, parentFolder)
+                local anchor
+                DigPerformance.measureSection("PCG_Firefly_Create", function()
+                    anchor = spawnCluster(g, rng, parentFolder)
+                end)
                 spawned += 1
                 table.insert(positions, anchor.Position)
                 if spawned <= 3 then log:info("Firefly #%d spawned at (%.1f, %.1f, %.1f)", spawned, anchor.Position.X, anchor.Position.Y, anchor.Position.Z) end

@@ -638,7 +638,7 @@ GameConfig.Scheduler = {
 -- Performance Settings
 GameConfig.Performance = {
     -- Heartbeat monitoring
-    HEARTBEAT_WARN_DT = 0.066,  -- ~15 FPS spike threshold
+    HEARTBEAT_WARN_DT = 0.066,  -- ~15 FPS threshold for spike diagnostics
     
     -- LOD (Level of Detail) distances
     LOD_DISTANCES = {

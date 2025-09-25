@@ -21,6 +21,7 @@ local ServiceValidator = require(Shared:WaitForChild("ServiceValidator"))
 local CubeThemes = require(Shared:WaitForChild("CubeThemes"))
 
 local WorldGenerationService = {}
+local DigPerformance = require(script.Parent.DigPerformance)
 
 -- Dependencies
 local GridService
@@ -264,7 +265,9 @@ function WorldGenerationService.SpawnDecorations()
     end
     
     -- Ensure we have ground for decorations to spawn on and explicit spawn bounds
-    ensureTerrainBaseplate()
+    DigPerformance.measureSection("PCG_EnsureBaseplate", function()
+        ensureTerrainBaseplate()
+    end)
     ensureSpawnBoundsPart()
     
     local deco = GameConfig.Decorations or {}
@@ -312,7 +315,9 @@ function WorldGenerationService.SpawnDecorations()
             local phase = (GameConfig.WorldGen and GameConfig.WorldGen.PHASE) or nil
             local treesPhase = (deco and (deco.TREES_PHASE or deco.TREES_phase)) or nil
             local treesAllowed = (deco and deco.TREES_ALLOWED_PHASES) or nil
-            local positions = TreeGenerationService:GenerateInArea({
+            local positions
+            DigPerformance.measureSection("PCG_Trees_Call", function()
+                positions = TreeGenerationService:GenerateInArea({
                 bounds = {minX=minX, maxX=maxX, minZ=minZ, maxZ=maxZ},
                 densityPer100x100 = deco.TREES_PER_100x100,
                 minCount = deco.MIN_TREES,
@@ -324,7 +329,8 @@ function WorldGenerationService.SpawnDecorations()
                 -- Slightly closer to player cubes than default
                 playerKeepoutRadius = WorldGenUtils.getDefaultKeepoutRadius() * 0.85,
                 -- keep service defaults for spacing/keepout unless configured
-            })
+                })
+            end)
             treesSpawned = positions and #positions or 0
         else
             log:warn("TreeGenerationService missing; skipping tree spawn block")
@@ -375,7 +381,9 @@ function WorldGenerationService.SpawnDecorations()
 
     if fliesActive and fliesPhaseOk then
         if FireflyGenerationService and FireflyGenerationService.GenerateInArea then
-            local positions = FireflyGenerationService:GenerateInArea({
+            local positions
+            DigPerformance.measureSection("PCG_Flies_Call", function()
+                positions = FireflyGenerationService:GenerateInArea({
                 bounds = {minX=minX, maxX=maxX, minZ=minZ, maxZ=maxZ},
                 densityPer100x100 = deco.FIREFLIES_PER_100x100,
                 minCount = deco.MIN_FIREFLIES,
@@ -385,7 +393,8 @@ function WorldGenerationService.SpawnDecorations()
                 phase = fliesPhase,
                 allowedPhases = fliesAllowed,
                 playerKeepoutRadius = WorldGenUtils.getDefaultKeepoutRadius(),
-            })
+                })
+            end)
             fliesSpawned = positions and #positions or 0
         else
             log:warn("FireflyGenerationService missing; skipping firefly spawn block")

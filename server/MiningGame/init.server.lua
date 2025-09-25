@@ -125,23 +125,34 @@ do
         if dt > THRESH then
             hlog:warn("Heartbeat spike: dt=%.3f (threshold=%.3f)", dt, THRESH)
             -- Attach last-section timings to help diagnose spikes
-            if DigPerformance and DigPerformance.getSnapshot then
-                local snap = DigPerformance.getSnapshot()
+            if DigPerformance and DigPerformance.getRecent then
+                local recent = DigPerformance.getRecent(math.max(0.05, dt * 1.5))
                 -- Pick a few key sections to report
                 local keys = {
                     "PickVolume","SnapInside","SurfaceCheck","CellIteration",
                     "ReadVoxels","WriteVoxels","LootContextBuild","LootPickLoop",
-                    "SpawnEntries","CreateDropModel","AC_Tick"
+                    "SpawnEntries","CreateDropModel","AC_Tick",
+                    "IS_Rotations","IS_AutoCollector","IS_Sweeper",
+                    "GS_Heartbeat","CM_Heartbeat","CSM_Heartbeat",
+                    "RF_Invoke",
+                    "PCG_Tree_Create","PCG_Rock_Create","PCG_Firefly_Create",
+                    "PCG_EnsureBaseplate","PCG_Trees_Call","PCG_Rocks_Call","PCG_Flies_Call",
+                    "PCG_Rock_Generate"
                 }
                 local parts = {}
                 for _, k in ipairs(keys) do
-                    local t = snap[k]
+                    local t = recent[k]
                     if t and (t.last or 0) > 0 then
                         table.insert(parts, string.format("%s=%.2fms", k, (t.last or 0)*1000))
                     end
                 end
                 if #parts > 0 then
-                    hlog:warn("Spike context: %s", table.concat(parts, ", "))
+                    local accountedMs = 0
+                    for _, t in pairs(recent) do
+                        accountedMs += ((t.last or 0) * 1000)
+                    end
+                    local unaccountedMs = math.max(0, (dt * 1000) - accountedMs)
+                    hlog:warn("Spike context: %s | accounted=%.2fms, unaccounted=%.2fms", table.concat(parts, ", "), accountedMs, unaccountedMs)
                 end
             end
         end

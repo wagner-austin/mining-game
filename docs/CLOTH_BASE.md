@@ -44,7 +44,9 @@ If `makeDebugSpheres` was enabled, updates the white-orb effect.
 ## Example: Scenic Banner
 
 ```lua
--- Server-side example
+-- Server-side example (Studio-only asset load)
+-- Note: InsertService:LoadAsset works in Studio. In live games,
+-- package the skinned asset under ReplicatedStorage.MiningGame.Assets (e.g., "BlanketPlane").
 local InsertService = game:GetService("InsertService")
 local template = InsertService:LoadAsset(116193032143091) -- published model with Skin
 local cloth = ClothBase.spawnFromTemplate(template, {

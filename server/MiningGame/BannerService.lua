@@ -30,49 +30,43 @@ local BLANKET_ASSET_ID = 116193032143091
 local function getTemplate(): Instance?
     local assets = MiningGame:FindFirstChild("Assets")
     local t = assets and assets:FindFirstChild("BlanketPlane")
-    if t then return t end
-
-    -- Studio-only load to avoid runtime failures
-    if RunService:IsStudio() then
-        local InsertService = game:GetService("InsertService")
-        local ok2, modelOrErr = ErrorService.safecall("BannerService.LoadAsset", function()
-            return InsertService:LoadAsset(BLANKET_ASSET_ID)
-        end)
-        if ok2 and modelOrErr and modelOrErr:IsA("Model") then
-            local mesh = modelOrErr:FindFirstChildWhichIsA("MeshPart", true)
-            local toStore: Instance = mesh or modelOrErr
-            toStore.Name = "BlanketPlane"
-            if not assets then
-                assets = Instance.new("Folder")
-                assets.Name = "Assets"
-                assets.Parent = MiningGame
+    if t then
+        -- Validate expected structure (MeshPart with Skin) to avoid silent rigid fallback
+        local mesh = t:IsA("MeshPart") and t or t:FindFirstChildWhichIsA("MeshPart", true)
+        if mesh then
+            local skin = mesh:FindFirstChildOfClass("Skin")
+            if not skin then
+                log:warn("BlanketPlane found but has no Skin child; cloth will appear rigid. Verify the published asset keeps skinning data.")
             end
-            toStore.Parent = assets
-            local skin = mesh and mesh:FindFirstChildOfClass("Skin")
-            if skin then (skin :: any).Enabled = true end
-            return toStore
         else
-            log:warn("LoadAsset(%d) failed: %s", BLANKET_ASSET_ID, tostring(modelOrErr))
+            log:warn("BlanketPlane found but no MeshPart was detected; verify the asset contents.")
         end
-    else
-        -- In live/server runs, fall back to a simple MeshPart if asset isn't preloaded
-        log:warn("BlanketPlane asset missing and not in Studio; using simple MeshPart fallback")
+        return t
+    end
+
+    -- Attempt to load published asset by ID (works in Studio and live if permissions allow)
+    local InsertService = game:GetService("InsertService")
+    local ok2, modelOrErr = ErrorService.safecall("BannerService.LoadAsset", function()
+        return InsertService:LoadAsset(BLANKET_ASSET_ID)
+    end)
+    if ok2 and modelOrErr and modelOrErr:IsA("Model") then
+        local mesh = modelOrErr:FindFirstChildWhichIsA("MeshPart", true)
+        local toStore: Instance = mesh or modelOrErr
+        toStore.Name = "BlanketPlane"
         if not assets then
             assets = Instance.new("Folder")
             assets.Name = "Assets"
             assets.Parent = MiningGame
         end
-        local mp = Instance.new("MeshPart")
-        mp.Name = "BlanketPlane"
-        mp.Size = Vector3.new(12, 10, 0.5)
-        mp.Anchored = true
-        mp.CanCollide = false
-        mp.CanQuery = false
-        mp.CanTouch = false
-        mp.CastShadow = false
-        mp.Material = Enum.Material.Plastic
-        mp.Parent = assets
-        return mp
+        toStore.Parent = assets
+        local skin = mesh and mesh:FindFirstChildOfClass("Skin")
+        if skin then (skin :: any).Enabled = true end
+        log:info("Loaded BlanketPlane via InsertService asset ID %d", BLANKET_ASSET_ID)
+        return toStore
+    else
+        -- Provide actionable diagnostics
+        log:error("LoadAsset(%d) failed in this environment: %s. Ensure the asset is owned by this place's creator or set to be accessible to the game.", BLANKET_ASSET_ID, tostring(modelOrErr))
+        log:error("Also consider packaging the asset under ReplicatedStorage.MiningGame.Assets.BlanketPlane to avoid runtime fetch.")
     end
     return nil
 end
@@ -144,6 +138,12 @@ local function spawnFor(player: Player, baseModel: Model)
                 colorOverride = (TUNE().MATCH_GLOW_TO_BANNER and slotColor or nil),
             },
         })
+
+        -- Verify that the spawned mesh carries a Skin for deformation
+        local mesh = inst.mesh
+        if mesh and not mesh:FindFirstChildOfClass("Skin") then
+            log:warn("Spawned banner mesh lacks Skin; cloth will not deform. Ensure the skinned asset is packaged (see CLOTH_SYSTEM.md).")
+        end
 
         -- Annotate for client billboards
         ErrorService.safecall("BannerService.TagAttributes", function()

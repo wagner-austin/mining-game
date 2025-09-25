@@ -27,7 +27,8 @@ function DigPerformance.measureSection(name: string, func: () -> ...any): ...any
             count = 0,
             min = math.huge,
             max = 0,
-            last = 0
+            last = 0,
+            lastAt = 0,
         }
     end
     
@@ -37,6 +38,7 @@ function DigPerformance.measureSection(name: string, func: () -> ...any): ...any
     timing.min = math.min(timing.min, elapsed)
     timing.max = math.max(timing.max, elapsed)
     timing.last = elapsed
+    timing.lastAt = Time.mono()
     
     return table.unpack(results)
 end
@@ -49,6 +51,21 @@ function DigPerformance.getSnapshot(): {[string]: {last: number, avg: number, mi
         snap[name] = { last = t.last or 0, avg = avg, min = t.min or 0, max = t.max or 0, count = t.count or 0 }
     end
     return snap
+end
+
+-- Recent-only snapshot (sections measured within windowSec)
+function DigPerformance.getRecent(windowSec: number?): {[string]: {last: number, avg: number, min: number, max: number, count: number, lastAt: number}}
+    local now = Time.mono()
+    local win = windowSec or 0.05
+    local out = {}
+    for name, t in pairs(timings) do
+        local lastAt = t.lastAt or 0
+        if (now - lastAt) <= win then
+            local avg = (t.count > 0) and (t.total / t.count) or 0
+            out[name] = { last = t.last or 0, avg = avg, min = t.min or 0, max = t.max or 0, count = t.count or 0, lastAt = lastAt }
+        end
+    end
+    return out
 end
 
 function DigPerformance.getReport(): string

@@ -216,8 +216,10 @@ function RockGenerationService:GenerateInArea(opts: GenerateOpts): {Vector3}
         if not WorldGenUtils.isTooCloseToPlayerCube(x, z, cubes, keepout) and not WorldGenUtils.isTooClose(x, z, positions, minSpacing) then
             local g = WorldGenUtils.findGroundPosition(x, z, { allowWater = allowWater })
             if g then
-                local model = generateRockModel(g, rng)
-                model.Parent = parentFolder
+                DigPerformance.measureSection("PCG_Rock_Create", function()
+                    local model = generateRockModel(g, rng)
+                    model.Parent = parentFolder
+                end)
                 spawned += 1
                 table.insert(positions, g)
                 if spawned <= 3 then log:info("Rock #%d spawned at (%.1f, %.1f, %.1f)", spawned, g.X, g.Y, g.Z) end

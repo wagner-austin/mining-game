@@ -28,6 +28,7 @@ end
 
 local Logger = require(Shared:WaitForChild("Logger"))
 local log = Logger.new("CharacterStateManager")
+local DigPerformance = require(script.Parent.DigPerformance)
 local ServiceValidator = require(Shared:WaitForChild("ServiceValidator"))
 
 -- Ensure server creates the Remote instances before we access them (startup race guard)
@@ -102,6 +103,7 @@ local function startHeartbeat()
     if heartbeatConnection then return end  -- Guard against duplicate connections
     
     heartbeatConnection = RunService.Heartbeat:Connect(function(dt)
+        DigPerformance.measureSection("CSM_Heartbeat", function()
         local t = now()
         
         -- Use plr to avoid shadowing
@@ -136,6 +138,7 @@ local function startHeartbeat()
                 changedEvent:Fire(plr) -- Notify server listeners
             end
         end
+        end)
     end)
 end
 

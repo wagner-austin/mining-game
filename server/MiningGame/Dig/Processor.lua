@@ -280,7 +280,7 @@ function Processor.Process(service, player: Player, worldPos: Vector3)
                 table.insert(top, string.format("%s=%.2fms", parts[i].name, parts[i].ms))
             end
             if #top > 0 then
-                log:info("[DigProfile] cells=%d size=%d :: %s", #dugCells, effectiveStats.size or -1, table.concat(top, ", "))
+                log:debug("[DigProfile] cells=%d size=%d :: %s", #dugCells, effectiveStats.size or -1, table.concat(top, ", "))
             end
         end
     end
@@ -316,3 +316,4 @@ function Processor.Process(service, player: Player, worldPos: Vector3)
 end
 
 return Processor
+

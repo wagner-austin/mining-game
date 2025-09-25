@@ -14,6 +14,7 @@ local EventBus = require(Shared:WaitForChild("EventBus"))
 local EventNames = require(Shared:WaitForChild("EventNames"))
 
 local log = Logger.new("CubeManager")
+local DigPerformance = require(script.Parent.DigPerformance)
 
 local CubeManager = {}
 
@@ -115,18 +116,20 @@ function CubeManager:SetPhaseControl(rule: { spawn: {string}, despawn: {string} 
 
     if _phaseConn then pcall(function() _phaseConn:Disconnect() end) end
     _phaseConn = RunService.Heartbeat:Connect(function()
-        local phase = WorldGenUtils.getDayNightPhase()
-        if phaseRule and phaseRule.spawn[phase] then
-            for _, plr in ipairs(Players:GetPlayers()) do
-                if not registry[plr] then
-                    self:SpawnForPlayer(plr)
+        DigPerformance.measureSection("CM_Heartbeat", function()
+            local phase = WorldGenUtils.getDayNightPhase()
+            if phaseRule and phaseRule.spawn[phase] then
+                for _, plr in ipairs(Players:GetPlayers()) do
+                    if not registry[plr] then
+                        self:SpawnForPlayer(plr)
+                    end
+                end
+            elseif phaseRule and phaseRule.despawn[phase] then
+                for plr, _ in pairs(registry) do
+                    self:DespawnForPlayer(plr)
                 end
             end
-        elseif phaseRule and phaseRule.despawn[phase] then
-            for plr, _ in pairs(registry) do
-                self:DespawnForPlayer(plr)
-            end
-        end
+        end)
     end)
     log:info("Phase control enabled: spawn=%d, despawn=%d", (rule.spawn and #rule.spawn or 0), (rule.despawn and #rule.despawn or 0))
 end

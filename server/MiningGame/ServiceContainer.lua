@@ -8,15 +8,18 @@ local Time = require(Shared:WaitForChild("Time"))
 local Logger = require(Shared:WaitForChild("Logger"))
 local Timeout = require(Shared:WaitForChild("Timeout"))
 local GameConfig = require(Shared:WaitForChild("GameConfig"))
+local LoadingConstants = require(Shared:WaitForChild("LoadingConstants"))
+local FallbackRegistry = require(script.Parent.FallbackRegistry)
 
 local slog = Logger.new(Logger.CAT.ServiceContainer)
 
 -- Optional config (from GameConfig.Debug if available, else defaults)
 local WARN_INIT_SEC  = (GameConfig.Debug and GameConfig.Debug.WARN_INIT_SEC) or 0.25
 local WARN_START_SEC = (GameConfig.Debug and GameConfig.Debug.WARN_START_SEC) or 0.25
-local TIMEOUT_INIT   = (GameConfig.Debug and GameConfig.Debug.TIMEOUT_INIT) or 0  -- 0 = disabled
-local TIMEOUT_START  = (GameConfig.Debug and GameConfig.Debug.TIMEOUT_START) or 0
-local POLL_INTERVAL  = 0  -- 0 = yield until next frame
+-- Use centralized LoadingConstants timeouts (soft). 0 disables soft timeouts.
+local TIMEOUT_INIT   = (LoadingConstants and LoadingConstants.TIMEOUTS and LoadingConstants.TIMEOUTS.ServiceInit) or 0
+local TIMEOUT_START  = (LoadingConstants and LoadingConstants.TIMEOUTS and LoadingConstants.TIMEOUTS.ServiceInit) or 0
+local POLL_INTERVAL  = (LoadingConstants and LoadingConstants.POLL_INTERVALS and LoadingConstants.POLL_INTERVALS.Fine) or 0
 
 export type ServiceRec = {
     name: string,
@@ -107,12 +110,20 @@ function ServiceContainer:build()
         if type(rec.inst.Init) == "function" then
             local t0 = Time.mono()
             local ok, resOrErr
+            local usedFallbackInit = false
             if TIMEOUT_INIT and TIMEOUT_INIT > 0 then
                 ok, resOrErr = Timeout.run(function()
                     rec.inst:Init(self)
                 end, TIMEOUT_INIT, POLL_INTERVAL)
                 if not ok and resOrErr == "TIMEOUT" then
-                    error(("[ServiceContainer] %s.Init exceeded soft timeout (%.2fs)"):format(rec.name, TIMEOUT_INIT))
+                    if FallbackRegistry.has(rec.name) then
+                        slog:warn("%s.Init timed out (%.2fs). Falling back to stub.", rec.name, TIMEOUT_INIT)
+                        rec.inst = FallbackRegistry.get(rec.name)
+                        health.init[rec.name] = "fallback"
+                        usedFallbackInit = true
+                    else
+                        error(("[ServiceContainer] %s.Init exceeded soft timeout (%.2fs)"):format(rec.name, TIMEOUT_INIT))
+                    end
                 end
             else
                 ok, resOrErr = pcall(function() rec.inst:Init(self) end)
@@ -121,10 +132,19 @@ function ServiceContainer:build()
             if dt > WARN_INIT_SEC then
                 slog:warn("Slow Init (%.3fs): %s", dt, rec.name)
             end
-            if not ok then
-                error(("[ServiceContainer] %s.Init failed: %s"):format(rec.name, tostring(resOrErr)))
+            if not usedFallbackInit then
+                if not ok then
+                    if FallbackRegistry.has(rec.name) then
+                        slog:warn("%s.Init failed: %s. Falling back to stub.", rec.name, tostring(resOrErr))
+                        rec.inst = FallbackRegistry.get(rec.name)
+                        health.init[rec.name] = "fallback"
+                    else
+                        error(("[ServiceContainer] %s.Init failed: %s"):format(rec.name, tostring(resOrErr)))
+                    end
+                else
+                    health.init[rec.name] = "ok"
+                end
             end
-            health.init[rec.name] = "ok"
         else
             health.init[rec.name] = "n/a"
         end
@@ -143,12 +163,20 @@ function ServiceContainer:start()
         if type(rec.inst.Start) == "function" then
             local t0 = Time.mono()
             local ok, resOrErr
+            local usedFallbackStart = false
             if TIMEOUT_START and TIMEOUT_START > 0 then
                 ok, resOrErr = Timeout.run(function()
                     rec.inst:Start(self)
                 end, TIMEOUT_START, POLL_INTERVAL)
                 if not ok and resOrErr == "TIMEOUT" then
-                    error(("[ServiceContainer] %s.Start exceeded soft timeout (%.2fs)"):format(rec.name, TIMEOUT_START))
+                    if FallbackRegistry.has(rec.name) then
+                        slog:warn("%s.Start timed out (%.2fs). Using stub.", rec.name, TIMEOUT_START)
+                        rec.inst = FallbackRegistry.get(rec.name)
+                        health.start[rec.name] = "fallback"
+                        usedFallbackStart = true
+                    else
+                        error(("[ServiceContainer] %s.Start exceeded soft timeout (%.2fs)"):format(rec.name, TIMEOUT_START))
+                    end
                 end
             else
                 ok, resOrErr = pcall(function() rec.inst:Start(self) end)
@@ -157,10 +185,19 @@ function ServiceContainer:start()
             if dt > WARN_START_SEC then
                 slog:warn("Slow Start (%.3fs): %s", dt, rec.name)
             end
-            if not ok then
-                error(("[ServiceContainer] %s.Start failed: %s"):format(rec.name, tostring(resOrErr)))
+            if not usedFallbackStart then
+                if not ok then
+                    if FallbackRegistry.has(rec.name) then
+                        slog:warn("%s.Start failed: %s. Using stub.", rec.name, tostring(resOrErr))
+                        rec.inst = FallbackRegistry.get(rec.name)
+                        health.start[rec.name] = "fallback"
+                    else
+                        error(("[ServiceContainer] %s.Start failed: %s"):format(rec.name, tostring(resOrErr)))
+                    end
+                else
+                    health.start[rec.name] = "ok"
+                end
             end
-            health.start[rec.name] = "ok"
         else
             health.start[rec.name] = "n/a"
         end

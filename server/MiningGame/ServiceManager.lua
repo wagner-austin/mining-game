@@ -8,6 +8,7 @@ local Timeout = require(Shared:WaitForChild("Timeout"))
 local LoadCfg = require(Shared:WaitForChild("LoadingConstants"))
 local Logger = require(Shared:WaitForChild("Logger"))
 local Time = require(Shared:WaitForChild("Time"))
+local FallbackRegistry = require(script.Parent.FallbackRegistry)
 local log = Logger.new("ServiceManager")
 
 local ServiceManager = {}
@@ -15,9 +16,9 @@ local ServiceManager = {}
 -- Helper: require with timeout protection and timing diagnostics
 local function requireWithTimeout(mod: ModuleScript)
     local t0 = Time.mono()
-    local ok, resOrErr = Timeout.run(function()
+    local ok, resOrErr = Timeout.runWithRetry(function()
         return require(mod)
-    end, LoadCfg.TIMEOUTS.ModuleRequire, LoadCfg.POLL_INTERVALS.Fine)
+    end, LoadCfg.TIMEOUTS.ModuleRequire, LoadCfg.RETRY.ModuleRequire.attempts, LoadCfg.RETRY.ModuleRequire.backoff)
     
     local dt = Time.mono() - t0
     
@@ -42,6 +43,11 @@ local function regReq(container, name: string, child: ModuleScript, deps: {strin
     assert(child and child:IsA("ModuleScript"), ("Missing/invalid service module: %s"):format(name))
     local modOrErr, err = requireWithTimeout(child)
     if not modOrErr then
+        if FallbackRegistry.has(name) then
+            log:warn("%s require failed (%s); registering fallback stub", name, tostring(err))
+            container:register(name, FallbackRegistry.get(name), deps)
+            return
+        end
         error(("Failed to require %s: %s"):format(name, tostring(err)))
     end
     container:register(name, modOrErr, deps)

@@ -17,6 +17,7 @@ local ErrorService = require(script.Parent:WaitForChild("ErrorService"))
 local SoundBroadcast = require(script.Parent.SoundBroadcast)
 local ItemAnimations = require(script.Parent.ItemAnimations)
 local DropModelFactory = require(script.Parent.Items.DropModelFactory)
+local DigPerformance = require(script.Parent.DigPerformance)
 
 local EventBus = require(Shared:WaitForChild("EventBus"))
 local EventNames = require(Shared:WaitForChild("EventNames"))
@@ -133,9 +134,17 @@ function ItemService:Start(_container)
     end)
 
     RunService.Heartbeat:Connect(function(dt)
-        updateItemRotations(dt)
-        autoCollector.handleAutoCollection(dt)
-        if FORCED_CLAIM_ENABLED then sweeper.handleForcedClaim(dt) end
+        DigPerformance.measureSection("IS_Rotations", function()
+            updateItemRotations(dt)
+        end)
+        DigPerformance.measureSection("IS_AutoCollector", function()
+            autoCollector.handleAutoCollection(dt)
+        end)
+        if FORCED_CLAIM_ENABLED then
+            DigPerformance.measureSection("IS_Sweeper", function()
+                sweeper.handleForcedClaim(dt)
+            end)
+        end
     end)
 
     if LOOT_MAGNET_ENABLED then

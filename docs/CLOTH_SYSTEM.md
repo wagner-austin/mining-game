@@ -194,7 +194,9 @@ Skinned MeshParts lose their `Skin` data when exported to `.rbxm`/`.rbxmx`, so t
 3. Store your cloth asset under ReplicatedStorage.MiningGame.Assets for easy cloning.
 
 ### Runtime Loading
-At runtime, find the asset in `ReplicatedStorage.MiningGame.Assets` (e.g., `BlanketPlane`) and clone it; ensure `Skin.Enabled = true`.
+Preferred: Package the asset under `ReplicatedStorage.MiningGame.Assets` (e.g., `BlanketPlane`) and clone it; ensure `Skin.Enabled = true`.
+
+Also supported: If the asset is not packaged, the server attempts to load the published model by ID via `InsertService:LoadAsset` (Studio and live, subject to permissions). On success, it caches the result under `ReplicatedStorage.MiningGame.Assets.BlanketPlane` for reuse and client replication. On failure (e.g., private asset), it logs a clear error.
 
 ### Skin Safety Check
 After cloning, we call `FindFirstChildOfClass("Skin")` and enable it. If the skin is missing we log a warning; the cloth will fall back to a rigid mesh.

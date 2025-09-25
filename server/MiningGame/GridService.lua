@@ -449,15 +449,17 @@ log:info("Module loaded")
 -- Debug command to print performance report
 local lastPerfLog = 0
 RunService.Heartbeat:Connect(function()
-    local perfReport = DigPerformance.getReport()
-    if perfReport and #perfReport > 50 then  -- Only print if there's data
-        -- Print at most once every 30s if there's new data
-        local now = Time.mono()
-        if now - lastPerfLog >= 30 then
-            lastPerfLog = now
-            log:debug(perfReport)
+    DigPerformance.measureSection("GS_Heartbeat", function()
+        local perfReport = DigPerformance.getReport()
+        if perfReport and #perfReport > 50 then  -- Only print if there's data
+            -- Print at most once every 30s if there's new data
+            local now = Time.mono()
+            if now - lastPerfLog >= 30 then
+                lastPerfLog = now
+                log:debug(perfReport)
+            end
         end
-    end
+    end)
 end)
 
 return GridService

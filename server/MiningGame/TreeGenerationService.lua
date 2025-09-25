@@ -22,6 +22,7 @@ local TreeFactory = require(Shared:WaitForChild("TreeFactory"))
 
 local log = Logger.new("TreeGenerationService")
 local Bus = EventBus.global()
+local DigPerformance = require(script.Parent.DigPerformance)
 
 -- Optional dependency
 local CubePositionService: any = nil
@@ -190,8 +191,11 @@ function TreeGenerationService:GenerateInArea(opts: GenerateOpts): {Vector3}
             local ground = WorldGenUtils.findGroundPosition(x, z, { allowWater = allowWater })
             if ground then
                 -- Spawn procedural blocky tree via shared factory (atomic parent assign after)
-                local model = TreeFactory.SpawnBlocky(ground, rng)
-                model.Parent = parentFolder
+                local model
+                DigPerformance.measureSection("PCG_Tree_Create", function()
+                    model = TreeFactory.SpawnBlocky(ground, rng)
+                    model.Parent = parentFolder
+                end)
                 spawned += 1
                 table.insert(positions, ground)
                 if spawned <= 3 then
