@@ -11,6 +11,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("MiningGame")
 local Time = require(Shared:WaitForChild("Time"))
 local GameConfig = require(Shared:WaitForChild("GameConfig"))
+local Timeout = require(Shared:WaitForChild("Timeout"))
+local LoadCfg = require(Shared:WaitForChild("LoadingConstants"))
 local Types = require(Shared:WaitForChild("Types"))
 local Logger = require(Shared:WaitForChild("Logger"))
 local MathUtils = require(Shared:WaitForChild("MathUtils"))
@@ -18,6 +20,65 @@ local ErrorService = require(script.Parent.ErrorService)
 local DigPerformance = require(script.Parent.DigPerformance)
 local log = Logger.new("DataService")
 local Remotes = require(Shared:WaitForChild("Remotes"))
+
+-- Centralized helpers for DataStore/MemoryStore ops with timeout + retry
+local function _dsGet(store, key, sectionName: string?)
+    local t = (LoadCfg.TIMEOUTS and LoadCfg.TIMEOUTS.DataStoreOp) or 8.0
+    local r = (LoadCfg.RETRY and LoadCfg.RETRY.DataStore) or { attempts = 3, backoff = 0.5 }
+    local okTimeout, resultOrErr = Timeout.runWithRetry(function()
+        local ok, res = pcall(function()
+            return store:GetAsync(key)
+        end)
+        if not ok then error(res) end
+        return res
+    end, t, r.attempts, r.backoff)
+    if not okTimeout then return false, resultOrErr end
+    return true, resultOrErr
+end
+
+local function _dsSet(store, key, value, sectionName: string?)
+    local t = (LoadCfg.TIMEOUTS and LoadCfg.TIMEOUTS.DataStoreOp) or 8.0
+    local r = (LoadCfg.RETRY and LoadCfg.RETRY.DataStore) or { attempts = 3, backoff = 0.5 }
+    local okTimeout, resOrErr = Timeout.runWithRetry(function()
+        local ok, err = pcall(function()
+            DigPerformance.measureSection(sectionName or "DS_Set_Unknown", function()
+                store:SetAsync(key, value)
+            end)
+        end)
+        if not ok then error(err) end
+        return true
+    end, t, r.attempts, r.backoff)
+    if not okTimeout then return false, resOrErr end
+    return true
+end
+
+local function _dsUpdate(store, key, transform, sectionName: string?)
+    local t = (LoadCfg.TIMEOUTS and LoadCfg.TIMEOUTS.DataStoreOp) or 8.0
+    local r = (LoadCfg.RETRY and LoadCfg.RETRY.DataStore) or { attempts = 3, backoff = 0.5 }
+    local okTimeout, resOrErr = Timeout.runWithRetry(function()
+        local ok, err = pcall(function()
+            DigPerformance.measureSection(sectionName or "DS_Update_Unknown", function()
+                store:UpdateAsync(key, transform)
+            end)
+        end)
+        if not ok then error(err) end
+        return true
+    end, t, r.attempts, r.backoff)
+    if not okTimeout then return false, resOrErr end
+    return true
+end
+
+local function _msCall(opName: string, fn)
+    local t = (LoadCfg.TIMEOUTS and LoadCfg.TIMEOUTS.MemoryStoreOp) or 4.0
+    local r = (LoadCfg.RETRY and LoadCfg.RETRY.MemoryStore) or { attempts = 2, backoff = 0.25 }
+    local okTimeout, resOrErr = Timeout.runWithRetry(function()
+        local ok, res = pcall(fn)
+        if not ok then error(res) end
+        return res
+    end, t, r.attempts, r.backoff)
+    if not okTimeout then return false, resOrErr end
+    return true, resOrErr
+end
 
 -- Event Bus for decoupled communication
 local EventBus = require(Shared:WaitForChild("EventBus"))
@@ -420,26 +481,24 @@ end
 local function acquireSessionLock(userId: number): boolean
     local key = tostring(userId)
     local now = DateTime.now().UnixTimestamp
-    
-    local ok = ErrorService.safecall("SessionLocks:SetAsync", function()
-        SessionLocks:SetAsync(key, now, LOCK_TTL)
+    local ok = _msCall("SessionLocks:SetAsync", function()
+        return SessionLocks:SetAsync(key, now, LOCK_TTL)
     end)
-    
-    return ok
+    return ok and true or false
 end
 
 -- Release session lock
 releaseSessionLock = function(userId: number)
     local key = tostring(userId)
-    ErrorService.safecall("SessionLocks:RemoveAsync", function()
-        SessionLocks:RemoveAsync(key)
+    _msCall("SessionLocks:RemoveAsync", function()
+        return SessionLocks:RemoveAsync(key)
     end)
 end
 
 -- Check if session is locked
 local function isSessionLocked(userId: number): boolean
     local key = tostring(userId)
-    local ok, value = ErrorService.safecall("SessionLocks:GetAsync", function()
+    local ok, value = _msCall("SessionLocks:GetAsync", function()
         return SessionLocks:GetAsync(key)
     end)
     
@@ -473,9 +532,7 @@ function DataService:LoadPlayerAsync(player: Player): Types.PlayerStats?
     local key = "Player_" .. tostring(userId)
     log:debug("Loading data for %s with key: %s", player.Name, key)
     
-    local okLoad, result = ErrorService.safecall("PlayerDataStore:GetAsync", function()
-        return PlayerDataStore:GetAsync(key)
-    end)
+    local okLoad, result = _dsGet(PlayerDataStore, key, "DS_Get_Player")
     
     if not okLoad then
         log:error("Failed to load data for %s: %s", player.Name, tostring(result))
@@ -602,9 +659,7 @@ function DataService:LoadCubeAsync(player: Player): Types.CubeState?
     
     -- Load from DataStore
     local key = "Cube_" .. tostring(userId) .. "_" .. profile.materialId
-    local okCube, result = ErrorService.safecall("CubeDataStore:GetAsync", function()
-        return CubeDataStore:GetAsync(key)
-    end)
+    local okCube, result = _dsGet(CubeDataStore, key, "DS_Get_Cube")
     
     if not okCube then
         log:error("Failed to load cube for %s: %s", player.Name, tostring(result))
@@ -637,11 +692,7 @@ function DataService:SavePlayerAsync(player: Player): boolean
     local userId = player.UserId
     local key = "Player_" .. tostring(userId)
     
-    local okSave, err = ErrorService.safecall("PlayerDataStore:SetAsync", function()
-        DigPerformance.measureSection("DS_Set_Player", function()
-            PlayerDataStore:SetAsync(key, profile)
-        end)
-    end)
+    local okSave, err = _dsSet(PlayerDataStore, key, profile, "DS_Set_Player")
     
     if not okSave then
         log:error("Failed to save data for %s: %s", player.Name, tostring(err))
@@ -682,11 +733,7 @@ function DataService:SaveCubeAsync(player: Player): boolean
         end
     end
     
-    local okSave, err = ErrorService.safecall("CubeDataStore:SetAsync", function()
-        DigPerformance.measureSection("DS_Set_Cube", function()
-            CubeDataStore:SetAsync(key, compactCube)
-        end)
-    end)
+    local okSave, err = _dsSet(CubeDataStore, key, compactCube, "DS_Set_Cube")
     
     if not okSave then
         log:error("Failed to save cube for %s: %s", player.Name, tostring(err))
@@ -1007,25 +1054,20 @@ function DataService:EnqueueReceiptGrant(userId: number, grant: any): boolean
     grant.enqueuedAt = DateTime.now().UnixTimestamp
     grant.userId = userId
     
-    local okQ, err = ErrorService.safecall("ReceiptQueue:UpdateAsync(enqueue)", function()
-        return ReceiptQueueStore:UpdateAsync(key, function(old)
-            local q = _normalizeQueue(old)
-            
-            -- Deduplicate by receiptId
-            if not q.items[grant.receiptId] then
-                q.items[grant.receiptId] = grant
-                table.insert(q.order, grant.receiptId)
-                
-                -- Cap to last 300 grants (for whales/bursts)
-                while #q.order > 300 do
-                    local evict = table.remove(q.order, 1)
-                    q.items[evict] = nil
-                end
+    local okQ, err = _dsUpdate(ReceiptQueueStore, key, function(old)
+        local q = _normalizeQueue(old)
+        -- Deduplicate by receiptId
+        if not q.items[grant.receiptId] then
+            q.items[grant.receiptId] = grant
+            table.insert(q.order, grant.receiptId)
+            -- Cap to last 300 grants (for whales/bursts)
+            while #q.order > 300 do
+                local evict = table.remove(q.order, 1)
+                q.items[evict] = nil
             end
-            
-            return q
-        end)
-    end)
+        end
+        return q
+    end, "DS_Update_ReceiptQueue_Enqueue")
     
     if not okQ then
         log:error("Failed to enqueue receipt grant for user %d, err: %s", userId, tostring(err))
@@ -1042,22 +1084,18 @@ function DataService:ConsumePendingGrants(userId: number): {any}
     local key = "PendingGrants_" .. tostring(userId)
     local consumed: {any} = {}
     
-    local okC, err = ErrorService.safecall("ReceiptQueue:UpdateAsync(consume)", function()
-        return ReceiptQueueStore:UpdateAsync(key, function(old)
-            local q = _normalizeQueue(old)
-            
-            -- Flatten grants in FIFO order
-            for _, rid in ipairs(q.order) do
-                local g = q.items[rid]
-                if g then 
-                    table.insert(consumed, g)
-                end
+    local okC, err = _dsUpdate(ReceiptQueueStore, key, function(old)
+        local q = _normalizeQueue(old)
+        -- Flatten grants in FIFO order
+        for _, rid in ipairs(q.order) do
+            local g = q.items[rid]
+            if g then 
+                table.insert(consumed, g)
             end
-            
-            -- Clear the queue atomically
-            return nil
-        end)
-    end)
+        end
+        -- Clear the queue atomically
+        return nil
+    end, "DS_Update_ReceiptQueue_Consume")
     
     if not okC then
         log:error("Failed to consume pending grants for %d, err: %s", userId, tostring(err))

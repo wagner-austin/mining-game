@@ -13,6 +13,8 @@ local EventBus = require(MiningGame:WaitForChild("EventBus"))
 local EventNames = require(MiningGame:WaitForChild("EventNames"))
 local ClothBase = require(MiningGame:WaitForChild("Cloth"):WaitForChild("ClothBase"))
 local Logger = require(MiningGame:WaitForChild("Logger"))
+local Timeout = require(MiningGame:WaitForChild("Timeout"))
+local LoadCfg = require(MiningGame:WaitForChild("LoadingConstants"))
 local ErrorService = require(script.Parent:WaitForChild("ErrorService"))
 
 local log = Logger.new("BannerService")
@@ -46,9 +48,9 @@ local function getTemplate(): Instance?
 
     -- Attempt to load published asset by ID (works in Studio and live if permissions allow)
     local InsertService = game:GetService("InsertService")
-    local ok2, modelOrErr = ErrorService.safecall("BannerService.LoadAsset", function()
+    local ok2, modelOrErr = Timeout.runWithRetry(function()
         return InsertService:LoadAsset(BLANKET_ASSET_ID)
-    end)
+    end, (LoadCfg.TIMEOUTS and LoadCfg.TIMEOUTS.RemoteCall) or 10.0, (LoadCfg.RETRY and LoadCfg.RETRY.AssetPreload and LoadCfg.RETRY.AssetPreload.attempts) or 2, (LoadCfg.RETRY and LoadCfg.RETRY.AssetPreload and LoadCfg.RETRY.AssetPreload.backoff) or 0.25)
     if ok2 and modelOrErr and modelOrErr:IsA("Model") then
         local mesh = modelOrErr:FindFirstChildWhichIsA("MeshPart", true)
         local toStore: Instance = mesh or modelOrErr

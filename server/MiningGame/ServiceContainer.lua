@@ -18,7 +18,7 @@ local WARN_INIT_SEC  = (GameConfig.Debug and GameConfig.Debug.WARN_INIT_SEC) or 
 local WARN_START_SEC = (GameConfig.Debug and GameConfig.Debug.WARN_START_SEC) or 0.25
 -- Use centralized LoadingConstants timeouts (soft). 0 disables soft timeouts.
 local TIMEOUT_INIT   = (LoadingConstants and LoadingConstants.TIMEOUTS and LoadingConstants.TIMEOUTS.ServiceInit) or 0
-local TIMEOUT_START  = (LoadingConstants and LoadingConstants.TIMEOUTS and LoadingConstants.TIMEOUTS.ServiceInit) or 0
+local TIMEOUT_START  = (LoadingConstants and LoadingConstants.TIMEOUTS and LoadingConstants.TIMEOUTS.ServiceStart) or 0
 local POLL_INTERVAL  = (LoadingConstants and LoadingConstants.POLL_INTERVALS and LoadingConstants.POLL_INTERVALS.Fine) or 0
 
 export type ServiceRec = {
@@ -149,6 +149,22 @@ function ServiceContainer:build()
             health.init[rec.name] = "n/a"
         end
     end
+    -- Expose degraded services via attributes for dev visibility
+    do
+        local degraded = {}
+        for _, rec in ipairs(order) do
+            local initState = tostring(health.init[rec.name] or "n/a")
+            local startState = tostring(health.start[rec.name] or "n/a")
+            if initState == "fallback" or startState == "fallback" then
+                table.insert(degraded, rec.name)
+            end
+        end
+        pcall(function()
+            Shared:SetAttribute("DegradedCount", #degraded)
+            Shared:SetAttribute("DegradedList", table.concat(degraded, ","))
+        end)
+    end
+
     
     if RunService:IsStudio() then
         local names = {}
