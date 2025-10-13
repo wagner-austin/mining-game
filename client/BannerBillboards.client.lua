@@ -18,6 +18,7 @@ local ClientError = require(script.Parent:WaitForChild("ClientErrorHandler"))
 local ClientRoot = script.Parent:WaitForChild("MiningGame")
 local UIComponents = ClientRoot:WaitForChild("UI"):WaitForChild("Components")
 local HighScoreBillboard = require(UIComponents:WaitForChild("HighScoreBillboard"))
+local BaseBillboard = require(UIComponents:WaitForChild("BaseBillboard"))
 
 type Mount = { model: Model, destroy: (() -> ())?, ancestryConn: RBXScriptConnection? }
 local mounted: {[string]: Mount} = {}
@@ -152,8 +153,12 @@ local function mountBanner(model: Model, overrides: any?)
             conn = model.AncestryChanged:Connect(function(_, parent)
                 if not parent then
                     -- Streamed out: tear down and mark unmounted
+                    -- Disconnect the connection before clearing to prevent leak
+                    if mounted[id] and mounted[id].ancestryConn then
+                        pcall(function() mounted[id].ancestryConn:Disconnect() end)
+                    end
                     destroy()
-                    if mounted[id] then mounted[id] = nil end
+                    mounted[id] = nil
                 else
                     -- Streamed back in: attempt to remount if not mounted
                     if not mounted[id] then task.defer(function() mountBanner(model, overrides) end) end
@@ -163,6 +168,40 @@ local function mountBanner(model: Model, overrides: any?)
             log:info("Mounted HighScore billboard on %s (face=%s, category=%s)", adornee:GetFullName(), tostring(face), tostring(category))
         else
             log:error("Failed to create HighScore billboard: %s", tostring(hs))
+        end
+    elseif feature == "Teleport" or category == "teleport" then
+        -- Use HighScore-style billboard with proper header; entries provided by RF (category = "teleport")
+        local ok, hs = ClientError.try("BannerBillboards.TeleportMount", function()
+            return HighScoreBillboard.new({
+                adornee = adornee,
+                category = "teleport",
+                accentColor = accent,
+                face = face,
+                title = "🌀 Teleport",
+                limit = 5,
+            })
+        end)
+        if ok and hs then
+            local function destroy()
+                ClientError.try("BannerBillboards.DestroyTeleport", function() hs:destroy() end)
+            end
+            local conn
+            conn = model.AncestryChanged:Connect(function(_, parent)
+                if not parent then
+                    -- Disconnect the connection before clearing to prevent leak
+                    if mounted[id] and mounted[id].ancestryConn then
+                        pcall(function() mounted[id].ancestryConn:Disconnect() end)
+                    end
+                    destroy()
+                    mounted[id] = nil
+                else
+                    if not mounted[id] then task.defer(function() mountBanner(model, overrides) end) end
+                end
+            end)
+            mounted[id] = { model = model, destroy = destroy, ancestryConn = conn }
+            log:info("Mounted Teleport billboard on %s (face=%s)", adornee:GetFullName(), tostring(face))
+        else
+            log:error("Failed to create Teleport billboard: %s", tostring(hs))
         end
     else
         -- Scenic/unknown feature: skip logging when empty (expected scenic slot)

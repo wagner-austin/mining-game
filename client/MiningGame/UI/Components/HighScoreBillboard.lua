@@ -56,6 +56,8 @@ function HighScoreBillboard.new(props: Props): HighScoreBillboardT
     local title = props.title or titleFor(props.category)
     local accent = props.accentColor or Theme.colors.Primary
 
+    local categoryLower = string.lower(props.category or "")
+    local hideValueColumn = (categoryLower == "teleport")
     -- Compute canvas height to fit header + rows based on Theme.billboard.rowHeight
     local rowHeight = (Theme.billboard and Theme.billboard.rowHeight) or UIx.Size.ROW_LARGE
     local rows = limit
@@ -102,7 +104,7 @@ function HighScoreBillboard.new(props: Props): HighScoreBillboardT
 
         local sizes = Theme.billboard or {}
         local idxW = tonumber(sizes.idxWidth) or 28
-        local valW = tonumber(sizes.valueWidth) or 112
+        local valW = (string.lower(props.category or "") == "teleport") and 0 or (tonumber(sizes.valueWidth) or 112)
         local gap = UIx.Spacing.SM
 
         local idx = Instance.new("TextLabel")
@@ -129,14 +131,14 @@ function HighScoreBillboard.new(props: Props): HighScoreBillboardT
         local name = Instance.new("TextLabel")
         name.Name = "Name"
         name.BackgroundTransparency = 1
-        name.Size = UDim2.new(1, -(valW + idxW + gap), 1, 0)
+        name.Size = (string.lower(props.category or "") == "teleport") and UDim2.new(1, -(idxW + gap), 1, 0) or UDim2.new(1, -(valW + idxW + gap), 1, 0)
         name.Position = UDim2.fromOffset(idxW + gap, 0)
         name.Font = Theme.fonts.Secondary
         name.TextScaled = true
         name.TextXAlignment = Enum.TextXAlignment.Left
         name.TextColor3 = Theme.colors.Text
         name.TextTruncate = Enum.TextTruncate.AtEnd
-        name.Text = entry and entry.name or "—"
+        name.Text = entry and entry.name or ""
         name.ZIndex = 13
         name.Parent = row
 
@@ -148,28 +150,29 @@ function HighScoreBillboard.new(props: Props): HighScoreBillboardT
 
         ThemeRefresher.Bind(name, { TextColor3 = "Text" })
 
-        local value = Instance.new("TextLabel")
-        value.Name = "Value"
-        value.BackgroundTransparency = 1
-        value.Size = UDim2.new(0, valW, 1, 0)
-        value.Position = UDim2.new(1, -valW, 0, 0)
-        value.Font = Theme.fonts.Primary
-        value.TextScaled = true
-        value.TextXAlignment = Enum.TextXAlignment.Right
-        value.TextColor3 = Theme.colors.Text
-        value.Text = entry and tostring(entry.value) or "—"
-        value.ZIndex = 13
-        value.Parent = row
+        if not hideValueColumn then
+            local value = Instance.new("TextLabel")
+            value.Name = "Value"
+            value.BackgroundTransparency = 1
+            value.Size = UDim2.new(0, valW, 1, 0)
+            value.Position = UDim2.new(1, -valW, 0, 0)
+            value.Font = Theme.fonts.Primary
+            value.TextScaled = true
+            value.TextXAlignment = Enum.TextXAlignment.Right
+            value.TextColor3 = Theme.colors.Text
+            value.Text = entry and tostring(entry.value) or ""
+            value.ZIndex = 13
+            value.Parent = row
 
-        local valueConstraint = Instance.new("UITextSizeConstraint")
-        local valSizes = (Theme.billboard and Theme.billboard.value) or Theme.textSizes.Display
-        valueConstraint.MinTextSize = valSizes.Min
-        valueConstraint.MaxTextSize = valSizes.Max
-        valueConstraint.Parent = value
+            local valueConstraint = Instance.new("UITextSizeConstraint")
+            local valSizes = (Theme.billboard and Theme.billboard.value) or Theme.textSizes.Display
+            valueConstraint.MinTextSize = valSizes.Min
+            valueConstraint.MaxTextSize = valSizes.Max
+            valueConstraint.Parent = value
 
-        ThemeRefresher.Bind(value, { TextColor3 = "Text" })
+            ThemeRefresher.Bind(value, { TextColor3 = "Text" })
+        end
     end
-
     -- Placeholder rows
     for i = 1, limit do makeRow(i, nil) end
 
@@ -204,8 +207,9 @@ function HighScoreBillboard.new(props: Props): HighScoreBillboardT
             if res and type(res) == "table" and res.entries then
                 local entries = {}
                 for _, e in ipairs(res.entries) do
-                    if type(e) == "table" and type(e.name) == "string" and type(e.value) == "number" then
-                        table.insert(entries, { name = e.name, value = e.value })
+                    if type(e) == "table" and type(e.name) == "string" then
+                        local v = (type(e.value) == "number") and e.value or 0
+                        table.insert(entries, { name = e.name, value = v })
                     end
                 end
                 self:setEntries(entries)
@@ -221,3 +225,4 @@ function HighScoreBillboard.new(props: Props): HighScoreBillboardT
 end
 
 return HighScoreBillboard
+

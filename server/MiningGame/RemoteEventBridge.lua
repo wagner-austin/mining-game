@@ -72,6 +72,9 @@ local TO_CLIENT = {
     [EventNames.NEIGHBOR_LEFT] = true,
     [EventNames.CUBE_UPDATE] = true,
     [EventNames.BANNER_READY] = true,
+    -- Pedestal lifecycle
+    [EventNames.PEDESTAL_READY] = true,
+    [EventNames.PEDESTAL_REMOVED] = true,
 }
 
 -- Whitelist of client -> server events
@@ -84,6 +87,7 @@ local FROM_CLIENT = {
     [RequestNames.SETTINGS_UPDATE] = true,
     [RequestNames.METRICS_REQUEST] = true,
     [RequestNames.SERVER_METRICS_REQUEST] = true,
+    [RequestNames.TELEPORT_RANDOM_SKY] = true,
 }
 
 -- Rate limiting for client events (per player per event)

@@ -48,14 +48,21 @@ return function(container)
             validate = function(category: any, limit: any)
                 if type(category) ~= "string" then return false end
                 local c = string.lower(category)
-                if c ~= "blocks" and c ~= "coins" and c ~= "donator" then return false end
+                if c ~= "blocks" and c ~= "coins" and c ~= "donator" and c ~= "teleport" then return false end
                 if limit ~= nil and type(limit) ~= "number" then return false end
                 return true
             end,
             handler = function(ctx, category: string, limit: number?)
                 category = string.lower(category)
                 limit = (type(limit) == "number" and limit or 5)
-                local entries = collectScores(category, limit)
+                local entries
+                if category == "teleport" then
+                    entries = {
+                        { name = "⬆️ Up", value = 0 },
+                    }
+                else
+                    entries = collectScores(category, limit)
+                end
                 -- Return entries at top-level to follow RF convention
                 return { ok = true, success = true, entries = entries }
             end,

@@ -16,6 +16,7 @@ local Logger = require(MiningGame:WaitForChild("Logger"))
 local Timeout = require(MiningGame:WaitForChild("Timeout"))
 local LoadCfg = require(MiningGame:WaitForChild("LoadingConstants"))
 local ErrorService = require(script.Parent:WaitForChild("ErrorService"))
+local BasePlacement = require(script.Parent:WaitForChild("BasePlacement"))
 
 local log = Logger.new("BannerService")
 local Bus = EventBus.global()
@@ -104,7 +105,7 @@ local function spawnFor(player: Player, baseModel: Model)
     local ready: { { model: Model, feature: string, category: string, face: string, color: Color3 } } = {}
 
     local function spawnAt(alongZT: number, inwardXT: number, index: number, slot: any?)
-        local slotColor: Color3 = ((slot and slot.color) and (slot.color :: any)) or (TUNE().COLOR or Color3.fromRGB(10, 30, 170))
+        local slotColor: Color3 = BannerConfig.getAccentColor(index)
         local feature: string? = (slot and slot.feature) or TUNE().FEATURE
         local category: string = (slot and slot.category) or (TUNE().CATEGORY or "")
         local faceStr: string = (slot and slot.face) or (TUNE().FACE or "Front")
@@ -212,22 +213,24 @@ local function spawnFor(player: Player, baseModel: Model)
 
         -- Tag will be added after all setup is complete
 
-        -- Compute placement against anchors
-        local clearanceY = TUNE().LIFT_Y
+        -- Compute placement against anchors (extracted to BasePlacement)
         local pitchDeg = TUNE().PITCH_X_DEG or 0
         local pmod = pitchDeg % 180
         local height = (math.abs(pmod - 90) < 1e-3) and inst.mesh.Size.Z or inst.mesh.Size.Y
-        local leftEdgeX = math.min(hsAnchor.Position.X, petsAnchor.Position.X)
-        local rightEdgeX = shopAnchor.Position.X
-        local baseFloorY = math.min(hsAnchor.Position.Y, petsAnchor.Position.Y)
-        local frontZ = hsAnchor.Position.Z
-        local backZ = petsAnchor.Position.Z
-        local t = math.clamp(alongZT or 1, 0, 1)
-        local edgeZ = frontZ + (backZ - frontZ) * t
-        local centerZ = edgeZ + (TUNE().INSIDE_Z or 0)
-        local fx = math.clamp(inwardXT or 0, 0, 1)
-        local centerX = leftEdgeX + (rightEdgeX - leftEdgeX) * fx
-        local center = Vector3.new(centerX, baseFloorY + clearanceY + height * 0.5, centerZ)
+        local flat, baseFloorY = BasePlacement.compute(baseModel, {
+            alongZT = alongZT,
+            inwardXT = inwardXT,
+            insideZ = (TUNE().INSIDE_Z or 0),
+        })
+        if not flat or not baseFloorY then
+            log:warn("BasePlacement failed; destroying unplaced banner for slot %d", tonumber(index) or -1)
+            ErrorService.safecall("BannerService.DestroyUnplaced", function()
+                inst.model:Destroy()
+            end)
+            return
+        end
+        local clearanceY = TUNE().LIFT_Y
+        local center = Vector3.new(flat.X, baseFloorY + clearanceY + height * 0.5, flat.Z)
         local yawDeg = TUNE().YAW_Y_DEG or 0
         local rollDeg = TUNE().ROLL_Z_DEG or 0
         inst.model:PivotTo(CFrame.new(center) * CFrame.Angles(math.rad(pitchDeg), math.rad(yawDeg), math.rad(rollDeg)))

@@ -36,10 +36,38 @@ Config.TUNE = {
         { alongZT = 0.685, inwardXT = 0.05, color = Color3.fromRGB(170, 120, 0), feature = "HighScore", category = "donator", face = "Front" },
         -- 3) Coins Earned (with billboard)
         { alongZT = 0.745, inwardXT = 0.05, color = Color3.fromRGB(0, 120, 40), feature = "HighScore", category = "coins", face = "Front" },
-        -- 4) Scenic banner only (no billboard)
-        { alongZT = 0.805, inwardXT = 0.05, color = Color3.fromRGB(100, 0, 160) },
+        -- 4) Action banner: Teleport (client shows ActionChip via ProximityAction)
+        { alongZT = 0.805, inwardXT = 0.05, color = Color3.fromRGB(100, 0, 160), feature = "Teleport", category = "teleport", face = "Front" },
+    },
+    
+    -- Pedestal placement (strict; no fallbacks)
+    -- Normalized coordinates along the same base edge as banners.
+    -- Tweak these to position the Respawn pedestal.
+    PEDESTAL = {
+        alongZT = 0.765,    -- near banner row but between slots to avoid overlap
+        inwardXT = 0.120,   -- inwards from the banner edge so it sits beside banners
+        insideZ  = -3.0,    -- slight inset from edge
+        colorSlotIndex = 4, -- scenic slot color by default
+        -- Offsets applied in base-local axes:
+        --  X = left->right across base (positive moves inward toward center/right)
+        --  Z = front->back along base (positive moves toward back/top; negative toward bottom/front)
+        offsetX = 103,      -- studs inward from banner edge (toward base center)
+        offsetZ = -50,      -- studs toward bottom/front of the base
     },
 }
+
+-- Convenience: resolve an accent Color3 from slots or fallback COLOR
+function Config.getAccentColor(slotIndex: number?): Color3
+    local t = Config.TUNE
+    local slots = (t.SLOTS :: any)
+    if type(slotIndex) == "number" and type(slots) == "table" then
+        local s = slots[slotIndex]
+        if s and typeof(s.color) == "Color3" then
+            return s.color :: Color3
+        end
+    end
+    return t.COLOR
+end
 
 function Config.update(partial: {[string]: any})
     for k, v in pairs(partial) do

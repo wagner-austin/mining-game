@@ -58,6 +58,7 @@ local SENDABLE_EVENTS: {[string]: boolean} = {
     [RequestNames.SETTINGS_UPDATE] = true,
     [RequestNames.METRICS_REQUEST] = true,
     [RequestNames.SERVER_METRICS_REQUEST] = true,
+    [RequestNames.TELEPORT_RANDOM_SKY] = true,
 }
 table.freeze(SENDABLE_EVENTS)
 

@@ -8,6 +8,7 @@ local R = {
     SETTINGS_UPDATE          = "settings.update",
     METRICS_REQUEST          = "metrics.request",
     SERVER_METRICS_REQUEST   = "metrics.server.request",
+    TELEPORT_RANDOM_SKY      = "teleport.random_sky",
 }
 
 -- Build validation table for whitelists/tests
@@ -28,6 +29,6 @@ table.freeze(R)
 export type RequestName =
     "inventory.request.sell" | "inventory.request.equip" | "dig.request" |
     "upgrade.request.purchase" | "cosmetic.request.equip" | 
-    "settings.update" | "metrics.request" | "metrics.server.request"
+    "settings.update" | "metrics.request" | "metrics.server.request" | "teleport.random_sky"
 
 return R

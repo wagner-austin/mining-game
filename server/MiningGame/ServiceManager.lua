@@ -125,11 +125,15 @@ function ServiceManager.start()
     regOpt(c, "PlayerBaseService", parent:FindFirstChild("PlayerBaseService"), {})
     -- Scenic banners at player bases (spawns cloth + UIPanel + attributes for billboards)
     regOpt(c, "BannerService", parent:FindFirstChild("BannerService"), {"PlayerBaseService"})
+    -- Respawn pedestal at player bases (strict placement via BasePlacement)
+    regOpt(c, "PedestalService", parent:FindFirstChild("PedestalService"), {"PlayerBaseService"})
 
     -- Gameplay (required)
     regReq(c, "DigService",              parent.DigService,              {"GridService","DataService","InventoryService","UpgradeService","LootService","AchievementService","ItemService","CubePositionService"})
     regReq(c, "SpawnService",            parent.SpawnService,            {"GridService","CubePositionService","DigService"})  -- SpawnService depends on DigService
     regReq(c, "CharacterStateManager",   parent.CharacterStateManager,   {"DataService"})
+    -- Teleportation utilities (random sky teleport, etc.)
+    regReq(c, "TeleportService", parent.TeleportService, {})
 
     -- Perk orchestrator (depends on CharacterStateManager)
     regReq(c, "PerkService", parent.PerkService, {"DataService","LootService","CharacterStateManager"})
