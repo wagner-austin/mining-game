@@ -42,7 +42,7 @@ function DigService:StartHoldDig(player: Player, worldPos: Vector3)
 function DigService:StopHoldDig(player: Player)
 
 -- Respawn the client’s cube model (called by RF handler)
-function DigService:RespawnCubeModel(...)
+function DigService:
 ```
 
 ## Architecture
@@ -218,3 +218,4 @@ When modifying dig mechanics, test:
 - [ ] Add visual preview of dig area before clicking
 - [ ] Support for special dig modes (precision, area clear)
 - [ ] Optimize network traffic for high-frequency diggers
+

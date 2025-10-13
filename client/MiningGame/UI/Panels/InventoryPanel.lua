@@ -151,6 +151,9 @@ function InventoryPanel:init(manager)
         end
     end
 
+    -- Forward declaration for unified category switching
+    local switchCategory
+
     local function makeFilterChip(kind: string, label: string)
         local slot = Instance.new("Frame")
         slot.BackgroundTransparency = 1
@@ -161,14 +164,7 @@ function InventoryPanel:init(manager)
             size = UDim2.new(1, 0, 1, -6),
             text = label,
             onClick = function()
-                if self._activeCategory ~= kind then
-                    self._activeCategory = kind
-                    if self._invTab and self._invTab.setCategory then
-                        self._invTab:setCategory(kind)
-                    end
-                    styleFilter()
-                    recalc()
-                end
+                if switchCategory then switchCategory(kind, false) end
             end,
         })
         filterChips[kind] = chip
@@ -239,6 +235,23 @@ function InventoryPanel:init(manager)
     sPad.PaddingRight = UDim.new(0, UIx.Spacing.MD)
     sPad.Parent = search
 
+    -- Define unified category switching now that search exists in scope
+    switchCategory = function(kind: string, resetSearch: boolean?)
+        self._activeCategory = kind
+        if resetSearch then
+            search.Text = ""
+            self._searchQuery = ""
+            if self._invTab and self._invTab.setFilters then
+                self._invTab:setFilters(self._rarityFilter, self._searchQuery)
+            end
+        end
+        if self._invTab and self._invTab.setCategory then
+            self._invTab:setCategory(kind)
+        end
+        styleFilter()
+        if type(recalc) == "function" then recalc() end
+    end
+
     -- Equipment bar (quick overview of equipped cosmetics per slot)
     local equipBar = Instance.new("Frame")
     equipBar.Name = "EquipmentBar"
@@ -266,13 +279,8 @@ function InventoryPanel:init(manager)
             size = UDim2.new(1, 0, 1, -6),
             text = (label .. ": " .. (text or "Empty")),
             onClick = function()
-                -- Nudge user to cosmetics tab and search for slot label
-                self._activeCategory = "cosmetics"
-                styleFilter()
-                search.Text = ""
-                self._searchQuery = ""
-                if self._invTab and self._invTab.setCategory then self._invTab:setCategory("cosmetics") end
-                if self._invTab and self._invTab.setFilters then self._invTab:setFilters(self._rarityFilter, self._searchQuery) end
+                -- Nudge user to cosmetics tab via unified handler
+                if switchCategory then switchCategory("cosmetics", true) end
             end,
         })
         if isEmpty then
@@ -340,7 +348,7 @@ function InventoryPanel:init(manager)
     self._invTab = invTab
     -- Ensure InventoryTab renders below the filter bar
     tabRoot.LayoutOrder = 2
-    if invTab.setCategory then invTab:setCategory(self._activeCategory or "resources") end
+    if switchCategory then switchCategory(self._activeCategory or "resources", false) end
     table.insert(self._widgets, invTab)
 
     -- Sticky Sell Bar (bottom)
@@ -510,7 +518,8 @@ function InventoryPanel:init(manager)
         -- Sanitize any control characters from summary (guards against stray encoding)
         summary.Text = (summary.Text or ""):gsub("%c", " ")
     end
-    recalc()
+    -- Initialize via unified category switch for consistent behavior
+    if switchCategory then switchCategory(self._activeCategory or "resources", false) end
 
     local provider = self._providers and self._providers.accountDataProvider
     if provider and provider.onChanged then
