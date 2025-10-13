@@ -90,52 +90,6 @@ return function(container)
         opts = { requireProfile = true, rateLimitSec = 0.25, debugOnly = true },
     },
     
-    {
-        name = "DebugResetCube",
-        handler = function(ctx)
-            if not isDev(ctx.player) then
-                return {
-                    ok = false,
-                    success = false,
-                    err = "FORBIDDEN",
-                    reason = "Not authorized"
-                }
-            end
-
-            local cubeData = DataService:GetCubeData(ctx.player)
-            if not cubeData then
-                return {
-                    ok = false,
-                    success = false,
-                    err = "NO_CUBE",
-                    reason = "No cube data found"
-                }
-            end
-
-            -- Reset on-disk state
-            cubeData.chunks = {}
-            cubeData.totalDug = 0
-            DataService:SaveCubeAsync(ctx.player)
-
-            -- Destroy model & reinitialize
-            local playerCubes = DigService.playerCubes
-            if playerCubes and playerCubes[ctx.player] then
-                if playerCubes[ctx.player].model then
-                    playerCubes[ctx.player].model:Destroy()
-                end
-                playerCubes[ctx.player] = nil
-            end
-            DigService:InitializePlayerCube(ctx.player)
-
-            -- Return at top level to match client expectations
-            return {
-                ok = true,
-                success = true,
-                message = "Cube reset to fresh state"
-            }
-        end,
-        opts = { requireProfile = true, rateLimitSec = 0.5, debugOnly = true },
-    },
     
     {
         name = "DebugResetStats",
