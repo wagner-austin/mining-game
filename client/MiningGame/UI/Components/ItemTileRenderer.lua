@@ -38,6 +38,11 @@ local function chooseSymbol(it: any): string
     local typ = tostring(it and (it :: any).type or "")
     local slot = tostring(it and (it :: any).slot or "")
 
+    -- Explicit fallback for shop passes/gamepasses
+    if typ == "gamepass" or slot == "pass" then
+        return "PASS"
+    end
+
     if typ == "resource" then
         local lid = id:lower()
         if lid:find("stone") then return "⬜" end

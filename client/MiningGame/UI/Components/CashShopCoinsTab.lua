@@ -8,6 +8,7 @@ local Theme = require(UIFolder:WaitForChild("Theme"))
 local UIx = require(UIFolder:WaitForChild("UIConstants"))
 local BaseTabComponent = require(script.Parent:WaitForChild("BaseTabComponent"))
 local ItemTileRenderer = require(script.Parent:WaitForChild("ItemTileRenderer"))
+local ShopGridHelpers = require(script.Parent:WaitForChild("ShopGridHelpers"))
 local ClientRF = require(MiningGame:WaitForChild("ClientRF"))
 local Remotes = require(MiningGame:WaitForChild("Remotes"))
 local UIUtils = require(UIFolder:WaitForChild("UIUtils"))
@@ -27,28 +28,8 @@ end
 function CashShopCoinsTab.new(props: Props)
     local self: any = setmetatable(BaseTabComponent.new({ parent = props.parent, stacked = true, name = "CashShopCoinsTab" }), CashShopCoinsTab)
 
-    -- Card container (match Cosmetics sizing: full-height card with scrollable grid inside)
-    local card = self:createSectionCard(self.container, { name = "PassesCard", size = UDim2.new(1, 0, 1, -UIx.Size.ROW_LARGE), autoSize = false })
-    self:createSectionTitle(card, "Passes")
-
-    local gridScroll = Instance.new("ScrollingFrame")
-    gridScroll.Name = "Grid"
-    gridScroll.Size = UDim2.new(1, 0, 1, -UIx.Size.BUTTON_SMALL_HEIGHT)
-    gridScroll.Position = UDim2.new(0, 0, 0, UIx.Size.ROW_LARGE)
-    gridScroll.BackgroundTransparency = 1
-    gridScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-    gridScroll.ScrollingDirection = Enum.ScrollingDirection.Y
-    gridScroll.CanvasSize = UIx.Common.ORIGIN
-    gridScroll.Parent = card
-
-    local layout = Instance.new("UIGridLayout")
-    -- Match Cosmetics: add extra height to fit price row below tile
-    layout.CellSize = UDim2.new(0, UIx.Size.INVENTORY_CELL_WIDTH, 0, UIx.Size.INVENTORY_CELL_HEIGHT + UIx.Size.ROW_STANDARD + UIx.Spacing.SM + 2)
-    layout.CellPadding = UDim2.new(0, UIx.Spacing.SM, 0, UIx.Spacing.SM)
-    layout.FillDirection = Enum.FillDirection.Horizontal
-    layout.SortOrder = Enum.SortOrder.LayoutOrder
-    layout.Parent = gridScroll
-
+    -- Card + grid (shared helper, reuse BaseTabComponent styling)
+    local gridScroll = ShopGridHelpers.createGridCardWithBase(self, "Passes", { name = "PassesCard", autoSize = false })
     self._grid = gridScroll
 
     return self
@@ -114,141 +95,64 @@ function CashShopCoinsTab:refresh()
                     name = gp.name or UIUtils.humanize(gp.id or tostring(gp.gamepassId) or "Pass"),
                     priceRobux = tonumber(gp.robux) or 0,
                     owned = gp.owned == true,
+                    icon = gp.icon, -- provided by server when available
                 })
             end
         end
     end
+    -- Stable sort by name for predictability
+    table.sort(entries, function(a, b) return tostring(a.name) < tostring(b.name) end)
+
+    local PassDetailsPopup = require(script.Parent:WaitForChild("PassDetailsPopup"))
 
     for _, entry in ipairs(entries) do
         local priceRobux = tonumber(entry.priceRobux) or 0
+        local configured = (type(entry.gamepassId) == "number" and entry.gamepassId > 0)
+        local owned = entry.owned == true
+        local canBuy = configured and (not owned)
+
         local item = {
             id = "pass_" .. tostring(entry.id),
             name = entry.name,
             type = "gamepass",
             slot = "pass",
             rarity = nil,
-            icon = "",
+            icon = entry.icon or "",
         }
 
-        -- Cell container (tile + price row)
-        local cell = Instance.new("Frame")
-        cell.Name = "ShopCell"
-        cell.BackgroundTransparency = 1
-        cell.Size = UDim2.new(1, 0, 1, 0)
-        cell.Parent = gridScroll
-        local vlayout = Instance.new("UIListLayout")
-        vlayout.FillDirection = Enum.FillDirection.Vertical
-        vlayout.Padding = UDim.new(0, UIx.Spacing.TINY)
-        vlayout.SortOrder = Enum.SortOrder.LayoutOrder
-        vlayout.Parent = cell
-
-        -- Tile area (fixed height)
-        local tileHost = Instance.new("Frame")
-        tileHost.Name = "TileHost"
-        tileHost.BackgroundTransparency = 1
-        tileHost.Size = UDim2.new(1, 0, 0, UIx.Size.INVENTORY_CELL_HEIGHT)
-        tileHost.LayoutOrder = 1
-        tileHost.Parent = cell
-
-        local tile = ItemTileRenderer.create({
+        ShopGridHelpers.renderItemCell({
+            parent = gridScroll,
             item = item,
-            parent = tileHost,
-            sizeMode = "fixed",
-            fixedSize = UDim2.new(1, 0, 0, UIx.Size.INVENTORY_CELL_HEIGHT),
             rarityEffects = false,
+            nameAlign = "center",
+            useRarityColorForName = false,
+            ownedCount = owned and 1 or 0,
+            onTileClick = function()
+                local parentGui = (_G and _G.UIManager and _G.UIManager.overlayGui) or self.container
+                PassDetailsPopup.new({ parent = parentGui, passId = entry.id })
+            end,
+            price = priceRobux,
+            currencyIcon = "R$",
+            canBuy = canBuy,
+            onPurchase = function()
+                local SoundManager = require(MiningGame:WaitForChild("SoundManager"))
+                SoundManager.PlayUI("buttonclick")
+                if not configured then
+                    if _G.UIManager then _G.UIManager:showNotification("Not for sale", "error") end
+                    log:warn("Click ignored: pass not configured id=%s (gamepassId=%s)", tostring(entry.id), tostring(entry.gamepassId))
+                    return
+                end
+                log:info("Purchase click: gamepass id=%s (gamepassId=%s)", tostring(entry.id), tostring(entry.gamepassId))
+                local r, e = ClientRF.call("PurchaseGamepass", entry.id)
+                if _G.UIManager then
+                    if r and r.success then _G.UIManager:showNotification("Purchase prompt opened", "info")
+                    else _G.UIManager:showNotification(e or "Purchase failed", "error") end
+                end
+                if not (r and r.success) then
+                    log:warn("Purchase RF failed id=%s reason=%s err=%s", tostring(entry.id), (r and r.reason) or "", tostring(e))
+                end
+            end,
         })
-        local btnTile = tile.button
-        tile.helpers.addSymbol(item)
-        tile.helpers.addNameLabel(item.name, { useRarityColor = false, align = "center" })
-        btnTile.Active = true
-
-        -- Price row below tile
-        local priceRow = Instance.new("Frame")
-        priceRow.Name = "PriceRow"
-        priceRow.BackgroundTransparency = 1
-        priceRow.Size = UDim2.new(1, 0, 0, UIx.Size.ROW_STANDARD + 2)
-        priceRow.LayoutOrder = 2
-        priceRow.Parent = cell
-
-        local priceBtn = Instance.new("TextButton")
-        priceBtn.Name = "PriceButton"
-        priceBtn.AutoButtonColor = true
-        priceBtn.AnchorPoint = Vector2.new(0.5, 0)
-        priceBtn.Position = UDim2.new(0.5, 0, 0, 0)
-        priceBtn.Size = UDim2.new(0, math.min(84, UIx.Size.INVENTORY_CELL_WIDTH - UIx.Spacing.SM*2), 1, 0)
-        priceBtn.BackgroundColor3 = Theme.colors.Background
-        priceBtn.BackgroundTransparency = 0.1
-        priceBtn.Text = ""
-        priceBtn.Parent = priceRow
-        local corner = Instance.new("UICorner")
-        corner.CornerRadius = UDim.new(0, UIx.Spacing.MD)
-        corner.Parent = priceBtn
-
-        local h = Instance.new("UIListLayout")
-        h.FillDirection = Enum.FillDirection.Horizontal
-        h.VerticalAlignment = Enum.VerticalAlignment.Center
-        h.HorizontalAlignment = Enum.HorizontalAlignment.Center
-        h.Padding = UDim.new(0, UIx.Spacing.TINY)
-        h.Parent = priceBtn
-
-        -- Left icon label (use Robux currency mark)
-        local icon = Instance.new("TextLabel")
-        icon.BackgroundTransparency = 1
-        icon.Text = "R$"
-        icon.Font = Theme.fonts.Secondary
-        icon.TextScaled = true
-        icon.TextColor3 = Theme.colors.Text
-        icon.Size = UDim2.new(0, UIx.Size.ROW_STANDARD - 2, 0, UIx.Size.ROW_STANDARD - 2)
-        icon.Parent = priceBtn
-
-        local lbl = Instance.new("TextLabel")
-        lbl.BackgroundTransparency = 1
-        lbl.Text = UIUtils.formatNumber(priceRobux)
-        lbl.Font = Theme.fonts.Secondary
-        lbl.TextScaled = true
-        lbl.TextColor3 = Theme.colors.Text
-        lbl.Size = UDim2.new(1, -UIx.Size.ROW_STANDARD, 1, 0)
-        lbl.Parent = priceBtn
-
-        local ThemeRefresher = require(ReplicatedStorage:WaitForChild("MiningGame"):WaitForChild("UI"):WaitForChild("ThemeRefresher"))
-        ThemeRefresher.Bind(priceBtn, { BackgroundColor3 = "Background" })
-        ThemeRefresher.Bind(icon, { TextColor3 = "Text" })
-        ThemeRefresher.Bind(lbl, { TextColor3 = "Text" })
-
-        -- Enablement and click wiring
-        local configured = (type(entry.gamepassId) == "number" and entry.gamepassId > 0)
-        local owned = entry.owned == true
-        local canBuy = configured and (not owned)
-        priceBtn.Active = true
-        priceBtn.AutoButtonColor = canBuy
-        if not canBuy then
-            priceBtn.BackgroundTransparency = 0.3
-            if owned then
-                lbl.Text = "Owned"
-            elseif not configured then
-                lbl.Text = "Configure"
-        end
-    end
-
-
-        priceBtn.Activated:Connect(function()
-            local SoundManager = require(MiningGame:WaitForChild("SoundManager"))
-            SoundManager.PlayUI("buttonclick")
-            if not configured then
-                if _G.UIManager then _G.UIManager:showNotification("Pass not configured", "error") end
-                log:warn("Click ignored: pass not configured id=%s (gamepassId=%s)", tostring(entry.id), tostring(entry.gamepassId))
-                return
-            end
-            log:info("Purchase click: gamepass id=%s (gamepassId=%s)", tostring(entry.id), tostring(entry.gamepassId))
-            local r, e = ClientRF.call("PurchaseGamepass", entry.id)
-            if _G.UIManager then
-                if r and r.success then _G.UIManager:showNotification("Purchase prompt opened", "info")
-                else _G.UIManager:showNotification(e or "Purchase failed", "error") end
-            end
-            if not (r and r.success) then
-                log:warn("Purchase RF failed id=%s reason=%s err=%s", tostring(entry.id), (r and r.reason) or "", tostring(e))
-            end
-        end)
     end
 
     -- Support: Render Donate (Developer Product) once, if available via GetPrices
@@ -271,95 +175,28 @@ function CashShopCoinsTab:refresh()
                 icon = donate.icon or "",
             }
 
-            local cell = Instance.new("Frame")
-            cell.Name = "ShopCell_Donate"
-            cell.BackgroundTransparency = 1
-            cell.Size = UDim2.new(1, 0, 1, 0)
-            cell.Parent = gridScroll
-            local vlayout = Instance.new("UIListLayout")
-            vlayout.FillDirection = Enum.FillDirection.Vertical
-            vlayout.Padding = UDim.new(0, UIx.Spacing.TINY)
-            vlayout.SortOrder = Enum.SortOrder.LayoutOrder
-            vlayout.Parent = cell
-
-            local tileHost = Instance.new("Frame")
-            tileHost.Name = "TileHost"
-            tileHost.BackgroundTransparency = 1
-            tileHost.Size = UDim2.new(1, 0, 0, UIx.Size.INVENTORY_CELL_HEIGHT)
-            tileHost.LayoutOrder = 1
-            tileHost.Parent = cell
-
-            local tile = ItemTileRenderer.create({
+            ShopGridHelpers.renderItemCell({
+                parent = gridScroll,
                 item = item,
-                parent = tileHost,
-                sizeMode = "fixed",
-                fixedSize = UDim2.new(1, 0, 0, UIx.Size.INVENTORY_CELL_HEIGHT),
                 rarityEffects = false,
+                nameAlign = "center",
+                useRarityColorForName = false,
+                -- no ownership badge for donate product
+                onTileClick = nil,
+                price = priceRobux,
+                currencyIcon = "R$",
+                canBuy = true,
+                onPurchase = function()
+                    local SoundManager = require(MiningGame:WaitForChild("SoundManager"))
+                    SoundManager.PlayUI("buttonclick")
+                    log:info("Purchase click: product id=DONATE")
+                    local r, e = ClientRF.call("PurchaseProduct", "DONATE")
+                    if _G.UIManager then
+                        if r and r.success then _G.UIManager:showNotification("Purchase prompt opened", "info")
+                        else _G.UIManager:showNotification(e or "Purchase failed", "error") end
+                    end
+                end,
             })
-            tile.helpers.addSymbol(item)
-            tile.helpers.addNameLabel(item.name, { useRarityColor = false, align = "center" })
-
-            local priceRow = Instance.new("Frame")
-            priceRow.Name = "PriceRow"
-            priceRow.BackgroundTransparency = 1
-            priceRow.Size = UDim2.new(1, 0, 0, UIx.Size.ROW_STANDARD + 2)
-            priceRow.LayoutOrder = 2
-            priceRow.Parent = cell
-
-            local priceBtn = Instance.new("TextButton")
-            priceBtn.Name = "PriceButton"
-            priceBtn.AutoButtonColor = true
-            priceBtn.AnchorPoint = Vector2.new(0.5, 0)
-            priceBtn.Position = UDim2.new(0.5, 0, 0, 0)
-            priceBtn.Size = UDim2.new(0, math.min(84, UIx.Size.INVENTORY_CELL_WIDTH - UIx.Spacing.SM*2), 1, 0)
-            priceBtn.BackgroundColor3 = Theme.colors.Background
-            priceBtn.BackgroundTransparency = 0.1
-            priceBtn.Text = ""
-            priceBtn.Parent = priceRow
-            local corner = Instance.new("UICorner")
-            corner.CornerRadius = UDim.new(0, UIx.Spacing.MD)
-            corner.Parent = priceBtn
-
-            local h = Instance.new("UIListLayout")
-            h.FillDirection = Enum.FillDirection.Horizontal
-            h.VerticalAlignment = Enum.VerticalAlignment.Center
-            h.HorizontalAlignment = Enum.HorizontalAlignment.Center
-            h.Padding = UDim.new(0, UIx.Spacing.TINY)
-            h.Parent = priceBtn
-
-            local icon = Instance.new("TextLabel")
-            icon.BackgroundTransparency = 1
-            icon.Text = "R$"
-            icon.Font = Theme.fonts.Secondary
-            icon.TextScaled = true
-            icon.TextColor3 = Theme.colors.Text
-            icon.Size = UDim2.new(0, UIx.Size.ROW_STANDARD - 2, 0, UIx.Size.ROW_STANDARD - 2)
-            icon.Parent = priceBtn
-
-            local lbl = Instance.new("TextLabel")
-            lbl.BackgroundTransparency = 1
-            lbl.Text = UIUtils.formatNumber(priceRobux)
-            lbl.Font = Theme.fonts.Secondary
-            lbl.TextScaled = true
-            lbl.TextColor3 = Theme.colors.Text
-            lbl.Size = UDim2.new(1, -UIx.Size.ROW_STANDARD, 1, 0)
-            lbl.Parent = priceBtn
-
-            local ThemeRefresher = require(ReplicatedStorage:WaitForChild("MiningGame"):WaitForChild("UI"):WaitForChild("ThemeRefresher"))
-            ThemeRefresher.Bind(priceBtn, { BackgroundColor3 = "Background" })
-            ThemeRefresher.Bind(icon, { TextColor3 = "Text" })
-            ThemeRefresher.Bind(lbl, { TextColor3 = "Text" })
-
-            priceBtn.Activated:Connect(function()
-                local SoundManager = require(MiningGame:WaitForChild("SoundManager"))
-                SoundManager.PlayUI("buttonclick")
-                log:info("Purchase click: product id=DONATE")
-                local r, e = ClientRF.call("PurchaseProduct", "DONATE")
-                if _G.UIManager then
-                    if r and r.success then _G.UIManager:showNotification("Purchase prompt opened", "info")
-                    else _G.UIManager:showNotification(e or "Purchase failed", "error") end
-                end
-            end)
         end
     end
 end

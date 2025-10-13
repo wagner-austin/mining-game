@@ -203,9 +203,24 @@ local debugOverrides: {[number]: { unownedAll: boolean?, ownedIds: {[string]: bo
                     if success then
                         hasPass = ownsPass
                     end
+                    -- Try to fetch official Game Pass icon once per request
+                    local iconStr: string? = nil
+                    local okInfo, info = pcall(function()
+                        return MarketplaceService:GetProductInfo(passId, Enum.InfoType.GamePass)
+                    end)
+                    if okInfo and info and type(info.IconImageAssetId) == "number" and info.IconImageAssetId > 0 then
+                        iconStr = "rbxassetid://" .. tostring(info.IconImageAssetId)
+                    end
                     ownedById[id] = hasPass
                     ownedByGamepassId[passId] = hasPass
-                    table.insert(list, { id = id, name = pass.name, gamepassId = passId, owned = hasPass, robux = pass.robux })
+                    table.insert(list, {
+                        id = id,
+                        name = pass.name,
+                        gamepassId = passId,
+                        owned = hasPass,
+                        robux = pass.robux,
+                        icon = iconStr,
+                    })
                 end
             end
 
