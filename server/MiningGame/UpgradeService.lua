@@ -96,11 +96,11 @@ function UpgradeService:ComputeEffectiveStats(
         end
         luck = luck * vipMult
     end
-    if gamepasses["MEGA_PICKAXE"] then
+    if gamepasses["BIGGER_DIG"] then
         local sizeBonus = 3
         local passes = (GameConfig.Monetization and GameConfig.Monetization.GAMEPASSES) or {}
         for _, p in ipairs(passes) do
-            if p.id == "MEGA_PICKAXE" and p.effects and type(p.effects.size_bonus) == "number" then
+            if p.id == "BIGGER_DIG" and p.effects and type(p.effects.size_bonus) == "number" then
                 sizeBonus = p.effects.size_bonus
                 break
             end
@@ -238,20 +238,24 @@ function UpgradeService:ApplyBoost(
     profile.boosts[boostType] = expiry
 end
 
--- Check gamepass ownership
+-- Check gamepass ownership using profile's tracked ownership (source of truth)
+-- Note: MonetizationService backfills this on join by checking Roblox API
 function UpgradeService:GetPlayerGamepasses(player: Player): {[string]: boolean}
     local gamepasses = {}
-    
+
+    local profile = DataService:GetPlayerData(player)
+    if not profile then
+        return gamepasses
+    end
+
+    local ownedGamePasses = profile.ownedGamePasses or {}
+
     for _, gamepass in ipairs(GameConfig.Monetization.GAMEPASSES) do
         if gamepass.gamepassId > 0 then
-            local ok, owns = ErrorService.safecall("UserOwnsGamePassAsync", function()
-                return MarketplaceService:UserOwnsGamePassAsync(player.UserId, gamepass.gamepassId)
-            end, { uid = player.UserId, gpid = gamepass.gamepassId })
-            
-            gamepasses[gamepass.id] = ok and owns or false
+            gamepasses[gamepass.id] = ownedGamePasses[gamepass.gamepassId] == true
         end
     end
-    
+
     return gamepasses
 end
 
