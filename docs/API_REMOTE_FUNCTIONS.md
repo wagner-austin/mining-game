@@ -49,7 +49,6 @@ RemoteFunctions are organized by feature area under `server/MiningGame/RemoteFns
 - `GetServerUnix` - Server timestamp
 - `TeleportToHome` - Return to spawn
 - `DebugAddCurrency` (debug-only)
-- `DebugResetCube` (debug-only)
 - `DebugResetStats` (debug-only)
 - `SpawnStrategy_Get` (debug-only)
 - `SpawnStrategy_List` (debug-only)
@@ -60,7 +59,9 @@ RemoteFunctions are organized by feature area under `server/MiningGame/RemoteFns
 - `RequestDig` - Single dig action
 - `StartContinuousDig` - Begin hold-to-dig
 - `StopContinuousDig` - End hold-to-dig
-- `RespawnCubeModel` - Reset cube visuals
+
+### Cube (`Cube.rf.lua`)
+- `Cube_ResetFull` - Full wipe + reseed (allowed only when ≤ 5% mined)
 
 ### Inventory (`Inventory.rf.lua`)
 - `GetInventory` - Full inventory data

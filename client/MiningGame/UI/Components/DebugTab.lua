@@ -150,23 +150,17 @@ function DebugTab:_createCubeSection()
     local card = self:createSectionCard(self.container, { layoutOrder = 1, name = "CubeControlsCard" })
     self:createSectionTitle(card, "Cube Controls")
     
-    -- Non-destructive respawn button
-    self:createButton(card, "Respawn Cube Model", function()
-        local data, err = ClientRF.call("RespawnCubeModel")
-        rfStatus(self, function(d) return (d and d.message) or "Cube respawned" end)(data, err)
-    end, { layoutOrder = 1 })
-    
     -- Destructive reset button with danger styling
     self:createButton(card, "Reset Cube (Wipes Progress!)", function()
         if self._resetConfirm then
             -- Second click - actually reset
-            local data, err = ClientRF.call("DebugResetCube")
+            local data, err = ClientRF.call("Cube_ResetFull")
             self._resetConfirm = false
             rfStatus(self, "Cube reset to fresh state!")(data, err)
         else
             -- First click - ask for confirmation
             self._resetConfirm = true
-            self:_showStatus("⚠️ Click again to confirm WIPE", true)
+            self:_showStatus("⚠️ ?? Click again to confirm WIPE", true)
             self:setTimeout(3, function()
                 self._resetConfirm = false
             end)
@@ -213,7 +207,7 @@ function DebugTab:_createStatsSection()
     self:createButton(card, "Reset Inventory (Wipes Items)", function()
         local data, err = ClientRF.call("DebugResetInventory")
         rfStatus(self, function(d) return (d and d.message) or "Inventory reset" end)(data, err)
-    end, { variant = "danger", layoutOrder = 2 })
+    end, { variant = "danger", layoutOrder = 1 })
 end
 
 -- Inventory & Index Section
@@ -277,7 +271,7 @@ function DebugTab:_createSimAgentsSection()
     -- Change Strategy button
     self:createButton(card, "Next Spawn Strategy", function()
         self:_cycleSpawnStrategy()
-    end, { layoutOrder = 3 })
+    end, { layoutOrder = 2 })
     
     -- Respawn All button
     self:createButton(card, "Respawn All SimAgents", function()
@@ -490,3 +484,4 @@ function DebugTab:destroy()
 end
 
 return DebugTab
+

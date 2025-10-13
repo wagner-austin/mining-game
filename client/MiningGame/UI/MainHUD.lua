@@ -22,9 +22,9 @@ local log = Logger.new("MainHUD")
 local MainHUD = {}
 MainHUD.__index = MainHUD
 
-type MainHUDT = typeof(setmetatable({} :: any, MainHUD)) & {
-    name: string,
-    frame: Frame?,
+    type MainHUDT = typeof(setmetatable({} :: any, MainHUD)) & {
+        name: string,
+        frame: Frame?,
     topRightGroup: Frame?,
     centerTopGroup: Frame?,
     coinsChip: any?,
@@ -34,10 +34,11 @@ type MainHUDT = typeof(setmetatable({} :: any, MainHUD)) & {
     actionChip: any?,
     _cons: {RBXScriptConnection},
     _activeTweens: {any},
-    _hideTask: thread?,
-    _timers: {thread},
-    new: () -> MainHUDT,
-}
+        _hideTask: thread?,
+        _actionHideTask: thread?,
+        _timers: {thread},
+        new: () -> MainHUDT,
+    }
 
 function MainHUD.new(): MainHUDT
     return setmetatable({
@@ -46,6 +47,7 @@ function MainHUD.new(): MainHUDT
         _cons = {},
         _activeTweens = {}, -- Track active tweens to cancel them
         _hideTask = nil,    -- Track hide delay task
+        _actionHideTask = nil, -- Track action chip hide timeout
         _timers = {} :: {thread}, -- Track timers for cleanup
     }, MainHUD)
 end
@@ -350,9 +352,15 @@ function MainHUD:init(manager)
     -- SetExtraction removed - no longer needed
     
     -- === ACTION CHIP METHODS ===
-    function self:showActionChip(text: string, icon: string?, onActivate: () -> ())
+      function self:showActionChip(text: string, icon: string?, onActivate: () -> (), widthPx: number?)
         if not self.bottomCenterGroup then return end
-        
+
+        -- Cancel any pending action-chip hide that might nuke a newly shown chip
+        if self._actionHideTask then
+            self:_clearTimeout(self._actionHideTask)
+            self._actionHideTask = nil
+        end
+
         -- Destroy existing chip if any
         if self.actionChip then
             self.actionChip:destroy()
@@ -374,9 +382,10 @@ function MainHUD:init(manager)
             icon = icon or "🌳",
             key = Enum.KeyCode.E,
             onActivate = onActivate,
+              widthPx = widthPx,
         })
         
-        -- Show with animation
+        -- Show with animation (ensure group is visible and cancel any fade-out)
         self.bottomCenterGroup.Visible = true
         self:_tweenTransparency(self.bottomCenterGroup, false)
         self.actionChip:show()
@@ -384,10 +393,15 @@ function MainHUD:init(manager)
     
     function self:hideActionChip()
         if not self.bottomCenterGroup then return end
-        
+
         -- Fade out then hide
         self:_tweenTransparency(self.bottomCenterGroup, true)
-        self:_setTimeout(Theme.animations.Standard.Time, function()
+        -- Cancel any previous scheduled hide to avoid racing with show
+        if self._actionHideTask then
+            self:_clearTimeout(self._actionHideTask)
+            self._actionHideTask = nil
+        end
+        self._actionHideTask = self:_setTimeout(Theme.animations.Standard.Time, function()
             if self.bottomCenterGroup then
                 self.bottomCenterGroup.Visible = false
             end
@@ -395,6 +409,7 @@ function MainHUD:init(manager)
                 self.actionChip:destroy()
                 self.actionChip = nil
             end
+            self._actionHideTask = nil
         end)
     end
     

@@ -20,6 +20,7 @@ export type Props = {
     icon: string?,
     key: Enum.KeyCode?,          -- default E
     onActivate: (() -> ())?,     -- callback when activated
+    widthPx: number?,            -- optional width override (defaults to Theme.homeButton.width)
 }
 
 local HUDActionChip = {}
@@ -55,7 +56,7 @@ function HUDActionChip.new(props: Props): HUDActionChipT
     -- Create chip using BaseChip (EXACTLY like HomeButton does)
     local chip = BaseChip.new({
         parent = container,
-        size = UDim2.new(0, Theme.homeButton.width, 0, Theme.homeButton.height),
+        size = UDim2.new(0, (props.widthPx or Theme.homeButton.width), 0, Theme.homeButton.height),
         -- No position needed - BaseChip centers itself
         icon = props.icon or "🌳",
         iconSize = Theme.homeButton.iconSize,
@@ -131,3 +132,4 @@ function HUDActionChip:destroy()
 end
 
 return HUDActionChip
+

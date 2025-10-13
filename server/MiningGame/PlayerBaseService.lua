@@ -237,6 +237,11 @@ local function buildTerrainFloorAndModel(player: Player, cubeOrigin: CFrame)
 
     -- Anchors for future modules (use invisible holders)
     ensureAnchors(m, rect.center, rect.size, rect.topY)
+    -- Set a stable PrimaryPart so callers can reliably test existence
+    local spawnAnchor = m:FindFirstChild("SpawnAnchor_Anchor")
+    if spawnAnchor and spawnAnchor:IsA("BasePart") then
+        m.PrimaryPart = spawnAnchor
+    end
 
     -- Perimeter glow bars at standardized height (theme-managed via MaterialManager tags)
     if GlowBarService and GlowBarService.CreatePerimeterAtCube then
@@ -282,9 +287,17 @@ end
 
 function PlayerBaseService:Ensure(player: Player, cubeOrigin: CFrame)
     local existing = _bases[player]
-    if existing and existing.PrimaryPart then
+    if existing then
         -- Move/resize if needed (rebuild for simplicity)
         self:Destroy(player)
+    end
+    -- Also clean up any stray models with the same name under the folder (defensive)
+    local folder = getBasesFolder()
+    local expectedName = string.format("PlayerBase_%d", player.UserId)
+    for _, ch in ipairs(folder:GetChildren()) do
+        if ch:IsA("Model") and ch.Name == expectedName then
+            pcall(function() ch:Destroy() end)
+        end
     end
     local ok, model = pcall(function()
         return buildTerrainFloorAndModel(player, cubeOrigin)

@@ -338,7 +338,7 @@ GameConfig.Monetization = {
     GAMEPASSES = {
         {id = "VIP", name = "VIP", gamepassId = 1481633877, robux = 1000, 
          effects = {loot_multiplier = 2.0}},
-        {id = "MEGA_PICKAXE", name = "Mega Pickaxe", gamepassId = 1481773901, robux = 300, 
+        {id = "BIGGER_DIG", name = "Bigger Dig", gamepassId = 1481773901, robux = 300, 
          effects = {size_bonus = 3}},
         {id = "AUTO_DIGGER", name = "Auto Dig", gamepassId = 1481997949, robux = 500},
     },
@@ -760,6 +760,15 @@ GameConfig.Debug = {
     FREE_UPGRADES = false,
     -- SINGLE SOURCE OF TRUTH for log level across entire game
     LOG_LEVEL = "INFO", -- Default to INFO; raise to DEBUG when actively debugging
+}
+
+-- Reset/Respawn thresholds (tunable)
+GameConfig.Reset = {
+    -- Player-initiated reset (pedestal): allow only when mined fraction >= this value
+    -- Example: 0.05 means you must mine at least 5% to enable manual reset
+    MANUAL_RESET_MIN_MINED_FRAC = 0.05,
+    -- Auto reset (server): trigger when mined fraction >= this value
+    AUTO_RESET_MINED_FRAC = 0.99,
 }
 
 -- Visual Settings for cube indicators

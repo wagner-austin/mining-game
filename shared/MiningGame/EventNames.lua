@@ -67,6 +67,8 @@ local E = {
     PLAYER_BASE_READY = "player_base.ready",
     BANNER_READY = "banner.ready",
     BANNER_REMOVED = "banner.removed",
+    PEDESTAL_READY = "pedestal.ready",
+    PEDESTAL_REMOVED = "pedestal.removed",
 }
 
 local VALID: {[string]: true} = {}
@@ -95,6 +97,6 @@ export type EventName =
     "tree.spawn.request" | "tree.clear.request" |
     "rock.spawn.request" | "rock.clear.request" |
     "firefly.spawn.request" | "firefly.clear.request" |
-    "worldgen.done" | "player_base.ready" | "banner.ready" | "banner.removed"
+    "worldgen.done" | "player_base.ready" | "banner.ready" | "banner.removed" | "pedestal.ready" | "pedestal.removed"
 
 return E
