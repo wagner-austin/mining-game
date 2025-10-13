@@ -193,6 +193,85 @@ function Processor.Process(service, player: Player, worldPos: Vector3)
         return { ok = false, reason = "No cells dug", centerCell = centerCell }
     end
 
+    -- Auto-reset at 95% mined for player cubes and islands
+    do
+        local stats = (function()
+            local okS, res = pcall(function() return GridService:GetChunkStats(volState) end)
+            return okS and res or nil
+        end)()
+        if stats then
+            local ext = volState and volState.extentsCells
+            local cellSize = GameConfig.Grid.CELL_SIZE_STUDS
+            local sideCells
+            if ext and typeof(ext) == "Vector3" then
+                sideCells = Vector3.new(ext.X*2, ext.Y*2, ext.Z*2)
+            else
+                local perSide = math.floor(GameConfig.Grid.CUBE_SIZE_STUDS / cellSize)
+                sideCells = Vector3.new(perSide, perSide, perSide)
+            end
+            local totalCells = math.max(1, sideCells.X * sideCells.Y * sideCells.Z)
+            local dug = math.max(0, stats.dugCells or 0)
+            local dugFrac = dug / totalCells
+            local autoFrac = (GameConfig.Reset and GameConfig.Reset.AUTO_RESET_MINED_FRAC) or 0.95
+            if dugFrac >= autoFrac then
+                task.defer(function()
+                    local ok, err = pcall(function()
+                        if isCube then
+                            -- Centralized reset for player cube
+                            local CubeReset = require(script.Parent.Parent:WaitForChild("CubeReset"))
+                            CubeReset.resetPlayerCube(service._container, player, { reseed = true })
+                            log:info("Auto-reset player cube for %s at 95%% mined", player.Name)
+                        else
+                            -- Island: re-apply mixed materials with a new seed using its theme
+                            local container = service._container
+                        local MixedMaterialService = container:Get("MixedMaterialService")
+                        local CubeThemes = require(Shared:WaitForChild("CubeThemes"))
+                        -- Pick a new theme for variety (prefer a different one than current)
+                        local currentThemeId = (pickedVol and pickedVol.meta and pickedVol.meta.themeId) or "underwater_cave"
+                        local themeIds = {}
+                        for id, _ in pairs(CubeThemes.Themes) do table.insert(themeIds, id) end
+                        local rnd = Random.new()
+                        local newThemeId = currentThemeId
+                        if #themeIds > 0 then
+                            -- Try to pick a different theme if possible
+                            for _ = 1, 3 do
+                                local idx = rnd:NextInteger(1, #themeIds)
+                                local cand = themeIds[idx]
+                                if cand ~= currentThemeId then newThemeId = cand break end
+                            end
+                        end
+                        local comps = CubeThemes.GetThemeComponents(newThemeId) or {}
+                        local newSeed = rnd:NextInteger(1, 1_000_000)
+                        local cfg = MixedMaterialService:ConfigFromComposition({ components = comps }, newSeed)
+                        -- Match CubeVolume island config
+                        cfg.mode = "threshold"
+                        local maxDim = math.max((pickedVol and pickedVol.sizeStuds and pickedVol.sizeStuds.X) or 0, (pickedVol and pickedVol.sizeStuds and pickedVol.sizeStuds.Y) or 0, (pickedVol and pickedVol.sizeStuds and pickedVol.sizeStuds.Z) or 0)
+                        cfg.patchSize = math.clamp(maxDim / 10, 6, 24)
+                        MixedMaterialService:ApplyMixedMaterials(volOrigin, maxDim, cfg, false)
+                        -- Reset island dig state so future digs mark cells again
+                        if pickedVol and pickedVol.state then
+                            pickedVol.state.chunks = {}
+                            pickedVol.state.totalDug = 0
+                            -- Update volume metadata to reflect the new theme
+                            pickedVol.meta = pickedVol.meta or {}
+                            pickedVol.meta.themeId = newThemeId
+                            -- Clear surface detector cache to avoid stale exposure decisions
+                            pcall(function()
+                                local TSD = require(Shared:WaitForChild("TerrainSurfaceDetector"))
+                                if TSD and type(TSD.ClearCache) == "function" then TSD.ClearCache() end
+                            end)
+                        end
+                        log:info("Auto-reset island volume id=%s (theme=%s -> %s, seed=%d)", tostring(pickedVol and pickedVol.id), tostring(currentThemeId), tostring(newThemeId), newSeed)
+                        end
+                    end)
+                    if not ok then
+                        log:warn("Auto-reset failed: %s", tostring(err))
+                    end
+                end)
+            end
+        end
+    end
+
     -- Roll and spawn loot (delegate to ItemService to avoid duplication)
     local countsById = {}
     do

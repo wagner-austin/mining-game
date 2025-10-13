@@ -43,6 +43,7 @@ local Snapper = require(DigFolder:WaitForChild("Snapper"))
 local Picker = require(DigFolder:WaitForChild("Picker"))
 local VolumeRegistry = require(DigFolder:WaitForChild("VolumeRegistry"))
 local SurfaceSolver = require(DigFolder:WaitForChild("SurfaceSolver"))
+local RemoteManager = require(script.Parent.RemoteManager)
 
 -- Forward declare handlers (defined after Start)
 local onPlayerAdded: (Player) -> ()
@@ -60,6 +61,13 @@ local log = Logger.new("DigService")
 -- Player cube references (exposed for debug reset). Declared early for closure capture.
 local playerCubes: {[Player]: {origin: CFrame, model: Model}} = {}
 DigService.playerCubes = playerCubes
+
+-- Client-provided targets for auto-dig (optional). Keyed by Player.
+local autoTargets: {[Player]: Vector3} = {}
+DigService._autoTargets = autoTargets
+
+-- Pending auto-dig starts for players whose cube isn't ready yet
+local pendingAutoStart: {[number]: boolean} = {}
 
 -- Volume registry moved to Dig/VolumeRegistry.lua
 
@@ -100,7 +108,13 @@ function DigService:Init(container)
             return EventContracts.AUTO_DIG_START(msg.payload)
         end)
         if ok and p.player then
-            DigService:StartAutoDig(p.player)
+            local plr = p.player
+            if DigService:HasCube(plr) then
+                DigService:StartAutoDig(plr)
+            else
+                pendingAutoStart[plr.UserId] = true
+                log:debug("Queued AUTO_DIG_START for %s (cube not ready)", plr.Name)
+            end
         end
     end)
     
@@ -124,6 +138,54 @@ function DigService:Init(container)
         -- Restore original size
         profile.upgrades.size = oldSize
     end)
+
+    -- RemoteEvent: client updates the preferred auto-dig target (mouse world position)
+    RemoteManager.registerRE(
+        "AutoDig_SetTarget",
+        function(ctx, position: Vector3)
+            -- Simple deadzone & clamp via range; Processor enforces full validation
+            local player = ctx.player
+            if not player or not player.Character then return end
+            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+            if not hrp then return end
+            -- Apply minimal filtering: ignore absurdly distant targets
+            if (hrp.Position - position).Magnitude > ((GameConfig.Digging and GameConfig.Digging.MAX_RANGE_STUDS) or 200) then
+                return
+            end
+            autoTargets[player] = position
+        end,
+        {
+            schema = function(position)
+                return typeof(position) == "Vector3", "Vector3 required"
+            end,
+            rateLimitSec = 0.08, -- ~12.5 Hz; cheap: sets a table value only
+            requireProfile = true,
+        }
+    )
+
+    -- When a player's cube becomes ready/changes origin, auto-start dig if eligible
+    Bus:on(EventNames.CUBE_ORIGIN_CHANGED, function(msg)
+        local to = msg and msg.to
+        local player = to and to.player
+        if not player then return end
+        -- Check permanent pass
+        local hasPermanent = false
+        pcall(function()
+            if UpgradeService and UpgradeService.GetPlayerGamepasses then
+                local gps = UpgradeService:GetPlayerGamepasses(player)
+                hasPermanent = gps and gps["AUTO_DIGGER"] == true
+            end
+        end)
+        if not hasPermanent then
+            -- Check temporary boost
+            local profile = DataService and DataService:GetPlayerData(player)
+            local boostActive = profile and profile.boosts and profile.boosts.auto_dig and (Time.unix() < profile.boosts.auto_dig)
+            if not boostActive then return end
+        end
+        -- Start auto-dig now that cube exists
+        DigService:StartAutoDig(player)
+        pendingAutoStart[player.UserId] = nil
+    end)
     
     self._container = container
     log:info("Initialized with dependencies and event listeners")
@@ -141,6 +203,8 @@ function DigService:Start(container)
         pcall(function() AutoLoop.CleanupOnRemoving(DigService, player) end)
         playerCubes[player] = nil
         VolumeRegistry.SetPlayerCubeVolumeId(player, nil)
+        autoTargets[player] = nil
+        pendingAutoStart[player.UserId] = nil
     end
     Players.PlayerRemoving:Connect(onPlayerRemoving)
     
@@ -185,7 +249,7 @@ end
     
     @param player: Player - The player whose cube to initialize
 ]]
-function DigService:InitializePlayerCube(player: Player)
+function DigService:InitializePlayerCube(player: Player, opts)
     -- SpawnService ensures this is only called once per player
     -- No guards needed since we have single ownership
     
@@ -249,11 +313,14 @@ function DigService:InitializePlayerCube(player: Player)
 
     -- Ensure player base floor (ring) AFTER cube is restored (we will pass the cubeOrigin directly)
     do
-        local PBS = ServiceValidator.tryGet(self._container, "PlayerBaseService", {"Ensure"})
-        if PBS then
-            pcall(function()
-                PBS:Ensure(player, cubeOrigin)
-            end)
+        local skipBase = (opts and opts.skipEnsureBase) == true
+        if not skipBase then
+            local PBS = ServiceValidator.tryGet(self._container, "PlayerBaseService", {"Ensure"})
+            if PBS then
+                pcall(function()
+                    PBS:Ensure(player, cubeOrigin)
+                end)
+            end
         end
     end
     

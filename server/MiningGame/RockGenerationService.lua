@@ -20,6 +20,7 @@ local WorldGenUtils = require(Shared:WaitForChild("WorldGenUtils"))
 
 local log = Logger.new("RockGenerationService")
 local Bus = EventBus.global()
+local DigPerformance = require(script.Parent.DigPerformance)
 
 local RockGenerationService = {}
 local _eventsRegistered = false

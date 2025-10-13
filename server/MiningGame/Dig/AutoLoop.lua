@@ -13,14 +13,29 @@ local log = Logger.new("AutoLoop")
 local autoDigState: {[Player]: {active: boolean, version: number}} = {}
 local autoDigVersion: {[Player]: number} = {}
 
+local function hasPermanentAutoDig(service, player: Player): boolean
+    local ok, res = pcall(function()
+        local UpgradeService = service._container:Get("UpgradeService")
+        if not UpgradeService or not UpgradeService.GetPlayerGamepasses then return false end
+        local gps = UpgradeService:GetPlayerGamepasses(player)
+        return gps and gps["AUTO_DIGGER"] == true or false
+    end)
+    return ok and res == true
+end
+
 local function runAutoDigLoop(service, player: Player)
     autoDigVersion[player] = (autoDigVersion[player] or 0) + 1
     local myVer = autoDigVersion[player]
 
     while autoDigState[player] and autoDigState[player].active and myVer == autoDigVersion[player] and player.Parent do
         local profile = service._container:Get("DataService"):GetPlayerData(player)
-        if not profile or not profile.boosts or not profile.boosts.auto_dig or Time.unix() >= profile.boosts.auto_dig then
-            log:debug("Auto-dig expired for %s", player.Name)
+        local boostActive = false
+        if profile and profile.boosts and profile.boosts.auto_dig and Time.unix() < profile.boosts.auto_dig then
+            boostActive = true
+        end
+        local permanent = hasPermanentAutoDig(service, player)
+        if not (boostActive or permanent) then
+            log:debug("Auto-dig inactive for %s (no boost and no pass)", player.Name)
             break
         end
 
@@ -28,7 +43,13 @@ local function runAutoDigLoop(service, player: Player)
         if character then
             local hrp = character:FindFirstChild("HumanoidRootPart")
             if hrp then
-                local digPos = hrp.Position - Vector3.new(0, 5, 0)
+                local digPos
+                local tgt = service._autoTargets and service._autoTargets[player]
+                if tgt and (hrp.Position - tgt).Magnitude <= ((GameConfig.Digging and GameConfig.Digging.MAX_RANGE_STUDS) or 200) then
+                    digPos = tgt
+                else
+                    digPos = hrp.Position - Vector3.new(0, 5, 0)
+                end
                 local result = service:ProcessDigRequest(player, digPos)
                 local sleepSec = 1.0
                 if result and result.nextAllowedAt then
@@ -56,13 +77,19 @@ local AutoLoop = {}
 
 function AutoLoop.Start(service, player: Player)
     local profile = service._container:Get("DataService"):GetPlayerData(player)
-    if not profile or not profile.boosts or not profile.boosts.auto_dig or Time.unix() >= profile.boosts.auto_dig then
-        log:debug("Cannot start auto-dig: no active boost for %s", player.Name)
+    local hasBoost = profile and profile.boosts and profile.boosts.auto_dig and Time.unix() < profile.boosts.auto_dig
+    local permanent = hasPermanentAutoDig(service, player)
+    if not hasBoost and not permanent then
+        log:debug("Cannot start auto-dig: no active boost or pass for %s", player.Name)
         return false
     end
     AutoLoop.Stop(service, player)
     autoDigState[player] = { active = true, version = (autoDigVersion[player] or 0) + 1 }
-    log:info("Starting auto-dig for %s (expires at %s)", player.Name, tostring(profile.boosts.auto_dig))
+    if hasBoost then
+        log:info("Starting auto-dig for %s (expires at %s)", player.Name, tostring(profile and profile.boosts and profile.boosts.auto_dig))
+    else
+        log:info("Starting auto-dig for %s (permanent via gamepass)", player.Name)
+    end
     task.spawn(function() runAutoDigLoop(service, player) end)
     return true
 end

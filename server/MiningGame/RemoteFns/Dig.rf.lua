@@ -48,6 +48,20 @@ return function(container)
             -- Get cube stats from the state instead of non-existent methods
             local cubeState = DataService:GetCubeData(player)
             local cubeStats = cubeState and GridService:GetChunkStats(cubeState) or nil
+            if cubeState and cubeStats then
+                local ext = cubeState.extentsCells
+                local cellSize = require(ReplicatedStorage.MiningGame.GameConfig).Grid.CELL_SIZE_STUDS
+                local totalCells
+                if ext and typeof(ext) == "Vector3" then
+                    totalCells = math.max(1, (ext.X*2) * (ext.Y*2) * (ext.Z*2))
+                else
+                    local perSide = math.floor(require(ReplicatedStorage.MiningGame.GameConfig).Grid.CUBE_SIZE_STUDS / cellSize)
+                    totalCells = math.max(1, perSide * perSide * perSide)
+                end
+                cubeStats.totalCells = totalCells
+                local dug = math.max(0, cubeStats.dugCells or 0)
+                cubeStats.minedFrac = dug / totalCells
+            end
             local cubeOrigin = DigService.playerCubes[player] and DigService.playerCubes[player].origin or nil
             
             -- Return at top level to match client expectations
@@ -123,41 +137,9 @@ return function(container)
         opts = { requireProfile = true, rateLimitSec = 0.1 },
     },
     
-    {
-        name = "RespawnCubeModel",
-        handler = function(ctx)
-            local player = ctx.player
-            -- Get cube state from DataService
-            local cubeState = DataService:GetCubeData(player)
-            -- Get cube model info from DigService
-            local cubeInfo = DigService.playerCubes[player]
-            
-            if cubeState and cubeInfo then
-                -- Destroy old model if exists
-                if cubeInfo.model then
-                    cubeInfo.model:Destroy()
-                    cubeInfo.model = nil
-                end
-                
-                -- Force re-initialization of the cube
-                DigService:InitializePlayerCube(player)
-                
-                return {
-                    ok = true,
-                    success = true,
-                    respawned = true
-                }
-            end
-            return {
-                ok = false,
-                success = false,
-                err = "NO_CUBE",
-                reason = "No cube data found"
-            }
-        end,
-        opts = { requireProfile = true, rateLimitSec = 2.0 },
-    },
+    -- Removed RespawnCubeModel RF to avoid confusion with full reset flow.
 }
 
     return specs
 end -- End of factory function
+

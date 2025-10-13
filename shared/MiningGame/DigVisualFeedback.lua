@@ -101,7 +101,45 @@ function DigVisualFeedback.new()
     -- Connections
     self.connections = {} :: {RBXScriptConnection}
     
-    return self
+return self
+end
+
+-- Bind this visual feedback instance to EventBus so server dig events
+-- drive the existing cooldown rotation and impact pulse. Returns an
+-- unsubscribe function that removes all listeners.
+function DigVisualFeedback:BindToBus(bus: any): (() -> ())
+    local EventNames = require(MiningGame:WaitForChild("EventNames"))
+    local subs = {}
+
+    -- Track cube origin updates so bounds/hover work correctly
+    table.insert(subs, bus:on(EventNames.CUBE_ORIGIN_CHANGED, function(payload)
+        local originAny = payload and (payload.origin or payload.cframe or payload.CFrame or payload)
+        if typeof(originAny) == "CFrame" then
+            self:SetCubeOrigin(originAny)
+        elseif typeof(originAny) == "Vector3" then
+            self:SetCubeOrigin(CFrame.new(originAny))
+        elseif typeof(originAny) == "table" and originAny.x then
+            self:SetCubeOrigin(CFrame.new(originAny.x, originAny.y, originAny.z))
+        end
+    end))
+
+    -- Apply cooldown window and trigger visuals on every dig
+    table.insert(subs, bus:on(EventNames.DIG_FEEDBACK, function(payload)
+        if not payload then return end
+        local cd = tonumber(payload.cooldownSec) or 1.0
+        self:SetCooldown(cd)
+        self:SetCooldownEndsAt(Time.mono() + cd)
+        self:OnDig()
+        if payload.centerPos and typeof(payload.centerPos) == "Vector3" then
+            self:ShowDigResult(true, payload.centerPos)
+        end
+    end))
+
+    return function()
+        for _, unsub in ipairs(subs) do
+            pcall(unsub)
+        end
+    end
 end
 
 --[[

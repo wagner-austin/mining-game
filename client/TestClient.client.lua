@@ -549,18 +549,13 @@ task.spawn(function()
     -- Small delay to ensure profile data is set
     wait(GameConfig.Client.VISUAL_STARTUP_DELAY)
     
-    visualFeedback = DigVisualFeedback.new()
-    visualFeedback:Init()
+    -- Reuse global visuals if UI bootstrapped it; do not create here
+    visualFeedback = _G.MiningGameVisualFeedback
     
     -- Set initial data if available
     if playerCubeOrigin then
         visualFeedback:SetCubeOrigin(playerCubeOrigin)
     end
-    
-    visualFeedback:Start()
-    
-    -- Store globally for UIManager access
-    _G.MiningGameVisualFeedback = visualFeedback
     
     log:info("Visual feedback system started with origin: {}", 
         playerCubeOrigin and tostring(playerCubeOrigin.Position) or "nil")

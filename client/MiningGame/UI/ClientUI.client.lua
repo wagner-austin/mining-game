@@ -32,6 +32,7 @@ local CashShopPanel = require(script.Parent:WaitForChild("Panels"):WaitForChild(
 local ItemIndexPanel = require(script.Parent:WaitForChild("Panels"):WaitForChild("ItemIndexPanel"))
 local UpgradesPanel = require(script.Parent:WaitForChild("Panels"):WaitForChild("UpgradesPanel"))
 local BoostBar = require(script.Parent:WaitForChild("Components"):WaitForChild("BoostBar"))
+local DigVisualFeedback = require(MiningGame:WaitForChild("DigVisualFeedback"))
 
 log:info("Initializing UI system...")
 
@@ -60,6 +61,16 @@ task.defer(function()
         BoostBar.mount(manager.container)
     end
 end)
+
+-- Wire dig visuals to EventBus so icon rotates/pulses on all digs (click/hold/auto)
+local visuals = _G.MiningGameVisualFeedback
+if not visuals then
+    visuals = DigVisualFeedback.new()
+    visuals:Init()
+    visuals:Start()
+    _G.MiningGameVisualFeedback = visuals
+end
+table.insert(unsubs, visuals:BindToBus(Bus))
 
 -- Create data providers (now safe to make API calls)
 local accountDataProvider = AccountDataProvider.new(Remotes, UIUtils)
@@ -143,6 +154,7 @@ script.Destroying:Connect(function()
         pcall(unsub) 
     end
     table.clear(unsubs)
+    pcall(function() visuals:Destroy() end)
 end)
 
 -- Future: Listen for extraction updates when ExtractionService is ready
