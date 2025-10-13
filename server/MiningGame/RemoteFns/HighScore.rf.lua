@@ -31,7 +31,7 @@ return function(container)
                 elseif category == "coins" then
                     value = tonumber(profile.coins or 0) or 0
                 elseif category == "donator" then
-                    value = tonumber((profile.robuxSpentLifetime or 0)) or 0
+                    value = tonumber((profile.robuxSpentDonations or 0)) or 0
                 end
                 table.insert(list, { name = plr.DisplayName or plr.Name, value = value })
             end

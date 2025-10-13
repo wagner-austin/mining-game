@@ -17,6 +17,8 @@ local Timeout = require(MiningGame:WaitForChild("Timeout"))
 local LoadCfg = require(MiningGame:WaitForChild("LoadingConstants"))
 local Time = require(MiningGame:WaitForChild("Time"))
 local Bus = EventBus.global()
+-- Use the ClientError handler from PlayerScripts so this module (under ReplicatedStorage) can access it reliably
+local ClientError = require(Players.LocalPlayer:WaitForChild("PlayerScripts"):WaitForChild("ClientErrorHandler"))
 
 -- Type definitions for RF responses
 type ItemsBySlot = {[string]: string}
@@ -55,6 +57,7 @@ CosmeticController._appliedCosmetics = {} -- [player][slot] = cleanup function
 CosmeticController._connections = {}
 CosmeticController._preloadCache = {} -- Track preloaded assets
 CosmeticController._slotVersion = {} -- [player][slot] = version number for staleness check
+CosmeticController._didInitialSyncLocal = false -- one-time local sync guard
 
 type CosmeticControllerT = typeof(CosmeticController) & {
     init: (self: CosmeticControllerT) -> (),
@@ -113,7 +116,9 @@ end
 function CosmeticController:_loadRenderers()
     for _, module in ipairs(RenderersFolder:GetChildren()) do
         if module:IsA("ModuleScript") then
-            local ok, exported = pcall(require, module) -- modules self-register
+            local ok, exported = ClientError.try(("Cosmetics.RendererLoad:%s"):format(module.Name), function()
+                return require(module)
+            end) -- modules self-register
             if ok then
                 log:info("Loaded %s (priority: %s)", module.Name, tostring(exported and exported.priority or "n/a"))
             else
@@ -179,8 +184,8 @@ function CosmeticController:_applyCosmetics(player: Player, equipped: {[string]:
                     -- Let renderer provide assets to preload (optional, wrapped in pcall)
                     local toPreload = {}
                     if renderer.preload and type(renderer.preload) == "function" then
-                        local okPre, assets = pcall(function() 
-                            return renderer.preload(itemDef, character) 
+                        local okPre, assets = ClientError.try(("Cosmetics.Preload:%s:%s"):format(tostring(item.slot), tostring(item.itemId)), function()
+                            return renderer.preload(itemDef, character)
                         end)
                         if okPre and assets then
                             toPreload = assets
@@ -190,7 +195,9 @@ function CosmeticController:_applyCosmetics(player: Player, equipped: {[string]:
                     -- Preload with timeout and optional placeholder
                     preloadCosmeticAsset(toPreload, function()
                         if renderer.showPlaceholder then
-                            pcall(renderer.showPlaceholder, character, itemDef)
+                            ClientError.try(("Cosmetics.PlaceholderShow:%s:%s"):format(tostring(item.slot), tostring(item.itemId)), function()
+                                renderer.showPlaceholder(character, itemDef)
+                            end)
                         end
                     end)
                     self._preloadCache[key] = true
@@ -207,17 +214,23 @@ function CosmeticController:_applyCosmetics(player: Player, equipped: {[string]:
                         return -- Slot changed, skip stale apply
                     end
                     
-                    local success, result = pcall(renderer.apply, character, itemDef)
+                    local success, result = ClientError.try(("Cosmetics.Apply:%s:%s"):format(tostring(item.slot), tostring(item.itemId)), function()
+                        return renderer.apply(character, itemDef)
+                    end)
                     if success then
                         -- Double-check staleness after apply
                         if self._slotVersion[player][item.slot] ~= version then
                             -- Became stale during apply, clean up
                             if renderer.remove then
-                                pcall(renderer.remove, result)
+                                ClientError.try(("Cosmetics.RemoveStale:%s:%s"):format(tostring(item.slot), tostring(item.itemId)), function()
+                                    renderer.remove(result)
+                                end)
                             end
                             -- Hide placeholder if renderer supports it
                             if renderer.hidePlaceholder then
-                                pcall(renderer.hidePlaceholder, character)
+                                ClientError.try(("Cosmetics.PlaceholderHide:%s:%s"):format(tostring(item.slot), tostring(item.itemId)), function()
+                                    renderer.hidePlaceholder(character)
+                                end)
                             end
                             return
                         end
@@ -227,7 +240,9 @@ function CosmeticController:_applyCosmetics(player: Player, equipped: {[string]:
                         
                         -- Hide placeholder on successful apply
                         if renderer.hidePlaceholder then
-                            pcall(renderer.hidePlaceholder, character)
+                            ClientError.try(("Cosmetics.PlaceholderHide:%s:%s"):format(tostring(item.slot), tostring(item.itemId)), function()
+                                renderer.hidePlaceholder(character)
+                            end)
                         end
                     else
                         log:warn("Failed to apply %s: %s", item.itemId, tostring(result))
@@ -276,7 +291,9 @@ function CosmeticController:_removeSlot(player: Player, slot: string)
     local renderer = RendererRegistry.get(slot)
     if not renderer or not renderer.remove then return end
     
-    local ok, err = pcall(renderer.remove, ctx) -- remove(ctx) only, no character arg
+    local ok, err = ClientError.try(("Cosmetics.Remove:%s"):format(tostring(slot)), function()
+        renderer.remove(ctx)
+    end) -- remove(ctx) only, no character arg
     if not ok then
         log:warn("Remove %s failed: %s", slot, tostring(err))
     end
@@ -297,7 +314,9 @@ function CosmeticController:_applySingleSlot(player: Player, slot: string, itemI
     self:_removeSlot(player, slot)
     
     -- Apply
-    local ok, ctx = pcall(renderer.apply, character, def)
+    local ok, ctx = ClientError.try(("Cosmetics.ApplySingle:%s"):format(tostring(slot)), function()
+        return renderer.apply(character, def)
+    end)
     if ok then
         self._appliedCosmetics[player] = self._appliedCosmetics[player] or {}
         self._appliedCosmetics[player][slot] = ctx
@@ -345,6 +364,9 @@ function CosmeticController:_onPlayerRemoving(player: Player)
     self:_removeAllCosmetics(player)
     self._appliedCosmetics[player] = nil
     self._slotVersion[player] = nil  -- Clean up slot versions
+    if player == Players.LocalPlayer then
+        self._didInitialSyncLocal = false
+    end
 end
 
 -- Initialize the controller
@@ -440,6 +462,20 @@ function CosmeticController:init()
     --]]
     
     log:info("CosmeticController initialized with %d renderers", RendererRegistry.count())
+end
+
+-- One-time initial local sync after readiness
+function CosmeticController:initialSyncLocal()
+    if self._didInitialSyncLocal then return end
+    self._didInitialSyncLocal = true
+    local localPlayer = Players.LocalPlayer
+    if not localPlayer then return end
+    if self._enabled and localPlayer.Character then
+        local equipped, _ = Calls.GetEquippedItems()
+        if type(equipped) == "table" then
+            self:_applyCosmetics(localPlayer, equipped)
+        end
+    end
 end
 
 -- Enable cosmetic rendering

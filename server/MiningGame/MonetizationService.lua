@@ -15,7 +15,6 @@ local Logger = require(Shared:WaitForChild("Logger"))
 local MathUtils = require(Shared:WaitForChild("MathUtils"))
 local ServiceValidator = require(Shared:WaitForChild("ServiceValidator"))
 local ErrorService = require(script.Parent.ErrorService)  -- OK: ErrorService is a foundation service
-local Contracts = require(Shared:WaitForChild("EventContracts"))
 
 -- Services (injected via Init)
 local DataService
@@ -155,6 +154,14 @@ local function processPurchase(
         profile.robuxSpentDevProducts = (profile.robuxSpentDevProducts or 0) + (price or 0)
     else
         profile.robuxSpentGamePasses = (profile.robuxSpentGamePasses or 0) + (price or 0)
+    end
+
+    -- Donations: track spend specifically for the DONATE developer product
+    if kind == "DevProduct" then
+        local prod = productIdToData[id]
+        if prod and prod.id == "DONATE" then
+            profile.robuxSpentDonations = (profile.robuxSpentDonations or 0) + (price or 0)
+        end
     end
 
     -- Timestamps
@@ -482,6 +489,18 @@ local function onPlayerAdded(player)
                 end
             end
         end
+    end
+
+    -- Ensure permanent effects (like AUTO_DIGGER) are applied at join if owned
+    local okGP, gps = pcall(function()
+        return UpgradeService and UpgradeService.GetPlayerGamepasses and UpgradeService:GetPlayerGamepasses(player) or {}
+    end)
+    if okGP and gps and gps["AUTO_DIGGER"] == true then
+        Bus:emit(EventNames.AUTO_DIG_START, {
+            to = { kind = "server" },
+            payload = Contracts.AUTO_DIG_START({ player = player })
+        })
+        log:debug("Emitted AUTO_DIG_START on join for %s (owns AUTO_DIGGER)", player.Name)
     end
 end
 

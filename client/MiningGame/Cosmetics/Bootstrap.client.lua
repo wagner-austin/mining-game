@@ -3,6 +3,7 @@
 -- Initializes the cosmetic controller
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
 local Ready = require(MiningGame:WaitForChild("Ready"))
 
@@ -16,5 +17,12 @@ end
 
 controller:init()
 
--- Expose globally for testing/debugging
-_G.CosmeticController = controller
+-- After init, perform one-time initial sync for local player only when readiness succeeds
+if Ready.waitAll({ server = true, playerData = true, timeout = 20 }) then
+    controller:initialSyncLocal()
+end
+
+-- Expose globally for testing/debugging (Studio only)
+if RunService:IsStudio() then
+    _G.CosmeticController = controller
+end

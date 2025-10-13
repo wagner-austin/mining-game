@@ -239,7 +239,6 @@ local function createDefaultProfile(userId: number): Types.PlayerStats
             back = nil,
             aura = nil,
             trail = nil,
-            modelSwap = nil,        -- character appearance
             terrainTheme = nil,     -- palette key
         },
         materialPreferences = {
@@ -325,7 +324,6 @@ local function ensureRequiredFields(profile: Types.PlayerStats)
             back = nil,
             aura = nil,
             trail = nil,
-            modelSwap = nil,
             terrainTheme = nil,
         }
     end
@@ -558,12 +556,14 @@ function DataService:LoadPlayerAsync(player: Player): Types.PlayerStats?
                  profile.materialId = oldToNew[old]
                  log:debug("Migrated material ID: %s -> %s", old, profile.materialId)
              end
-             -- Add migration defaults for metrics fields
-             profile.totalCoinsEarned = profile.totalCoinsEarned or (profile.coins or 0)
-             profile.totalCoinsSpent = profile.totalCoinsSpent or 0
-             profile.totalGemsEarned = profile.totalGemsEarned or (profile.gems or 0)
-             profile.totalGemsSpent = profile.totalGemsSpent or 0
-             profile.lastLoginTime = profile.lastLoginTime or DateTime.now().UnixTimestamp
+            -- Add migration defaults for metrics fields
+            profile.totalCoinsEarned = profile.totalCoinsEarned or (profile.coins or 0)
+            profile.totalCoinsSpent = profile.totalCoinsSpent or 0
+            profile.totalGemsEarned = profile.totalGemsEarned or (profile.gems or 0)
+            profile.totalGemsSpent = profile.totalGemsSpent or 0
+            profile.lastLoginTime = profile.lastLoginTime or DateTime.now().UnixTimestamp
+            -- Donations backfill: initialize donations from dev products (safe today; only DONATE exists)
+            profile.robuxSpentDonations = profile.robuxSpentDonations or profile.robuxSpentDevProducts or 0
              -- Migrate high score if missing
              if (profile :: any).highestCoins == nil then
                  (profile :: any).highestCoins = profile.coins or 0

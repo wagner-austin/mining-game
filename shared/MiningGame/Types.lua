@@ -64,6 +64,7 @@ export type PlayerStats = {
     robuxSpentLifetime: number?,
     robuxSpentDevProducts: number?,
     robuxSpentGamePasses: number?,
+    robuxSpentDonations: number?,
     purchasesCount: number?,
     firstPurchaseTime: number?,
     lastPurchaseTime: number?,
