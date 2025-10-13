@@ -347,6 +347,9 @@ local function ensureRequiredFields(profile: Types.PlayerStats)
     end
 end
 
+-- Normalize ownedGamePasses keys to numeric gamepassIds
+-- No backward-compat key normalization; profiles must use numeric gamepassId keys
+
 -- === Profile Migrations ===
 local function ensureMigrations(profile: Types.PlayerStats)
     local p = (profile :: any)

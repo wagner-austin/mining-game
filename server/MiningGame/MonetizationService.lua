@@ -457,28 +457,25 @@ local function onPlayerAdded(player)
     profile.ownedGamePasses = profile.ownedGamePasses or {}
     
     for gamepassId, gamepassData in pairs(gamepassIdToData) do
-        -- Skip if already tracked
         if not profile.ownedGamePasses[gamepassId] then
             local success, owns = ErrorService.safecall("MarketplaceService:UserOwnsGamePassAsync", function()
                 return MarketplaceService:UserOwnsGamePassAsync(player.UserId, gamepassId)
             end, { uid = player.UserId, gamepassId = gamepassId })
-            
+
             if not success then
                 log:error("Backfill verify error for gamepass %s player %s", tostring(gamepassId), player.Name)
             elseif owns then
-                -- Player owns this but we haven't tracked it yet
+                -- Ensure ownership is reflected regardless of idempotent spend processing
+                profile.ownedGamePasses[gamepassId] = true
+
                 local price = getProductPrice(Enum.InfoType.GamePass, gamepassId) or 0
-                
-                -- Use synthetic receipt for idempotency
                 local syntheticReceipt = "GP:" .. tostring(gamepassId)
-                
-                -- Track as backfill with idempotent processing
+
                 local firstTime = processPurchase(
                     player.UserId, "GamePass", gamepassId, price, "Backfill", syntheticReceipt
                 )
-                
+
                 if firstTime then
-                    profile.ownedGamePasses[gamepassId] = true
                     handleGamepassPurchase(player, gamepassData)
                     log:info("Backfilled game pass %s for %s", tostring(gamepassId), player.Name)
                     log:event("gamepass_backfilled", {
@@ -635,12 +632,17 @@ local gamePassPurchaseConn
 function MonetizationService:Start()
     -- Set up MarketplaceService handlers
     MarketplaceService.ProcessReceipt = processReceipt
-    
+
     -- Connect player events
     playerAddedConn = Players.PlayerAdded:Connect(onPlayerAdded)
     playerRemovingConn = Players.PlayerRemoving:Connect(onPlayerRemoving)
     gamePassPurchaseConn = MarketplaceService.PromptGamePassPurchaseFinished:Connect(onGamePassPurchaseFinished)
-    
+
+    -- Handle players already in game (Studio safety / mid-session reloads)
+    for _, player in ipairs(Players:GetPlayers()) do
+        task.spawn(onPlayerAdded, player)
+    end
+
     log:info("Started with event handlers")
 end
 
