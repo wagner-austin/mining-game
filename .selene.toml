@@ -9,4 +9,15 @@ cyclomatic_complexity = "warn"
 if_same_then_else = "warn"
 
 [config.global_usage]
-globals = ["MG"]
+# Allow known framework globals (project + tests)
+globals = [
+    "MG",
+    # TestEZ globals used in spec files
+    "describe",
+    "it",
+    "beforeAll",
+    "afterAll",
+    "beforeEach",
+    "afterEach",
+    "expect",
+]

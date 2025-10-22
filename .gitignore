@@ -24,3 +24,7 @@ Thumbs.db
 *.bak
 temp_*.txt
 nul
+
+# Wally packages and lockfile
+/Packages/
+/wally.lock
