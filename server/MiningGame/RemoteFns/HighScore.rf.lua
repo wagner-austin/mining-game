@@ -27,6 +27,7 @@ return function(container)
             if profile then
                 local value = 0
                 if category == "blocks" then
+                    -- Lifetime blocks dug tracked on profile for cross-cube/material consistency
                     value = tonumber(profile.totalBlocksDug or 0) or 0
                 elseif category == "coins" then
                     value = tonumber(profile.coins or 0) or 0
