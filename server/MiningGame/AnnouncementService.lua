@@ -19,6 +19,8 @@ local EventNames = require(Shared:WaitForChild("EventNames"))
 local Bus = EventBus.global()
 
 local AnnouncementService = {}
+-- Forward declaration for deferred subscription
+local subscribeToGlobalAnnouncements
 type AnnouncementServiceT = {
     Init: (self: AnnouncementServiceT, container: any) -> (),
 }
@@ -26,7 +28,11 @@ type AnnouncementServiceT = {
 -- Initialize with DI container (no dependencies)
 function AnnouncementService:Init(container)
     -- No dependencies needed
-    log:info("Initialized")
+    log:info("Initialized (subscription deferred)")
+    -- Subscribe asynchronously to avoid blocking service initialization on slow connections
+    task.defer(function()
+        subscribeToGlobalAnnouncements()
+    end)
 end
 
 -- Channel for cross-server announcements
@@ -37,7 +43,7 @@ local lastGlobalAnnounce: number = -math.huge
 local MIN_GLOBAL_INTERVAL = GameConfig.Announcements and GameConfig.Announcements.MIN_GLOBAL_INTERVAL or 1
 
 -- Subscribe to global announcements
-local function subscribeToGlobalAnnouncements()
+function subscribeToGlobalAnnouncements()
     local ok, err = ErrorService.safecall("MessagingService:SubscribeAsync", function()
         MessagingService:SubscribeAsync(GLOBAL_CHANNEL, function(message)
             local data = message.Data
@@ -161,9 +167,7 @@ end
 -- Alias for compatibility (ItemService expects AnnounceRareFind)
 AnnouncementService.AnnounceRareFind = AnnouncementService.AnnounceRareDrop
 
--- Initialize service
-subscribeToGlobalAnnouncements()
-
-log:info("AnnouncementService initialized")
+-- Initialization is now handled in :Init via deferred subscription
+log:info("AnnouncementService module loaded")
 
 return AnnouncementService
