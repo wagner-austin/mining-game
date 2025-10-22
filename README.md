@@ -63,3 +63,22 @@ A mobile-optimized Roblox mining game with pay-to-progress mechanics.
 - `StarterPack/` - Player tools
 - `Workspace/Map/` - World objects
 - `ServerStorage/Items/` - Spawnable items
+
+## Dev Tooling
+- Lint: `selene .` (config: `.selene.toml`)
+- Format: `stylua .` (config: `.stylua.toml`)
+- Packages: `wally install` (installs into `Packages/`)
+- Make targets: `make fmt`, `make lint`, `make wally-install`
+
+### Toolchain via Aftman (recommended)
+- Install Aftman once, then run `aftman install` to fetch pinned tool versions defined in `aftman.toml`.
+- On Windows PowerShell:
+  - `iwr https://raw.githubusercontent.com/LPGhatguy/aftman/main/install.ps1 -UseBasicParsing | iex`
+  - Then `aftman install`
+- Makefile commands use `aftman run ...` so you don’t need global installs.
+
+### Running Tests (TestEZ)
+1. Run `wally install` to fetch `Roblox/TestEZ` into `Packages/`.
+2. Ensure Rojo maps `Packages` and `tests` into `ReplicatedStorage` (already in `default.project.json`).
+3. In Studio, enable `ServerScriptService/TestRunner.server.lua` (remove `.disabled` or uncheck Disabled) and play; results print to the Output window.
+   - Tests live in `tests/` (example: `tests/MathUtils.spec.lua`).
