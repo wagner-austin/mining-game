@@ -255,6 +255,9 @@ local function createDefaultProfile(userId: number): Types.PlayerStats
             uiTheme = "default",
             soundPack = "default",
         },
+        preferences = { -- player gameplay/UI preferences
+            autoDigEnabled = true,
+        },
         totalBlocksDug = 0,
         playtime = 0,
         achievements = {},  -- unlocked achievement IDs
@@ -344,6 +347,13 @@ local function ensureRequiredFields(profile: Types.PlayerStats)
             speed = 0,
             size = 0,
         }
+    end
+
+    -- Ensure preferences exist
+    local p = (profile :: any)
+    p.preferences = p.preferences or {}
+    if p.preferences.autoDigEnabled == nil then
+        p.preferences.autoDigEnabled = true
     end
 end
 
@@ -999,6 +1009,43 @@ if canUseDataStore then
         ReceiptQueueStore = DataStoreService:GetDataStore(GameConfig.DataStore.RECEIPT_QUEUE_KEY)
     end)
 end
+
+-- Increment lifetime blocks-dug counter (profile-level, independent of cube/material)
+function DataService:AddBlocksDug(player: Player, count: number?): boolean
+    local profile = playerData[player]
+    if not profile then return false end
+    local add = MathUtils.nonNegative(count or 1)
+    profile.totalBlocksDug = MathUtils.nonNegative((profile.totalBlocksDug or 0) + add)
+    if profile.firstDigTime == nil then
+        profile.firstDigTime = Time.unix()
+    end
+    self:QueueSave(player)
+    return true
+end
+
+-- Update player preferences (whitelisted keys only)
+function DataService:SetPreferences(player: Player, updates: {[string]: any}): boolean
+    local profile = playerData[player]
+    if not profile or type(updates) ~= "table" then return false end
+    local prefs = (profile :: any).preferences
+    if type(prefs) ~= "table" then
+        (profile :: any).preferences = { autoDigEnabled = true }
+        prefs = (profile :: any).preferences
+    end
+    local changed = false
+    if updates.autoDigEnabled ~= nil then
+        if type(updates.autoDigEnabled) ~= "boolean" then return false end
+        if prefs.autoDigEnabled ~= updates.autoDigEnabled then
+            prefs.autoDigEnabled = updates.autoDigEnabled
+            changed = true
+        end
+    end
+    if changed then self:QueueSave(player) end
+    return true
+end
+
+-- Increment lifetime blocks-dug counter in a single, consistent place
+-- (deprecated) IncrementBlocksDug removed; cube state already tracks dug count consistently
 
 if not ReceiptQueueStore then
     -- Mock for testing (with proper atomic semantics)
