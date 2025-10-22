@@ -292,6 +292,7 @@ function BasePanel.new(props: Props)
     contentContainer.AutomaticCanvasSize = Enum.AutomaticSize.Y
     contentContainer.ScrollingDirection = Enum.ScrollingDirection.Y
     contentContainer.ElasticBehavior = Enum.ElasticBehavior.Always  -- Bouncy scrolling
+    contentContainer.Active = true  -- Ensure touch drag scrolls without closing panel
     contentContainer.Parent = contentLayer
 
     -- Popover layer (for dropdown portals) — ensure it renders above content
@@ -374,24 +375,7 @@ function BasePanel.new(props: Props)
         end)
     end
     
-    -- Touch swipe down to close (mobile)
-    local touchStartY = 0
-    local swipeThreshold = 100
-    
-    bind(container.InputBegan, function(input)
-        if input.UserInputType == Enum.UserInputType.Touch then
-            touchStartY = input.Position.Y
-        end
-    end)
-    
-    bind(container.InputEnded, function(input)
-        if input.UserInputType == Enum.UserInputType.Touch then
-            local deltaY = input.Position.Y - touchStartY
-            if deltaY > swipeThreshold then
-                self:close()
-            end
-        end
-    end)
+    -- Swipe-to-close removed to prevent accidental closes while scrolling on touch devices
     
     return self
 end
