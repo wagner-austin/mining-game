@@ -216,12 +216,13 @@ function MainHUD:init(manager)
     -- === LEFT NAV (feature-gated) ===
     if GameConfig.Features and GameConfig.Features.SHOW_LEFT_NAV == true then
         local chipConfig = Theme.currencyChip
-        local navWidth = math.max(chipConfig.width or 120, (Theme.sizes and Theme.sizes.LeftNavChipWidth) or 140)
+        -- Icon-only nav across all devices: width equals chip height
+        local navWidth = chipConfig.height
         local leftNav = Instance.new("Frame")
         leftNav.Name = "LeftNav"
         leftNav.BackgroundTransparency = 1
         leftNav.AnchorPoint = Vector2.new(0, 0.5)
-        leftNav.Position = UDim2.new(0, UIx.Spacing.LG, 0.5, 0)
+        leftNav.Position = UDim2.new(0, UIx.Spacing.LG, 0.5, -UIx.Spacing.SM)
         leftNav.Size = UDim2.new(0, navWidth, 0, 0)
         leftNav.AutomaticSize = Enum.AutomaticSize.Y
         leftNav.Parent = root
@@ -231,25 +232,23 @@ function MainHUD:init(manager)
         vLayout.FillDirection = Enum.FillDirection.Vertical
         vLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
         vLayout.VerticalAlignment = Enum.VerticalAlignment.Center
-        vLayout.Padding = UDim.new(0, UIx.Spacing.MD)
+        vLayout.Padding = UDim.new(0, UIx.Spacing.SECTION) -- tighten spacing slightly (12 -> 10px)
         vLayout.Parent = leftNav
 
-        local function isPhone(): boolean
-            local cam = workspace.CurrentCamera
-            if not cam then return false end
-            return cam.ViewportSize.X < Theme.breakpoints.medium
-        end
+        -- Always icon-only: ensure left nav is narrow on all devices
+        leftNav.Size = UDim2.new(0, chipConfig.height, 0, 0)
 
         local function chipIconText(kind: string): (string?, string?)
-            local phone = isPhone()
+            -- Icon-only labels for all devices
             if kind == "inventory" then
-                -- Emoji + label for clarity; on phone, show emoji+short label
-                return nil, phone and "🎒" or "🎒 Inventory"
+                return "🎒", nil
             elseif kind == "shop" then
                 local icon = (Theme.icons and Theme.icons.currency and Theme.icons.currency.coins) or "$"
-                return phone and icon or icon, phone and nil or "Shop"
+                return icon, nil
             elseif kind == "index" then
-                return nil, phone and "📖" or "📖 Index"
+                return "📖", nil
+            elseif kind == "upgrades" then
+                return "💪", nil
             end
             return nil, nil
         end
@@ -263,22 +262,16 @@ function MainHUD:init(manager)
         end
 
         local function makeNavChip(kind: string, onClick: () -> ())
-            local icon, text = chipIconText(kind)
-            if kind == "upgrades" then
-                icon = icon or "💪"
-            end
-            -- Normalize: left-aligned, icon + label with consistent spacing
+            local icon, _ = chipIconText(kind)
             -- Provide fallback icons if Theme lacks them
-            local fallbackIcons = { inventory = "🎒", shop = (Theme.icons and Theme.icons.currency and Theme.icons.currency.coins) or "🛒", index = "📇" }
+            local fallbackIcons = { inventory = "🎒", shop = (Theme.icons and Theme.icons.currency and Theme.icons.currency.coins) or "🛒", index = "📇", upgrades = "💪" }
             icon = icon or fallbackIcons[kind]
-            local labelMap = { inventory = "Inventory", shop = "Shop", index = "Index", upgrades = "Upgrades" }
-            text = labelMap[kind] or text
             local chip = BaseChip.new({
                 parent = leftNav,
-                size = UDim2.new(0, navWidth, 0, chipConfig.height),
+                size = UDim2.new(0, chipConfig.height, 0, chipConfig.height),
                 icon = icon,
-                text = text,
-                align = "left",
+                text = nil, -- icon-only
+                align = "center",
                 onClick = function()
                     self._leftNavActive = kind
                     for k, c in pairs(self._leftNavChips) do
