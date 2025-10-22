@@ -31,8 +31,11 @@ end
 function CashShopCosmeticsTab.new(props: Props)
     local self: any = setmetatable(BaseTabComponent.new({ parent = props.parent, stacked = true, name = "CashShopCosmeticsTab" }), CashShopCosmeticsTab)
 
-    -- Card container + grid via helper (reuse BaseTabComponent styling)
-    local gridScroll = ShopGridHelpers.createGridCardWithBase(self, "Cosmetics", { name = "CosmeticsCard", autoSize = false })
+    -- Scrollable card section consistent with other panels
+    local _, gridScroll, grid = self:createScrollableSection("Cosmetics", UIx.Size.INVENTORY_MIN_HEIGHT)
+    -- Override grid layout to match shop cell sizing
+    grid.CellSize = UDim2.new(0, UIx.Size.INVENTORY_CELL_WIDTH, 0, UIx.Size.INVENTORY_CELL_HEIGHT + UIx.Size.ROW_STANDARD + UIx.Spacing.SM + 2)
+    grid.CellPadding = UDim2.new(0, UIx.Spacing.SM, 0, UIx.Spacing.SM)
     self._grid = gridScroll
     self._confirm = {}
 
