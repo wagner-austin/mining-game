@@ -297,7 +297,23 @@ function Processor.Process(service, player: Player, worldPos: Vector3)
         end
     end
 
-    -- Success; update times and compose result
+    -- Success; update lifetime metric (profile) while cube state tracks per-cube total
+    do
+        local dug = #dugCells
+        if dug > 0 then
+            pcall(function()
+                local DS = container:Get("DataService")
+                DS:AddBlocksDug(player, dug)
+            end)
+            -- Keep UI metrics fresh
+            local UMS = container:tryGet("UserMetricsService")
+            if UMS and type(UMS.Invalidate) == "function" then
+                pcall(function() UMS:Invalidate(player) end)
+            end
+        end
+    end
+
+    -- Update times and SFX
     lastDigTime[userId] = now
     local materialKey = (soundHint and soundHint.materialKey) or "rock"
     -- Anchor SFX at the center of the dig
