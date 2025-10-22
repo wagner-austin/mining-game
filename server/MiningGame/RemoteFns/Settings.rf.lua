@@ -130,6 +130,29 @@ end
         end,
         opts = { requireProfile = true, rateLimitSec = 0.5 },
     },
+
+    {
+        name = "UpdatePreferences",
+        handler = function(ctx, updates: {[string]: any})
+            local player = ctx.player
+            -- Whitelist and validate keys
+            if type(updates) ~= "table" then
+                return { ok = false, success = false, err = "INVALID_BODY" }
+            end
+            if updates.autoDigEnabled ~= nil and type(updates.autoDigEnabled) ~= "boolean" then
+                return { ok = false, success = false, err = "INVALID_autodig", reason = "autoDigEnabled must be boolean" }
+            end
+            local ok = DataService:SetPreferences(player, {
+                autoDigEnabled = updates.autoDigEnabled,
+            })
+            if ok then
+                return { ok = true, success = true, updated = { autoDigEnabled = updates.autoDigEnabled } }
+            else
+                return { ok = false, success = false, err = "UPDATE_FAILED" }
+            end
+        end,
+        opts = { requireProfile = true, rateLimitSec = 0.2 },
+    },
     
     {
         name = "UpdateGeneralSettings",
