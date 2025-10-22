@@ -3,13 +3,13 @@
 .PHONY: fmt lint wally-install test check run help
 
 fmt:
-	aftman run stylua .
+	stylua .
 
 lint:
-	aftman run selene .
+	selene .
 
 wally-install:
-	aftman run wally install
+	wally install
 
 # Test execution happens in Studio via the disabled server script
 test:
@@ -20,16 +20,16 @@ test:
 
 # CI-style verification: format check, non-blocking lint, optional typecheck, and test reminder
 check:
-	@echo "[1/4] Stylua format check" && aftman run stylua --check .
-	@echo "[2/4] Selene lint (non-blocking)" && -aftman run selene . || true
-	@echo "[3/4] Luau analyze (if installed; non-blocking)" && -aftman run luau-analyze . || true
+	@echo "[1/4] Stylua format check" && stylua --check .
+	@echo "[2/4] Selene lint (non-blocking)" && -selene . || true
+	@echo "[3/4] Luau analyze (if installed; non-blocking)" && -luau-analyze . || true
 	@echo "[4/4] Tests via Studio runner (see 'make test')"
 	@echo "    Tip: enable ServerScriptService/TestRunner.server.lua in Studio"
 
 # Run the game via Rojo live sync
 run:
-	@echo "Starting Rojo serve (connect Studio Rojo plugin)" 
-	aftman run rojo serve
+	@echo "Starting Rojo serve (connect Studio Rojo plugin)"
+	rojo serve
 
 help:
 	@echo "Targets: fmt, lint, wally-install, test"
