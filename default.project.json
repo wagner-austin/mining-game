@@ -6,7 +6,9 @@
     "$className": "DataModel",
 
     "ReplicatedStorage": {
-      "$path": "shared"
+      "$path": "shared",
+      "Packages": { "$path": "Packages" },
+      "Tests": { "$path": "tests" }
     },
 
     "ServerScriptService": {
