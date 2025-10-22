@@ -11,6 +11,7 @@ local MathUtils = require(MiningGame:WaitForChild("MathUtils"))
 local UIFolder = MiningGame:WaitForChild("UI")
 local Theme = require(UIFolder:WaitForChild("Theme"))
 local UIx = require(UIFolder:WaitForChild("UIConstants"))
+local ClientRF = require(MiningGame:WaitForChild("ClientRF"))
 
 -- UIUtils is optional; guard in case the module doesn't exist
 local uiUtilsModule = UIFolder:FindFirstChild("UIUtils")
@@ -177,8 +178,66 @@ function AccountTab:_createStatsSection()
 end
 
 function AccountTab:_createActionsSection()
-    -- Actions section removed until properly implemented
-    -- Previously had non-functional "Open Settings" and "Rejoin" buttons
+    local section = self:createSectionCard(self.container)
+    self:createSectionTitle(section, "Gameplay")
+
+    -- Auto-Dig toggle row
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, 0, 0, UIx.Size.BUTTON_MEDIUM_HEIGHT)
+    row.BackgroundTransparency = 1
+    row.Parent = section
+
+    local label = self:createLabel(row, "Auto-Dig", {
+        position = UDim2.new(0, 0, 0, 0),
+        size = UDim2.new(0.6, -UIx.Spacing.XS, 1, 0),
+        alignment = Enum.TextXAlignment.Left,
+        textSize = UIx.Visual.TEXT_BODY,
+    })
+
+    local button = Instance.new("TextButton")
+    button.Size = UDim2.new(0.4, 0, 1, 0)
+    button.Position = UDim2.new(0.6, UIx.Spacing.XS, 0, 0)
+    button.BackgroundColor3 = Theme.colors.Surface
+    button.BackgroundTransparency = Theme.button.surfaceTransparency
+    button.Text = "…"
+    button.TextColor3 = Theme.colors.Text
+    button.Font = Theme.fonts.Primary
+    button.TextSize = UIx.Visual.TEXT_BODY
+    button.AutoButtonColor = true
+    button.Parent = row
+
+    local function setBtnState(enabled: boolean)
+        button.Text = enabled and "ON" or "OFF"
+        button.TextColor3 = enabled and Theme.colors.Success or Theme.colors.Text
+    end
+
+    -- Load current preference
+    task.spawn(function()
+        local ok, res = pcall(function()
+            return ClientRF.call("GetAllSettings")
+        end)
+        local enabled = true
+        if ok and type(res) == "table" and res.ok then
+            enabled = (res.autoDigEnabled ~= false)
+        end
+        setBtnState(enabled)
+    end)
+
+    button.Activated:Connect(function()
+        local currOn = (button.Text == "ON")
+        local nextOn = not currOn
+        local ok, res = pcall(function()
+            return ClientRF.call("UpdatePreferences", { autoDigEnabled = nextOn })
+        end)
+        if ok and res and res.success then
+            setBtnState(nextOn)
+            if _G.UIManager then
+                _G.UIManager:showNotification("Auto-Dig " .. (nextOn and "enabled" or "disabled"), nextOn and "success" or "info")
+            end
+        else
+            if _G.UIManager then _G.UIManager:showNotification("Failed to update Auto-Dig", "error") end
+        end
+    end)
 end
 
 function AccountTab:updateStats(statsData: {[string]: any}?)
