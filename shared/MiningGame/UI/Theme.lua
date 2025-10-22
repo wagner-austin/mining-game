@@ -271,14 +271,14 @@ Theme.effects.frosted = {
 -- Toast presets (standardized, frosted, subtle)
 Theme.toast = {
     anchor = "topRight",     -- "topRight" | "topCenter"
-    maxWidth = 300,
-    gap = 8,
+    maxWidth = 220,          -- narrower to reduce horizontal footprint
+    gap = 6,                 -- tighter vertical spacing
     duration = 0.6,          -- base duration in seconds (faster)
     minDuration = 0.4,       -- minimum duration for short messages
     maxDuration = 1.2,       -- maximum duration for long messages
     perChar = 0.006,         -- additional seconds per character
     maxVisible = 3,          -- maximum toasts visible at once
-    padding = 10,
+    padding = 6,             -- smaller internal padding
     icon = { 
         info = "🔔", 
         success = "✅", 
