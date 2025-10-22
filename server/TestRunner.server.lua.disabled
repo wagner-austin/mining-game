@@ -1,0 +1,61 @@
+--!strict
+-- TestRunner.server.lua.disabled
+-- Enable this in Studio to run TestEZ tests from ReplicatedStorage.Tests
+
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+if not RunService:IsStudio() then
+    return
+end
+
+local function findModuleInPackages(packages: Instance, targetName: string): ModuleScript?
+    -- Direct child package
+    local direct = packages:FindFirstChild(targetName)
+    if direct and direct:IsA("ModuleScript") then
+        return direct
+    end
+
+    -- Search _Index structure created by Wally
+    local index = packages:FindFirstChild("_Index")
+    if index then
+        for _, scope in ipairs(index:GetChildren()) do
+            -- Some registries use nested folders; search descendants for a ModuleScript with this name
+            for _, desc in ipairs(scope:GetDescendants()) do
+                if desc:IsA("ModuleScript") and desc.Name == targetName then
+                    return desc
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
+local function getTestEZ(): any
+    local packages = ReplicatedStorage:FindFirstChild("Packages")
+    assert(packages, "Packages folder not found. Run `wally install` and ensure Rojo maps Packages -> ReplicatedStorage/Packages.")
+
+    local mod = findModuleInPackages(packages, "TestEZ")
+    assert(mod, "Could not locate TestEZ in Packages. Did you run `wally install`?")
+    return require(mod)
+end
+
+local function runTests()
+    local TestEZ = getTestEZ()
+    local testsFolder = ReplicatedStorage:FindFirstChild("Tests")
+    assert(testsFolder, "ReplicatedStorage.Tests folder not found")
+
+    local TextReporter = TestEZ.Reporters.TextReporter
+    local results = TestEZ.TestBootstrap:run({ testsFolder }, TextReporter)
+
+    if results.failureCount > 0 then
+        warn(string.format("Test failures: %d", results.failureCount))
+    else
+        print("All tests passed")
+    end
+end
+
+-- Defer to ensure Rojo mapping is ready
+task.defer(runTests)
+
