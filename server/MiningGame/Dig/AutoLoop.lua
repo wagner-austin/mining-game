@@ -29,6 +29,12 @@ local function runAutoDigLoop(service, player: Player)
 
     while autoDigState[player] and autoDigState[player].active and myVer == autoDigVersion[player] and player.Parent do
         local profile = service._container:Get("DataService"):GetPlayerData(player)
+        -- Respect player preference to disable auto-dig
+        local prefs = (profile and (profile :: any).preferences) or nil
+        if prefs and prefs.autoDigEnabled == false then
+            log:debug("Auto-dig disabled by preference for %s", player.Name)
+            break
+        end
         local boostActive = false
         if profile and profile.boosts and profile.boosts.auto_dig and Time.unix() < profile.boosts.auto_dig then
             boostActive = true
@@ -79,8 +85,14 @@ function AutoLoop.Start(service, player: Player)
     local profile = service._container:Get("DataService"):GetPlayerData(player)
     local hasBoost = profile and profile.boosts and profile.boosts.auto_dig and Time.unix() < profile.boosts.auto_dig
     local permanent = hasPermanentAutoDig(service, player)
+    local prefs = (profile and (profile :: any).preferences) or nil
+    local enabled = (not prefs) or (prefs.autoDigEnabled ~= false)
     if not hasBoost and not permanent then
         log:debug("Cannot start auto-dig: no active boost or pass for %s", player.Name)
+        return false
+    end
+    if not enabled then
+        log:debug("Auto-dig start suppressed by preference for %s", player.Name)
         return false
     end
     AutoLoop.Stop(service, player)
