@@ -1,49 +1,31 @@
 --!strict
--- FloatingIslandHandler.server.lua  
+-- FloatingIslandHandler.server.lua
 -- Server-side handler for floating island GUI commands
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
 
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
 local Logger = require(MiningGame:WaitForChild("Logger"))
-local Remotes = require(MiningGame:WaitForChild("Remotes"))
-local GameConfig = require(MiningGame:WaitForChild("GameConfig"))
-local Time = require(MiningGame:WaitForChild("Time"))
 -- FloatingIslandService now accessed via DI in RemoteFns/FloatingIsland.rf.lua
 
 local log = Logger.new("IslandHandler")
-local rng = Random.new() -- Replace math.random usages
 
 -- Rate limiting
-local playerCooldowns: {[Player]: number} = {}
-local playerIslandCounts: {[Player]: number} = {}
+local playerCooldowns: { [Player]: number } = {}
+local playerIslandCounts: { [Player]: number } = {}
 
 -- Helper to mark usage
-local function markUse(player: Player)
-    playerCooldowns[player] = Time.mono()
-    playerIslandCounts[player] = (playerIslandCounts[player] or 0) + 1
-end
+-- markUse moved to RF implementation; here unused
 
 -- Cleanup on player leave
 Players.PlayerRemoving:Connect(function(player)
-    playerCooldowns[player] = nil
-    playerIslandCounts[player] = nil
+	playerCooldowns[player] = nil
+	playerIslandCounts[player] = nil
 end)
 
 -- Get player position
-local function getPlayerPosition(player: Player): Vector3?
-    local character = player.Character
-    if not character then return nil end
-    
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    if hrp and hrp:IsA("BasePart") then
-        return hrp.Position
-    end
-    
-    return nil
-end
+-- getPlayerPosition handled in RF path; not used here
 
 -- Remote handlers moved to RemoteFns/FloatingIsland.rf.lua via RFRegistry
 --[[
