@@ -1,5 +1,5 @@
 std = "roblox"
-exclude = ["**/*.disabled.lua", "Vendor/**", "Packages/**", "Generated/**"]
+exclude = ["**/*.disabled.lua", "Vendor/**", "Packages/**", "DevPackages/**", "Generated/**", "tools/**", "scripts/*.luau", "tests/**"]
 
 [rules]
 global_usage = "deny"

@@ -7,8 +7,8 @@
 
     "ReplicatedStorage": {
       "$path": "shared",
-      "Packages": { "$path": "Packages" },
-      "Tests": { "$path": "tests" }
+      "Packages": { "$className": "Folder", "$path": "Packages", "$ignoreUnknownInstances": true },
+      "Tests": { "$className": "Folder", "$path": "tests" }
     },
 
     "ServerScriptService": {

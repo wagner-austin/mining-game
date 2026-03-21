@@ -9,6 +9,7 @@
 /*.rbxmx
 /*.rbxm
 /rojo.json
+sourcemap.json
 
 # OS files
 .DS_Store
@@ -26,5 +27,7 @@ temp_*.txt
 nul
 
 # Wally packages and lockfile
-/Packages/
+/Packages/*
+!/Packages/.gitkeep
+/DevPackages/
 /wally.lock

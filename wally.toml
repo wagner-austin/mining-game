@@ -8,4 +8,4 @@ registry = "https://github.com/UpliftGames/wally-index"
 [dependencies]
 
 [dev-dependencies]
-TestEZ = "Roblox/TestEZ@^0.4.1"
+testez = "roblox/testez@0.4.1"
