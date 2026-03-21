@@ -2,11 +2,30 @@
 -- Type definitions for the mining game system
 
 export type PurchaseEntry = {
-    kind: "DevProduct" | "GamePass",
-    id: number,
-    priceRobux: number,
-    at: number,
-    source: ("Prompt" | "Backfill")?,
+	kind: "DevProduct" | "GamePass",
+	id: number,
+	priceRobux: number,
+	at: number,
+	source: ("Prompt" | "Backfill")?,
+}
+
+-- JSON-like value used for remote payloads and snapshots
+export type JsonValue = string | number | boolean | nil | { [string]: JsonValue } | { JsonValue }
+
+-- Durable purchase grant used for receipt queueing
+export type ReceiptGrant = {
+	kind: "DevProduct" | "GamePass",
+	id: number,
+	price: number,
+	receiptId: string,
+	timestamp: number,
+	source: ("Prompt" | "Backfill")?,
+}
+
+-- Receipt queue state stored in DataStore
+export type ReceiptQueueState = {
+	order: { string }, -- array of receiptIds (FIFO)
+	items: { [string]: ReceiptGrant }, -- receiptId -> grant
 }
 
 -- NOTE: EffectiveStats is declared once below with full shape (delay,size,luck,hardness)
@@ -15,72 +34,83 @@ export type CellCoord = { x: number, y: number, z: number }
 
 -- Equipment for a player is dynamically indexed by validated slot names
 -- Keep this as an indexable map so code can use profile.equipped[slot]
-export type EquippedItems = { [string]: string? }  -- slot -> itemId
+export type EquippedItems = { [string]: string? } -- slot -> itemId
 
 -- NOTE: DigResult is declared once below with the full shape
 
 export type MaterialPreferences = {
-    palette: string,        -- Palette key (e.g., "default", "industrial")
-    cubeMaterial: string,   -- MaterialKeys key (e.g., "rock", "basalt")
-    floorMaterial: string,  -- MaterialKeys key (e.g., "concrete", "slate")
+	palette: string, -- Palette key (e.g., "default", "industrial")
+	cubeMaterial: string, -- MaterialKeys key (e.g., "rock", "basalt")
+	floorMaterial: string, -- MaterialKeys key (e.g., "concrete", "slate")
+	-- Composition system fields (backward compatible)
+	mode: string?, -- "composition" | "single"
+	activeThemeId: string?, -- e.g., "underwater_cave"
+	compositionSeed: number?,
+	variationMode: string?,
 }
 
 export type ThemeSettings = {
-    uiTheme: string,        -- UI theme key (e.g., "default", "ocean", "forest")
-    soundPack: string,      -- Sound pack key (e.g., "default", "retro")
+	uiTheme: string, -- UI theme key (e.g., "default", "ocean", "forest")
+	soundPack: string, -- Sound pack key (e.g., "default", "retro")
+	musicVolume: number?,
+	sfxVolume: number?,
 }
 
 export type PlayerStats = {
-    coins: number,
-    gems: number,
-    materialId: string,
-    cubeSeed: number,
-    upgrades: { [string]: number }, -- "speed", "size"
-    boosts: { [string]: number },   -- boost type -> unix timestamp expiry
-    pets: { [string]: PetData },    -- pet instance id -> pet data
-    inventory: { [string]: number }, -- item id -> count
-    equipped: EquippedItems,
-    materialPreferences: MaterialPreferences?, -- Optional for backward compatibility
-    themeSettings: ThemeSettings?, -- Optional for backward compatibility
-    totalBlocksDug: number,
-    playtime: number,
-    lastSaveTime: number,
-    sessionStartTime: number?, -- Session-scoped, sent to clients in GetProfile
-    totalCoinsEarned: number?,   -- running lifetime counter
-    totalCoinsSpent: number?,    -- running lifetime counter
-    totalGemsEarned: number?,    -- running lifetime counter
-    totalGemsSpent: number?,     -- running lifetime counter
-    totalSessions: number?,      -- lifetime sessions count
-    lastLoginTime: number?,      -- unix
-    sessionStartBlocks: number?, -- baseline for this session
-    firstPlayTime: number?,      -- unix timestamp of first-ever join
-    firstDigTime: number?,       -- unix timestamp of first-ever dig
-    
-    -- Achievement tracking
-    achievements: { [string]: boolean }?,  -- unlocked achievement IDs
-    statCounters: { [string]: number }?,   -- e.g., "rares_found", "epics_found", "mythics_found"
-    
-    -- Monetization tracking
-    robuxSpentLifetime: number?,
-    robuxSpentDevProducts: number?,
-    robuxSpentGamePasses: number?,
-    robuxSpentDonations: number?,
-    purchasesCount: number?,
-    firstPurchaseTime: number?,
-    lastPurchaseTime: number?,
-    sessionStartRobuxSpent: number?, -- baseline for session tracking
-    
-    -- Server-only fields (not sent to clients)
-    processedReceiptIds: { [string]: boolean }?, -- bounded map for idempotency (max 500)
-    ownedGamePasses: { [number]: boolean }?, -- snapshot to diff new purchases
-    purchaseLog: { PurchaseEntry }?, -- bounded log (max 20 recent purchases)
+	coins: number,
+	highestCoins: number?,
+	gems: number,
+	materialId: string,
+	cubeSeed: number,
+	upgrades: { [string]: number }, -- "speed", "size"
+	boosts: { [string]: number }, -- boost type -> unix timestamp expiry
+	pets: { [string]: PetData }, -- pet instance id -> pet data
+	inventory: { [string]: number }, -- item id -> count
+	equipped: EquippedItems,
+	materialPreferences: MaterialPreferences,
+	themeSettings: ThemeSettings,
+	totalBlocksDug: number,
+	playtime: number,
+	lastSaveTime: number,
+	sessionStartTime: number?, -- Session-scoped, sent to clients in GetProfile
+	totalCoinsEarned: number?, -- running lifetime counter
+	totalCoinsSpent: number?, -- running lifetime counter
+	totalGemsEarned: number?, -- running lifetime counter
+	totalGemsSpent: number?, -- running lifetime counter
+	totalSessions: number?, -- lifetime sessions count
+	lastLoginTime: number?, -- unix
+	sessionStartBlocks: number?, -- baseline for this session
+	firstPlayTime: number?, -- unix timestamp of first-ever join
+	firstDigTime: number?, -- unix timestamp of first-ever dig
+
+	-- Achievement tracking
+	achievements: { [string]: boolean }?, -- unlocked achievement IDs
+	statCounters: { [string]: number }?, -- e.g., "rares_found", "epics_found", "mythics_found"
+
+	-- Monetization tracking
+	robuxSpentLifetime: number?,
+	robuxSpentDevProducts: number?,
+	robuxSpentGamePasses: number?,
+	robuxSpentDonations: number?,
+	purchasesCount: number?,
+	firstPurchaseTime: number?,
+	lastPurchaseTime: number?,
+	sessionStartRobuxSpent: number?, -- baseline for session tracking
+
+	-- Server-only fields (not sent to clients)
+	processedReceiptIds: { [string]: boolean }?, -- bounded map for idempotency (max 500)
+	ownedGamePasses: { [number]: boolean }?, -- snapshot to diff new purchases
+	purchaseLog: { PurchaseEntry }?, -- bounded log (max 20 recent purchases)
+
+	-- Server-only: first-obtained timestamps per item (used by InventoryService)
+	inventoryObtainedAt: { [string]: number }?,
 }
 
 export type PetData = {
-    id: string,
-    stars: number,
-    equipped: boolean,
-    obtained: number, -- unix timestamp
+	id: string,
+	stars: number,
+	equipped: boolean,
+	obtained: number, -- unix timestamp
 }
 
 -- EquippedItems was already declared as an indexable map above; the
@@ -89,184 +119,196 @@ export type PetData = {
 -- profile.equipped[slot] where slot is validated at runtime.
 
 export type AchievementDef = {
-    id: string,
-    name: string,
-    desc: string,
-    tier: "bronze" | "silver" | "gold" | "platinum" | "diamond",
-    icon: string?,  -- rbxassetid if you want
-    reward: {
-        coins: number?,
-        gems: number?,
-        itemId: string?,
-    }?,
-    requirement: {
-        type: string,       -- "blocks_dug", "item_found", "rarity_found", etc.
-        value: number?,     -- threshold value
-        rarity: string?,    -- for rarity-specific achievements
-    },
+	id: string,
+	name: string,
+	desc: string,
+	tier: "bronze" | "silver" | "gold" | "platinum" | "diamond",
+	icon: string?, -- rbxassetid if you want
+	reward: {
+		coins: number?,
+		gems: number?,
+		itemId: string?,
+	}?,
+	requirement: {
+		type: string, -- "blocks_dug", "item_found", "rarity_found", etc.
+		value: number?, -- threshold value
+		rarity: string?, -- for rarity-specific achievements
+	},
+}
+
+-- Reward payload for achievements
+export type AchievementReward = {
+	coins: number?,
+	gems: number?,
+	itemId: string?,
 }
 
 export type ChunkId = string -- "x_y_z" format
 export type Chunk = {
-    size: number,              -- 16 (cells per axis)
-    dugBits: string,           -- compact string from ChunkCodec
-    dirty: boolean?,           -- needs save
-    lastModified: number?,     -- unix timestamp
+	size: number, -- 16 (cells per axis)
+	dugBits: string, -- compact string from ChunkCodec
+	dirty: boolean?, -- needs save
+	lastModified: number?, -- unix timestamp
 }
 
 export type CubeState = {
-    ownerId: number,
-    materialId: string,
-    cellSize: number,          -- 4 (studs)
-    chunkSize: number,         -- 16 (cells)
-    chunks: { [ChunkId]: Chunk },
-    totalDug: number,
-    createdAt: number,
-    -- Optional half-extents in cells for rectangular volumes (per-axis bounds)
-    -- If absent, systems fall back to global cube size bounds
-    extentsCells: Vector3?,
+	ownerId: number,
+	materialId: string,
+	cellSize: number, -- 4 (studs)
+	chunkSize: number, -- 16 (cells)
+	chunks: { [ChunkId]: Chunk },
+	totalDug: number,
+	createdAt: number,
+	-- Optional half-extents in cells for rectangular volumes (per-axis bounds)
+	-- If absent, systems fall back to global cube size bounds
+	extentsCells: Vector3?,
 }
 
 export type DigRequest = {
-    worldPos: Vector3,
-    timestamp: number,
+	worldPos: Vector3,
+	timestamp: number,
 }
 
 -- Unified effective stats used across server/client
 export type EffectiveStats = {
-    delay: number,  -- Seconds between digs
-    size: number,   -- Dig radius half-extent in cells (1 = 3x3x3, 2 = 5x5x5, ...)
-    luck: number,   -- Loot multiplier (1.0 = normal, 2.0 = double)
-    hardness: number,
+	delay: number, -- Seconds between digs
+	size: number, -- Dig radius half-extent in cells (1 = 3x3x3, 2 = 5x5x5, ...)
+	luck: number, -- Loot multiplier (1.0 = normal, 2.0 = double)
+	hardness: number,
 }
 
 -- Unified dig result returned by DigService and related flows
 export type DigResult = {
-    ok: boolean,
-    reason: string?,                      -- Present if ok=false
-    cellsDug: number?,                    -- Count dug this action
-    lootGranted: {},                      -- Legacy/placeholder (empty)
-    lootCounts: { [string]: number }?,    -- Items dropped (not collected yet)
-    nextAllowedAt: number?,               -- Server-side cooldown resume time (Time.mono-based)
-    cooldownSec: number?,                 -- Server-provided cooldown duration (seconds)
-    effectiveStats: EffectiveStats?,      -- Snapshot used for this dig
-    soundMaterialKey: string?,            -- "rock", etc.
-    soundWorldPos: Vector3?,              -- Position for sound effect
-    centerCell: CellCoord?,               -- Clamped cell the server used
-    -- Volume-aware fields (for hold-dig continuity and client previews)
-    volumeId: string?,
-    volumeOrigin: CFrame?,
+	ok: boolean,
+	reason: string?, -- Present if ok=false
+	cellsDug: number?, -- Count dug this action
+	lootGranted: {}, -- Legacy/placeholder (empty)
+	lootCounts: { [string]: number }?, -- Items dropped (not collected yet)
+	nextAllowedAt: number?, -- Server-side cooldown resume time (Time.mono-based)
+	cooldownSec: number?, -- Server-provided cooldown duration (seconds)
+	effectiveStats: EffectiveStats?, -- Snapshot used for this dig
+	soundMaterialKey: string?, -- "rock", etc.
+	soundWorldPos: Vector3?, -- Position for sound effect
+	soundSubtype: string?, -- variant key for consistent SFX selection
+	centerCell: CellCoord?, -- Clamped cell the server used
+	-- Volume-aware fields (for hold-dig continuity and client previews)
+	volumeId: string?,
+	volumeOrigin: CFrame?,
 }
 
 export type LootDrop = {
-    id: string,
-    name: string,
-    rarity: string,
-    type: string,
-    value: number?,
-    stats: { [string]: number }?,
-    effect: string?,
-    duration: number?,
-    
-    -- NEW: which cell produced this drop (for per-cell spawn)
-    cellX: number?,  -- integer cell coords
-    cellY: number?,
-    cellZ: number?,
+	id: string,
+	name: string,
+	rarity: string,
+	type: string,
+	value: number?,
+	stats: { [string]: number }?,
+	effect: string?,
+	duration: number?,
+
+	-- NEW: which cell produced this drop (for per-cell spawn)
+	cellX: number?, -- integer cell coords
+	cellY: number?,
+	cellZ: number?,
 }
 
 export type UpgradeLevel = {
-    level: number,
-    cost: number,
-    multiplier: number?,
-    size: number?,
+	level: number,
+	cost: number,
+	multiplier: number?,
+	size: number?,
 }
 
 export type Product = {
-    id: string,
-    productId: number,
-    robux: number,
-    effect: string?,
-    multiplier: number?,
-    duration: number?,
-    coins: number?,
-    size: number?,
+	id: string,
+	productId: number,
+	robux: number,
+	effect: string?,
+	multiplier: number?,
+	duration: number?,
+	coins: number?,
+	size: number?,
 }
 
 export type GamePass = {
-    id: string,
-    gamepassId: number,
-    robux: number,
-    effects: { [string]: any },
+	id: string,
+	gamepassId: number,
+	robux: number,
+	effects: { loot_multiplier: number?, size_bonus: number? },
 }
 
 export type Material = {
-    id: string,
-    name: string,
-    material: Enum.Material,
-    color: Color3,
-    lootMultiplier: number,
-    unlockCost: number,
-    hardness: number,
+	id: string,
+	name: string,
+	material: Enum.Material,
+	color: Color3,
+	lootMultiplier: number,
+	unlockCost: number,
+	hardness: number,
 }
 
 export type Pet = {
-    id: string,
-    name: string,
-    rarity: string,
-    buffs: {
-        speed: number?,
-        size: number?,
-        luck: number?,
-    },
+	id: string,
+	name: string,
+	rarity: string,
+	buffs: {
+		speed: number?,
+		size: number?,
+		luck: number?,
+	},
 }
 
 export type NeighborhoodData = {
-    players: {Player},
-    cubes: {CubeInstance},
-    maxPlayers: number,
+	players: { Player },
+	cubes: { CubeInstance },
+	maxPlayers: number,
 }
 
 -- Volume system (server-owned)
 export type VolumeKind = "cube" | "island"
 
 export type VolumePermissions = {
-    public: boolean,
-    ownerUserId: number?,
+	public: boolean,
+	ownerUserId: number?,
 }
 
 export type VolumeMeta = {
-    themeId: string?,
-    preset: string?,
+	themeId: string?,
+	preset: string?,
 }
 
 export type Volume = {
-    id: string,
-    kind: VolumeKind,
-    origin: CFrame,
-    sizeStuds: Vector3,
-    permissions: VolumePermissions,
-    meta: VolumeMeta?,
-    state: CubeState,
+	id: string,
+	kind: VolumeKind,
+	origin: CFrame,
+	sizeStuds: Vector3,
+	permissions: VolumePermissions,
+	meta: VolumeMeta?,
+	state: CubeState,
 }
 
 export type CubeInstance = {
-    owner: Player,
-    model: Model,
-    origin: CFrame,
-    state: CubeState,
+	owner: Player,
+	model: Model,
+	origin: CFrame,
+	state: CubeState,
 }
 
 export type RemotePayload = {
-    type: string,
-    data: any,
-    timestamp: number,
+	type: string,
+	data: JsonValue,
+	timestamp: number,
 }
 
 export type SessionData = {
-    playerId: number,
-    startTime: number,
-    lastActivity: number,
-    locked: boolean,
+	playerId: number,
+	startTime: number,
+	lastActivity: number,
+	locked: boolean,
 }
+
+-- Alias common composite types used across event payloads
+export type PlayerProfile = PlayerStats
+export type RuntimeEffects = { [string]: JsonValue }
 
 return {}

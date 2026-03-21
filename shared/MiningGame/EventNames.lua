@@ -1,102 +1,137 @@
 --!strict
 local E = {
-    -- Core events
-    CURRENCY_CHANGED = "currency.changed",
-    COMPOSITION_APPLY_REQUEST = "composition.apply.request",
-    ERROR_REPORTED = "error.reported",
-    PROFILE_UPDATED = "profile.updated",
-    INVENTORY_CHANGED = "inventory.changed",
-    INVENTORY_DELTA = "inventory.delta",
-    DIG_FEEDBACK = "dig.feedback",
-    CUBE_ORIGIN_CHANGED = "cube.origin.changed",
-    LOOT_DROPPED = "loot.dropped",
-    RUNTIME_EFFECTS_CHANGED = "runtime.effects.changed",
-    ACHIEVEMENT_UNLOCKED = "achievement.unlocked",
-    ANNOUNCEMENT_BROADCAST = "announcement.broadcast",
+	-- Core events
+	CURRENCY_CHANGED = "currency.changed",
+	COMPOSITION_APPLY_REQUEST = "composition.apply.request",
+	ERROR_REPORTED = "error.reported",
+	PROFILE_UPDATED = "profile.updated",
+	INVENTORY_CHANGED = "inventory.changed",
+	INVENTORY_DELTA = "inventory.delta",
+	DIG_FEEDBACK = "dig.feedback",
+	CUBE_ORIGIN_CHANGED = "cube.origin.changed",
+	LOOT_DROPPED = "loot.dropped",
+	RUNTIME_EFFECTS_CHANGED = "runtime.effects.changed",
+	ACHIEVEMENT_UNLOCKED = "achievement.unlocked",
+	ANNOUNCEMENT_BROADCAST = "announcement.broadcast",
 
-    -- Additional events
-    EQUIPMENT_CHANGED = "equipment.changed",
-    BOOSTS_CHANGED = "boosts.changed",
-    DEBUG_RESET = "debug.reset",
-    UPGRADES_CHANGED = "upgrades.changed",
-    ITEM_COLLECTED = "item.collected",
-    PICKUP_PROMPT = "pickup.prompt",
-    REWARD_GRANTED = "reward.granted",
-    NOTIFICATION_PUSH = "notification.push",
-    SOUND_PLAY = "sound.play",
-    TERRAIN_POKE = "terrain.poke",
+	-- Additional events
+	EQUIPMENT_CHANGED = "equipment.changed",
+	BOOSTS_CHANGED = "boosts.changed",
+	DEBUG_RESET = "debug.reset",
+	UPGRADES_CHANGED = "upgrades.changed",
+	ITEM_COLLECTED = "item.collected",
+	PICKUP_PROMPT = "pickup.prompt",
+	REWARD_GRANTED = "reward.granted",
+	NOTIFICATION_PUSH = "notification.push",
+	SOUND_PLAY = "sound.play",
+	TERRAIN_POKE = "terrain.poke",
 
-    -- UI/global client-side cross-module events
-    THEME_CHANGED = "theme.changed",
-    SOUNDTHEME_CHANGED = "soundtheme.changed",
-    ACCOUNT_SNAPSHOT_UPDATED = "account.snapshot.updated",
-    METRICS_UPDATED = "metrics.updated",
-    SERVER_METRICS_UPDATED = "metrics.server.updated",
-    
-    -- Dig service events
-    MEGA_DIG_REQUEST = "dig.mega_request",
-    AUTO_DIG_START = "dig.auto_start",
-    
-    -- Neighborhood events
-    NEIGHBOR_JOINED = "neighbor.joined",
-    NEIGHBOR_LEFT = "neighbor.left",
-    CUBE_UPDATE = "cube.update",
-    
-    -- Cube manager + islands
-    CUBE_SPAWN_REQUEST = "cube.spawn.request",
-    CUBE_DESPAWN_REQUEST = "cube.despawn.request",
-    ISLAND_SPAWN_REQUEST = "island.spawn.request",
-    ISLAND_REMOVE_REQUEST = "island.remove.request",
-    
-    -- Tree generation events
-    TREE_SPAWN_REQUEST = "tree.spawn.request",
-    TREE_CLEAR_REQUEST = "tree.clear.request",
+	-- UI/global client-side cross-module events
+	THEME_CHANGED = "theme.changed",
+	SOUNDTHEME_CHANGED = "soundtheme.changed",
+	ACCOUNT_SNAPSHOT_UPDATED = "account.snapshot.updated",
+	METRICS_UPDATED = "metrics.updated",
+	SERVER_METRICS_UPDATED = "metrics.server.updated",
 
-    -- Rock generation events
-    ROCK_SPAWN_REQUEST = "rock.spawn.request",
-    ROCK_CLEAR_REQUEST = "rock.clear.request",
+	-- Dig service events
+	MEGA_DIG_REQUEST = "dig.mega_request",
+	AUTO_DIG_START = "dig.auto_start",
 
-    -- Firefly generation events
-    FIREFLY_SPAWN_REQUEST = "firefly.spawn.request",
-    FIREFLY_CLEAR_REQUEST = "firefly.clear.request",
+	-- Neighborhood events
+	NEIGHBOR_JOINED = "neighbor.joined",
+	NEIGHBOR_LEFT = "neighbor.left",
+	CUBE_UPDATE = "cube.update",
 
-    -- World generation lifecycle
-    WORLDGEN_DONE = "worldgen.done",
+	-- Cube manager + islands
+	CUBE_SPAWN_REQUEST = "cube.spawn.request",
+	CUBE_DESPAWN_REQUEST = "cube.despawn.request",
+	ISLAND_SPAWN_REQUEST = "island.spawn.request",
+	ISLAND_REMOVE_REQUEST = "island.remove.request",
 
-    -- Player base + banner lifecycle
-    PLAYER_BASE_READY = "player_base.ready",
-    BANNER_READY = "banner.ready",
-    BANNER_REMOVED = "banner.removed",
-    PEDESTAL_READY = "pedestal.ready",
-    PEDESTAL_REMOVED = "pedestal.removed",
+	-- Tree generation events
+	TREE_SPAWN_REQUEST = "tree.spawn.request",
+	TREE_CLEAR_REQUEST = "tree.clear.request",
+
+	-- Rock generation events
+	ROCK_SPAWN_REQUEST = "rock.spawn.request",
+	ROCK_CLEAR_REQUEST = "rock.clear.request",
+
+	-- Firefly generation events
+	FIREFLY_SPAWN_REQUEST = "firefly.spawn.request",
+	FIREFLY_CLEAR_REQUEST = "firefly.clear.request",
+
+	-- World generation lifecycle
+	WORLDGEN_DONE = "worldgen.done",
+
+	-- Player base + banner lifecycle
+	PLAYER_BASE_READY = "player_base.ready",
+	BANNER_READY = "banner.ready",
+	BANNER_REMOVED = "banner.removed",
+	PEDESTAL_READY = "pedestal.ready",
+	PEDESTAL_REMOVED = "pedestal.removed",
 }
 
-local VALID: {[string]: true} = {}
+local VALID: { [string]: true } = {}
 for _, v in pairs(E) do
-    if type(v) == "string" then VALID[v] = true end
+	if type(v) == "string" then
+		VALID[v] = true
+	end
 end
 
 function E.isValid(name: string): boolean
-    return VALID[name] == true
+	return VALID[name] == true
 end
 
 table.freeze(E)
 
 export type EventName =
-    "currency.changed" | "profile.updated" | "inventory.changed" | "inventory.delta" | "dig.feedback" |
-    "cube.origin.changed" | "loot.dropped" | "runtime.effects.changed" |
-    "achievement.unlocked" | "announcement.broadcast" |
-    "equipment.changed" | "boosts.changed" | "debug.reset" | "upgrades.changed" |
-    "item.collected" | "pickup.prompt" | "reward.granted" | "notification.push" |
-    "sound.play" | "terrain.poke" |
-    "theme.changed" | "soundtheme.changed" | "account.snapshot.updated" | "metrics.updated" | "metrics.server.updated" |
-    "neighbor.joined" | "neighbor.left" | "cube.update" | "error.reported" |
-    "dig.mega_request" | "dig.auto_start" | "composition.apply.request" |
-    "cube.spawn.request" | "cube.despawn.request" |
-    "island.spawn.request" | "island.remove.request" |
-    "tree.spawn.request" | "tree.clear.request" |
-    "rock.spawn.request" | "rock.clear.request" |
-    "firefly.spawn.request" | "firefly.clear.request" |
-    "worldgen.done" | "player_base.ready" | "banner.ready" | "banner.removed" | "pedestal.ready" | "pedestal.removed"
+	"currency.changed"
+	| "profile.updated"
+	| "inventory.changed"
+	| "inventory.delta"
+	| "dig.feedback"
+	| "cube.origin.changed"
+	| "loot.dropped"
+	| "runtime.effects.changed"
+	| "achievement.unlocked"
+	| "announcement.broadcast"
+	| "equipment.changed"
+	| "boosts.changed"
+	| "debug.reset"
+	| "upgrades.changed"
+	| "item.collected"
+	| "pickup.prompt"
+	| "reward.granted"
+	| "notification.push"
+	| "sound.play"
+	| "terrain.poke"
+	| "theme.changed"
+	| "soundtheme.changed"
+	| "account.snapshot.updated"
+	| "metrics.updated"
+	| "metrics.server.updated"
+	| "neighbor.joined"
+	| "neighbor.left"
+	| "cube.update"
+	| "error.reported"
+	| "dig.mega_request"
+	| "dig.auto_start"
+	| "composition.apply.request"
+	| "cube.spawn.request"
+	| "cube.despawn.request"
+	| "island.spawn.request"
+	| "island.remove.request"
+	| "tree.spawn.request"
+	| "tree.clear.request"
+	| "rock.spawn.request"
+	| "rock.clear.request"
+	| "firefly.spawn.request"
+	| "firefly.clear.request"
+	| "worldgen.done"
+	| "player_base.ready"
+	| "banner.ready"
+	| "banner.removed"
+	| "pedestal.ready"
+	| "pedestal.removed"
 
 return E
