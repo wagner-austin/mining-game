@@ -11,8 +11,8 @@ local Time = require(MiningGame:WaitForChild("Time"))
 local WorldTime = {}
 
 -- CONFIG: Change these in one place for the entire game
-WorldTime.MINUTES_PER_DAY = 10        -- 1 in-game day = 10 real minutes
-WorldTime.EPOCH_UNIX      = 1735689600 -- 2025-01-01T00:00:00Z (fixed reference point)
+WorldTime.MINUTES_PER_DAY = 10 -- 1 in-game day = 10 real minutes
+WorldTime.EPOCH_UNIX = 1735689600 -- 2025-01-01T00:00:00Z (fixed reference point)
 
 function WorldTime.secondsPerGameDay(): number
 	return WorldTime.MINUTES_PER_DAY * 60
@@ -21,16 +21,16 @@ end
 -- Convert a Unix timestamp to Lighting.ClockTime hours [0,24)
 function WorldTime.clockTimeFromUnix(unix: number): number
 	local daySec = WorldTime.secondsPerGameDay()
-	local phase  = (unix - WorldTime.EPOCH_UNIX) % daySec
+	local phase = (unix - WorldTime.EPOCH_UNIX) % daySec
 	return (phase / daySec) * 24
 end
 
 -- Real seconds until a target in-game hour (0-24) from a given Unix time
 function WorldTime.secondsUntilHour(targetHour: number, fromUnix: number?): number
-	fromUnix = fromUnix or Time.unix()
-	local daySec     = WorldTime.secondsPerGameDay()
-	local curPhase   = (fromUnix - WorldTime.EPOCH_UNIX) % daySec
-	local targetSec  = ((targetHour % 24) / 24) * daySec
+	local unixTime: number = fromUnix or Time.unix()
+	local daySec = WorldTime.secondsPerGameDay()
+	local curPhase = (unixTime - WorldTime.EPOCH_UNIX) % daySec
+	local targetSec = ((targetHour % 24) / 24) * daySec
 	return (targetSec - curPhase) % daySec
 end
 
@@ -52,6 +52,16 @@ end
 -- Check if given time is during day hours (6 AM to 6 PM)
 function WorldTime.isDay(clockTime: number): boolean
 	return clockTime >= 6 and clockTime < 18
+end
+
+-- Check if given time is during night hours
+function WorldTime.isNight(clockTime: number): boolean
+	return not WorldTime.isDay(clockTime)
+end
+
+-- Convenience: get current night status
+WorldTime.IsNight = function(): boolean
+	return WorldTime.isNight(WorldTime.clockTimeFromUnix(Time.unix()))
 end
 
 return WorldTime

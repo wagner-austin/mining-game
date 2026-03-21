@@ -15,29 +15,29 @@ local orderedKeys = table.clone(Defs.KeysOrdered)
 local enumFromKey = {}
 local displayNames = {}
 for _, key in ipairs(orderedKeys) do
-    local def = Defs.Materials[key]
-    enumFromKey[key] = def.enum
-    displayNames[key] = def.displayName
+	local def = Defs.Materials[key]
+	enumFromKey[key] = def.enum
+	displayNames[key] = def.displayName
 end
 
 -- Shallow-freeze nested tables to prevent mutation
-MaterialKeys.TerrainKeys   = table.freeze(orderedKeys)
-MaterialKeys.EnumFromKey   = table.freeze(enumFromKey)
-MaterialKeys.DisplayNames  = table.freeze(displayNames)
-MaterialKeys.KeyFromEnum   = table.freeze(table.clone(Defs.KeyFromEnum))
+MaterialKeys.TerrainKeys = table.freeze(orderedKeys)
+MaterialKeys.EnumFromKey = table.freeze(enumFromKey)
+MaterialKeys.DisplayNames = table.freeze(displayNames)
+MaterialKeys.KeyFromEnum = table.freeze(table.clone(Defs.KeyFromEnum))
 
 -- Maintain backwards compatibility
-MaterialKeys.CubeMaterials  = MaterialKeys.TerrainKeys
+MaterialKeys.CubeMaterials = MaterialKeys.TerrainKeys
 MaterialKeys.FloorMaterials = MaterialKeys.TerrainKeys
 
 -- Dev-guard: ensure consistency
 do
-    local seen = {}
-    for _, k in ipairs(MaterialKeys.TerrainKeys) do
-        assert(MaterialKeys.EnumFromKey[k] ~= nil, ("[MaterialKeys] Missing EnumFromKey for '%s'"):format(k))
-        assert(not seen[k], ("[MaterialKeys] Duplicate key '%s' in TerrainKeys"):format(k))
-        seen[k] = true
-    end
+	local seen = {}
+	for _, k in ipairs(MaterialKeys.TerrainKeys) do
+		assert(MaterialKeys.EnumFromKey[k] ~= nil, ("[MaterialKeys] Missing EnumFromKey for '%s'"):format(k))
+		assert(not seen[k], ("[MaterialKeys] Duplicate key '%s' in TerrainKeys"):format(k))
+		seen[k] = true
+	end
 end
 
 return table.freeze(MaterialKeys)
