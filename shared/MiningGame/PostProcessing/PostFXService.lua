@@ -11,25 +11,31 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
 local PostProcessing = MiningGame:WaitForChild("PostProcessing")
 local PostProcessingManager = require(PostProcessing:WaitForChild("PostProcessingManager"))
+type PostFXManagerI = typeof(PostProcessingManager.new())
 local Logger = require(MiningGame:WaitForChild("Logger"))
 
 local log = Logger.new("PostFXService")
-local singleton = nil
+local singleton: PostFXManagerI? = nil
 local PostFXService = {}
 
 -- Get the singleton instance of PostProcessingManager
-function PostFXService.Get()
+function PostFXService.Get(): PostFXManagerI
 	if not singleton then
 		singleton = PostProcessingManager.new()
 		log:debug("Created PostProcessingManager singleton")
 	end
-	return singleton
+	local inst = singleton
+	if inst then
+		return inst
+	end
+	error("PostFXService: singleton not initialized")
 end
 
 -- Destroy the singleton (useful for testing)
 function PostFXService.Destroy()
-	if singleton then
-		singleton:destroy()
+	local inst = singleton
+	if inst then
+		inst:destroy()
 		singleton = nil
 		log:info("Destroyed PostProcessingManager singleton")
 	else

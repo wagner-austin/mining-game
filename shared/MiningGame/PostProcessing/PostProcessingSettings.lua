@@ -2,39 +2,35 @@
 -- PostProcessingSettings.lua
 -- Configuration settings for enabling/disabling post-processing features
 
-local PostProcessingSettings = {}
-
--- Master switch for all post-processing effects
-PostProcessingSettings.Enabled = false
-
--- Individual feature toggles
-PostProcessingSettings.Features = {
-	-- Environmental effects
-	UnderwaterEffects = true,
-	
-	-- Theme-based atmospheric effects
-	ThemeEffects = true,
-	
-	-- Gameplay effects (damage flash, heal, etc)
-	GameplayEffects = true,
-	
-	-- Quality-based auto-adjustment
-	QualityAutoAdjust = true,
-	
-	-- Day/Night effects (if implemented)
-	DayNightEffects = false
-}
-
--- Debug settings
-PostProcessingSettings.Debug = {
-	-- Log all effect changes
-	VerboseLogging = false,
-	
-	-- Show on-screen debug panel
-	ShowDebugPanel = false,
-	
-	-- Force quality level (nil = auto, "Low", "Medium", "High")
-	ForceQualityLevel = nil
-}
+local PostProcessingSettings: {
+	Enabled: boolean,
+	Features: {
+		UnderwaterEffects: boolean,
+		ThemeEffects: boolean,
+		GameplayEffects: boolean,
+		QualityAutoAdjust: boolean,
+		DayNightEffects: boolean,
+	},
+	Debug: {
+		VerboseLogging: boolean,
+		ShowDebugPanel: boolean,
+		ForceQualityLevel: string?,
+	},
+} =
+	{
+		Enabled = false,
+		Features = {
+			UnderwaterEffects = true,
+			ThemeEffects = true,
+			GameplayEffects = true,
+			QualityAutoAdjust = true,
+			DayNightEffects = false,
+		},
+		Debug = {
+			VerboseLogging = false,
+			ShowDebugPanel = false,
+			ForceQualityLevel = nil,
+		},
+	}
 
 return PostProcessingSettings
