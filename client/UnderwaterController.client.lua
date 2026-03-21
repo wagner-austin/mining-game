@@ -22,39 +22,38 @@ local function onCharacter(character: Model)
 		log:debug("Underwater effects disabled in settings")
 		return
 	end
-	
+
 	local humanoid = character:WaitForChild("Humanoid") :: Humanoid
-	local manager = PostFXService.Get()
-	
+	local manager: any = PostFXService.Get()
+
 	local wasSwimming = false
 	local lastStateChange = 0
-	
+
 	humanoid.StateChanged:Connect(function(_, newState)
 		local now = Time.mono()
-		
+
 		-- Debounce rapid state changes
 		if now - lastStateChange < DEBOUNCE_TIME then
 			return
 		end
-		
+
 		local isSwimming = (newState == Enum.HumanoidStateType.Swimming)
-		
+
 		if isSwimming and not wasSwimming then
 			-- Enter water
-			manager:apply("underwater")
+			manager.apply(manager, "underwater")
 			wasSwimming = true
 			lastStateChange = now
 			log:debug("Entered water - applying underwater effects")
-			
 		elseif wasSwimming and not isSwimming then
 			-- Exit water
-			manager:remove("underwater")
+			manager.remove(manager, "underwater")
 			wasSwimming = false
 			lastStateChange = now
 			log:debug("Exited water - removing underwater effects")
 		end
 	end)
-	
+
 	log:debug("Monitoring swimming state for character")
 end
 

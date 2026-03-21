@@ -8,6 +8,7 @@ local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
 local PostProcessing = MiningGame:WaitForChild("PostProcessing")
 local PostProcessingSettings = require(PostProcessing:WaitForChild("PostProcessingSettings"))
 local PostFXService = require(PostProcessing:WaitForChild("PostFXService"))
+local _PostProcessingManager = require(PostProcessing:WaitForChild("PostProcessingManager"))
 local Logger = require(MiningGame:WaitForChild("Logger"))
 
 local log = Logger.new("PostProcessingDebug")
@@ -16,89 +17,80 @@ local player = Players.LocalPlayer
 -- Chat commands for testing
 player.Chatted:Connect(function(message)
 	local msg = message:lower()
-	
+
 	-- Master toggle
 	if msg == "/fx on" then
 		PostProcessingSettings.Enabled = true
 		log:info("Post-processing ENABLED")
 		player:SetAttribute("PostFXEnabled", true)
-		
 	elseif msg == "/fx off" then
 		PostProcessingSettings.Enabled = false
 		-- Clear all effects
-		local manager = PostFXService.Get()
-		manager:clearAll()
+		local manager0: any = PostFXService.Get()
+		manager0.clearAll(manager0)
 		log:info("Post-processing DISABLED")
 		player:SetAttribute("PostFXEnabled", false)
-		
+
 	-- Feature toggles
 	elseif msg == "/fx underwater on" then
 		PostProcessingSettings.Features.UnderwaterEffects = true
 		log:info("Underwater effects ENABLED")
-		
 	elseif msg == "/fx underwater off" then
 		PostProcessingSettings.Features.UnderwaterEffects = false
 		log:info("Underwater effects DISABLED")
-		
 	elseif msg == "/fx theme on" then
 		PostProcessingSettings.Features.ThemeEffects = true
 		log:info("Theme effects ENABLED - rejoin or change theme to apply")
-		
 	elseif msg == "/fx theme off" then
 		PostProcessingSettings.Features.ThemeEffects = false
-		local manager = PostFXService.Get()
-		manager:remove("themeAtmosphere")
+		local m0: any = PostFXService.Get()
+		m0.remove(m0, "themeAtmosphere")
 		log:info("Theme effects DISABLED")
-		
+
 	-- Debug toggles
 	elseif msg == "/fx verbose on" then
 		PostProcessingSettings.Debug.VerboseLogging = true
 		log:info("Verbose logging ENABLED")
-		
 	elseif msg == "/fx verbose off" then
 		PostProcessingSettings.Debug.VerboseLogging = false
 		log:info("Verbose logging DISABLED")
-		
+
 	-- Quality overrides
 	elseif msg == "/fx quality low" then
 		PostProcessingSettings.Debug.ForceQualityLevel = "Low"
-		local manager = PostFXService.Get()
-		manager:updateQuality()
+		local m1: any = PostFXService.Get()
+		m1.updateQuality(m1)
 		log:info("Forced quality level: LOW")
-		
 	elseif msg == "/fx quality medium" then
 		PostProcessingSettings.Debug.ForceQualityLevel = "Medium"
-		local manager = PostFXService.Get()
-		manager:updateQuality()
+		local m2: any = PostFXService.Get()
+		m2.updateQuality(m2)
 		log:info("Forced quality level: MEDIUM")
-		
 	elseif msg == "/fx quality high" then
 		PostProcessingSettings.Debug.ForceQualityLevel = "High"
-		local manager = PostFXService.Get()
-		manager:updateQuality()
+		local m3: any = PostFXService.Get()
+		m3.updateQuality(m3)
 		log:info("Forced quality level: HIGH")
-		
 	elseif msg == "/fx quality auto" then
 		PostProcessingSettings.Debug.ForceQualityLevel = nil
-		local manager = PostFXService.Get()
-		manager:updateQuality()
+		local m4: any = PostFXService.Get()
+		m4.updateQuality(m4)
 		log:info("Quality level: AUTO")
-		
+
 	-- Test effects
 	elseif msg == "/fx test damage" then
-		local manager = PostFXService.Get()
-		manager:apply("damageFlash")
+		local m5: any = PostFXService.Get()
+		m5.apply(m5, "damageFlash")
 		task.wait(0.5)
-		manager:remove("damageFlash")
+		m5.remove(m5, "damageFlash")
 		log:info("Tested damage flash effect")
-		
 	elseif msg == "/fx test heal" then
-		local manager = PostFXService.Get()
-		manager:apply("healEffect")
+		local m6: any = PostFXService.Get()
+		m6.apply(m6, "healEffect")
 		task.wait(1)
-		manager:remove("healEffect")
+		m6.remove(m6, "healEffect")
 		log:info("Tested heal effect")
-		
+
 	-- Status
 	elseif msg == "/fx status" then
 		log:info("=== Post-Processing Status ===")
@@ -107,7 +99,7 @@ player.Chatted:Connect(function(message)
 		log:info("Theme: %s", PostProcessingSettings.Features.ThemeEffects and "ON" or "OFF")
 		log:info("Quality: %s", PostProcessingSettings.Debug.ForceQualityLevel or "AUTO")
 		log:info("Verbose: %s", PostProcessingSettings.Debug.VerboseLogging and "ON" or "OFF")
-		
+
 	-- Help
 	elseif msg == "/fx help" or msg == "/fx" then
 		log:info("=== Post-Processing Commands ===")

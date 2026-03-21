@@ -1,5 +1,6 @@
 --!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
 local GameConfig = require(MiningGame:WaitForChild("GameConfig"))
 local Time = require(MiningGame:WaitForChild("Time"))
@@ -10,21 +11,26 @@ type RingEntry = { tag: string, err: string, t: number }
 local ring: { RingEntry } = {}
 
 local function push(tag: string, err: string)
-  if #ring >= RING_MAX then table.remove(ring, 1) end
-  table.insert(ring, {tag=tag, err=err, t=Time.mono()})
+	if #ring >= RING_MAX then
+		table.remove(ring, 1)
+	end
+	table.insert(ring, { tag = tag, err = err, t = Time.mono() })
 end
 
-function ClientError.try(tag: string, fn: () -> any): (boolean, any)
-  local ok, res = pcall(fn)
-  if not ok then
-    push(tag, tostring(res))
-    if _G.DEBUG_MODE then warn(("[Client][%s] %s"):format(tag, tostring(res))) end
-  end
-  return ok, res
+function ClientError.try(tag: string, fn: () -> ...any): (boolean, ...any)
+	local ok, res = xpcall(fn, debug.traceback)
+	if not ok then
+		local msg = tostring(res)
+		push(tag, msg)
+		if RunService:IsStudio() then
+			warn(("[Client][%s] %s"):format(tag, msg))
+		end
+	end
+	return ok, res
 end
 
 function ClientError.recent(): { RingEntry }
-  return table.clone(ring) :: { RingEntry }
+	return table.clone(ring) :: { RingEntry }
 end
 
 return ClientError

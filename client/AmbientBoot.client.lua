@@ -18,22 +18,22 @@ MaterialManager.Initialize()
 
 -- Load and apply saved palette preference AFTER player data is ready
 task.spawn(function()
-    if not player:GetAttribute("DataLoaded") then
-        player:GetAttributeChangedSignal("DataLoaded"):Wait()
-    end
-    if not Ready.wait(10) then
-        log:warn("Server not ready; skipping initial palette fetch")
-        return
-    end
-    -- Use ClientRF with retry for material preferences
-    local prefs, err = ClientRF.callWithRetry("GetMaterialPreferences", 3)
-    if not err and prefs and prefs.palette then
-        local pal = string.lower(prefs.palette)
-        log:info("Applying saved palette: %s", pal)
-        MaterialManager.SetPalette(pal)
-    elseif err then
-        log:warn("Failed to get material preferences: %s", tostring(err))
-    end
+	if not player:GetAttribute("DataLoaded") then
+		player:GetAttributeChangedSignal("DataLoaded"):Wait()
+	end
+	if not Ready.wait(10) then
+		log:warn("Server not ready; skipping initial palette fetch")
+		return
+	end
+	-- Use ClientRF with retry for material preferences
+	local prefs, err = ClientRF.callWithRetry("GetMaterialPreferences", 3)
+	if not err and prefs and prefs.palette then
+		local pal = string.lower(prefs.palette)
+		log:info("Applying saved palette: %s", pal)
+		MaterialManager.SetPalette(pal)
+	elseif err then
+		log:warn("Failed to get material preferences: %s", tostring(err))
+	end
 end)
 
 -- REMOVED palette and daytime providers - zones handle everything now with time rules!

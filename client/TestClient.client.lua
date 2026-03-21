@@ -47,10 +47,10 @@ log:debug("Found MiningGame")
 
 -- Get config
 local GameConfig = require(MiningGame:WaitForChild("GameConfig"))
-local CELL_SIZE = GameConfig.Grid.CELL_SIZE_STUDS
+local _CELL_SIZE = GameConfig.Grid.CELL_SIZE_STUDS
 
 -- Get utilities
-local GridMath = require(MiningGame:WaitForChild("Utils"):WaitForChild("GridMath"))
+-- local GridMath = require(MiningGame:WaitForChild("Utils"):WaitForChild("GridMath"))
 local MathUtils = require(MiningGame:WaitForChild("MathUtils"))
 
 -- Get ClientRF for remote calls
@@ -65,55 +65,63 @@ local Bus = EventBus.global()
 local RemoteEventBridge = require(script.Parent:WaitForChild("MiningGame"):WaitForChild("RemoteEventBridge"))
 
 -- Store connections for cleanup
-local connections = {} :: {() -> ()}
+local connections = {} :: { () -> () }
 
 -- Interval-safe time source
 -- Use monotonic time for local cooldown calculations
-local function now() return Time.mono() end
+local function now()
+	return Time.mono()
+end
 
 -- Get SoundManager for local sound playback
 local SoundManager = require(MiningGame:WaitForChild("SoundManager"))
 
 -- Get DigVisualFeedback for visual indicators
-local DigVisualFeedback = require(MiningGame:WaitForChild("DigVisualFeedback"))
-local visualFeedback = nil
+-- local DigVisualFeedback = require(MiningGame:WaitForChild("DigVisualFeedback"))
+local ClientRegistry = require(MiningGame:WaitForChild("ClientRegistry"))
+local visualFeedback: ClientRegistry.VisualFeedbackT? = nil
 
 -- Pre-create raycast params for terrain detection
 local terrainRayParams = RaycastParams.new()
 terrainRayParams.FilterType = Enum.RaycastFilterType.Include
-terrainRayParams.FilterDescendantsInstances = {workspace.Terrain}
+terrainRayParams.FilterDescendantsInstances = { workspace.Terrain }
 
 -- Track dig cooldown
 local digCooldown = GameConfig.Client.INITIAL_DIG_COOLDOWN -- Start with default cooldown (will be updated from server)
 local cooldownEndsAt = 0 -- Track when next dig is allowed
-local lastDigTime = 0 -- Track when we last attempted a dig
+local _lastDigTime = 0 -- Track when we last attempted a dig
 
 -- Store player's cube origin when profile loads
 local playerCubeOrigin = nil
 
 -- Listen for cube origin changes via EventBus
-table.insert(connections, Bus:on(EventNames.CUBE_ORIGIN_CHANGED, function(payload)
-    ClientError.try("CUBE_ORIGIN_CHANGED", function()
-        -- payload.origin may be Vector3 (per EventTypes), handle a few shapes defensively
-        local originAny = payload and (payload.origin or payload.cframe or payload.CFrame)
-        if not originAny then return end
+table.insert(
+	connections,
+	Bus:on(EventNames.CUBE_ORIGIN_CHANGED, function(payload)
+		ClientError.try("CUBE_ORIGIN_CHANGED", function()
+			-- payload.origin may be Vector3 (per EventTypes), handle a few shapes defensively
+			local originAny = payload and (payload.origin or payload.cframe or payload.CFrame)
+			if not originAny then
+				return
+			end
 
-        if typeof(originAny) == "CFrame" then
-        playerCubeOrigin = originAny
-    elseif typeof(originAny) == "Vector3" then
-        playerCubeOrigin = CFrame.new(originAny)
-    elseif typeof(originAny) == "table" and originAny.x then
-        playerCubeOrigin = CFrame.new(originAny.x, originAny.y, originAny.z)
-    end
+			if typeof(originAny) == "CFrame" then
+				playerCubeOrigin = originAny
+			elseif typeof(originAny) == "Vector3" then
+				playerCubeOrigin = CFrame.new(originAny)
+			elseif typeof(originAny) == "table" and originAny.x then
+				playerCubeOrigin = CFrame.new(originAny.x, originAny.y, originAny.z)
+			end
 
-    if playerCubeOrigin then
-        log:info("Cube origin updated to: %s", tostring(playerCubeOrigin.Position))
-        if visualFeedback then
-            visualFeedback:SetCubeOrigin(playerCubeOrigin)
-        end
-    end
-    end)
-end))
+			if playerCubeOrigin then
+				log:info("Cube origin updated to: %s", tostring(playerCubeOrigin.Position))
+				if visualFeedback then
+					visualFeedback:SetCubeOrigin(playerCubeOrigin)
+				end
+			end
+		end)
+	end)
+)
 
 --[[
     Get the terrain material at a given position for accurate sound playback.
@@ -123,39 +131,39 @@ end))
     @return string - Material key for sound system (e.g., "rock", "sand")
 ]]
 local function getMaterialAtPosition(position: Vector3): string
-    -- Sample the terrain to determine what material we're hitting
-    local region = Region3.new(position - Vector3.new(2, 2, 2), position + Vector3.new(2, 2, 2))
-    region = region:ExpandToGrid(4)
-    
-    local materials, _ = workspace.Terrain:ReadVoxels(region, 4)
-    local size = materials.Size
-    
-    -- Find the most common non-air material in the region
-    local materialCounts = {}
-    for x = 1, size.X do
-        for y = 1, size.Y do
-            for z = 1, size.Z do
-                local mat = materials[x][y][z]
-                if mat ~= Enum.Material.Air then
-                    materialCounts[mat] = (materialCounts[mat] or 0) + 1
-                end
-            end
-        end
-    end
-    
-    -- Find dominant material
-    local dominantMaterial = Enum.Material.Rock
-    local maxCount = 0
-    for mat, count in pairs(materialCounts) do
-        if count > maxCount then
-            dominantMaterial = mat
-            maxCount = count
-        end
-    end
-    
-    -- Map to material key using MaterialKeys module for consistency with server
-    local MaterialKeys = require(MiningGame:WaitForChild("MaterialKeys"))
-    return MaterialKeys.KeyFromEnum[dominantMaterial] or "rock"
+	-- Sample the terrain to determine what material we're hitting
+	local region = Region3.new(position - Vector3.new(2, 2, 2), position + Vector3.new(2, 2, 2))
+	region = region:ExpandToGrid(4)
+
+	local materials, _ = workspace.Terrain:ReadVoxels(region, 4)
+	local size = materials.Size
+
+	-- Find the most common non-air material in the region
+	local materialCounts = {}
+	for x = 1, size.X do
+		for y = 1, size.Y do
+			for z = 1, size.Z do
+				local mat = materials[x][y][z]
+				if mat ~= Enum.Material.Air then
+					materialCounts[mat] = (materialCounts[mat] or 0) + 1
+				end
+			end
+		end
+	end
+
+	-- Find dominant material
+	local dominantMaterial = Enum.Material.Rock
+	local maxCount = 0
+	for mat, count in pairs(materialCounts) do
+		if count > maxCount then
+			dominantMaterial = mat
+			maxCount = count
+		end
+	end
+
+	-- Map to material key using MaterialKeys module for consistency with server
+	local MaterialKeys = require(MiningGame:WaitForChild("MaterialKeys"))
+	return MaterialKeys.KeyFromEnum[dominantMaterial] or "rock"
 end
 
 --[[
@@ -166,16 +174,18 @@ end
     @param origin: CFrame - The cube's origin CFrame
     @return boolean - True if position is inside or near cube boundary
 ]]
-local function insideCube(worldPos: Vector3, origin: CFrame): boolean
-    if not origin then return false end
-    -- IMPORTANT: Terrain cubes are axis-aligned, don't use rotation!
-    local localPos = worldPos - origin.Position
-    local half = GameConfig.Grid.CUBE_SIZE_STUDS / 2
-    -- Add tolerance for terrain texture that extends beyond voxel boundaries
-    local tolerance = GameConfig.Client.CUBE_TOLERANCE_STUDS
-    return math.abs(localPos.X) <= (half + tolerance) and 
-           math.abs(localPos.Y) <= (half + tolerance) and 
-           math.abs(localPos.Z) <= (half + tolerance)
+local function _insideCube(worldPos: Vector3, origin: CFrame): boolean
+	if not origin then
+		return false
+	end
+	-- IMPORTANT: Terrain cubes are axis-aligned, don't use rotation!
+	local localPos = worldPos - origin.Position
+	local half = GameConfig.Grid.CUBE_SIZE_STUDS / 2
+	-- Add tolerance for terrain texture that extends beyond voxel boundaries
+	local tolerance = GameConfig.Client.CUBE_TOLERANCE_STUDS
+	return math.abs(localPos.X) <= (half + tolerance)
+		and math.abs(localPos.Y) <= (half + tolerance)
+		and math.abs(localPos.Z) <= (half + tolerance)
 end
 
 --[[
@@ -185,95 +195,105 @@ end
     @param position: Vector3 - The world position to dig at
 ]]
 local function requestDigAt(position: Vector3)
-    local t = now()
-    
-    -- Expanded client-side check: allow island volumes too (server authoritative)
-    -- Keep permissive: only block if far out of range to reduce noisy calls.
-    do
-        local maxRange = (GameConfig.Digging and GameConfig.Digging.MAX_RANGE_STUDS) or 0
-        if maxRange and maxRange > 0 then
-            local dist = (position - humanoidRootPart.Position).Magnitude
-            if dist > maxRange * 1.25 then -- small grace margin vs server
-                log:debug("Click way out of range - ignoring")
-                return
-            end
-        end
-    end
-    
-    -- ✅ local cooldown guard (mirrors server; prevents fails/no-sound cases)
-    if t < cooldownEndsAt then
-        log:debug("Local cooldown (%.2fs left)", MathUtils.saturatingSub(cooldownEndsAt, t))
-        return
-    end
-    
-    log:info("[DEBUG] REQUESTING DIG AT: %s", tostring(position))
-    
-    -- ✅ ask the server FIRST
-    local result, err = ClientRF.call("RequestDig", position)
-    if err then
-        log:warn("Dig request failed: %s", err)
-        return
-    end
-    
-    if result and result.ok then
-        log:info("Dig successful! Dug %d cells", result.cellsDug)
-        
-        -- ✅ play sound ONLY on success
-        -- Prefer the server's material if provided; fallback to local probe
-        local matKey = (result.soundMaterialKey :: string?) or getMaterialAtPosition(position) or "rock"
-        local sfxPos = result.soundWorldPos or position
-        log:debug("Playing local sound for material: %s subtype: %s at position: %s (2D fixed volume)", matKey, tostring(result.soundSubtype or "hit"), tostring(sfxPos))
-        -- Play local dig sound as 2D (fixed volume) regardless of camera distance
-        -- Use GameConfig.Digging.HIT_VOLUME for tunable loudness
-        SoundManager.PlayMining(matKey, result.soundSubtype, sfxPos, { force2D = true, volume = GameConfig.Digging.HIT_VOLUME })
-        
-        if result.effectiveStats then
-            digCooldown = result.effectiveStats.delay
-            if visualFeedback then
-                visualFeedback:SetCooldown(digCooldown)
-                visualFeedback:SetPreviewSize(result.effectiveStats.size or 1)
-            end
-        end
-        
-        -- Update cooldown tracking (prefer precise duration from server)
-        local cd = (result and result.cooldownSec) or digCooldown or 0
-        cooldownEndsAt = t + cd
-        
-        -- Update visual feedback
-        if visualFeedback then
-            visualFeedback:SetCooldownEndsAt(cooldownEndsAt)
-            visualFeedback:OnDig()
-            visualFeedback:ShowDigResult(true, result.soundWorldPos or position)
-        end
-        
-        if result.lootGranted and #result.lootGranted > 0 then
-            log:info("Loot received: %s", table.concat(result.lootGranted, ", "))
-        end
-        if result.nextAllowedAt then
-            log:debug("Next dig allowed at %.2f", result.nextAllowedAt)
-        end
-    else
-        log:warn("Dig failed: %s", (result and result.reason) or "Unknown reason")
-        -- No sound on failures ✅
-        if result and (result.cooldownSec or result.nextAllowedAt) then
-            local cd = result.cooldownSec
-            if not cd and result.nextAllowedAt then
-                cd = math.max(0, result.nextAllowedAt - t)
-            end
-            cooldownEndsAt = t + (cd or 0)
-            local timeLeft = (cd or 0)
-            log:debug("Can dig again in %.2fs", timeLeft)
-            if visualFeedback then
-                visualFeedback:SetCooldownEndsAt(cooldownEndsAt)
-                visualFeedback:OnDig()  -- Show cooldown bar even on failures
-            end
-        end
-        
-        -- Show failure feedback
-        if visualFeedback then
-            visualFeedback:ShowDigResult(false, position)
-        end
-    end
+	local t = now()
+
+	-- Expanded client-side check: allow island volumes too (server authoritative)
+	-- Keep permissive: only block if far out of range to reduce noisy calls.
+	do
+		local maxRange = (GameConfig.Digging and GameConfig.Digging.MAX_RANGE_STUDS) or 0
+		if maxRange and maxRange > 0 then
+			local dist = (position - humanoidRootPart.Position).Magnitude
+			if dist > maxRange * 1.25 then -- small grace margin vs server
+				log:debug("Click way out of range - ignoring")
+				return
+			end
+		end
+	end
+
+	-- ✅ local cooldown guard (mirrors server; prevents fails/no-sound cases)
+	if t < cooldownEndsAt then
+		log:debug("Local cooldown (%.2fs left)", MathUtils.saturatingSub(cooldownEndsAt, t))
+		return
+	end
+
+	log:info("[DEBUG] REQUESTING DIG AT: %s", tostring(position))
+
+	-- ✅ ask the server FIRST
+	local result, err = ClientRF.call("RequestDig", position)
+	if err then
+		log:warn("Dig request failed: %s", err)
+		return
+	end
+
+	if result and result.ok then
+		log:info("Dig successful! Dug %d cells", result.cellsDug)
+
+		-- ✅ play sound ONLY on success
+		-- Prefer the server's material if provided; fallback to local probe
+		local matKey = result.soundMaterialKey or getMaterialAtPosition(position) or "rock"
+		local sfxPos = result.soundWorldPos or position
+		log:debug(
+			"Playing local sound for material: %s subtype: %s at position: %s (2D fixed volume)",
+			matKey,
+			tostring(result.soundSubtype or "hit"),
+			tostring(sfxPos)
+		)
+		-- Play local dig sound as 2D (fixed volume) regardless of camera distance
+		-- Use GameConfig.Digging.HIT_VOLUME for tunable loudness
+		SoundManager.PlayMining(
+			matKey,
+			result.soundSubtype,
+			sfxPos,
+			{ force2D = true, volume = GameConfig.Digging.HIT_VOLUME }
+		)
+
+		if result.effectiveStats then
+			digCooldown = result.effectiveStats.delay
+			if visualFeedback then
+				visualFeedback:SetCooldown(digCooldown)
+				visualFeedback:SetPreviewSize(result.effectiveStats.size or 1)
+			end
+		end
+
+		-- Update cooldown tracking (prefer precise duration from server)
+		local cd = (result and result.cooldownSec) or digCooldown or 0
+		cooldownEndsAt = t + cd
+
+		-- Update visual feedback
+		if visualFeedback then
+			visualFeedback:SetCooldownEndsAt(cooldownEndsAt)
+			visualFeedback:OnDig()
+			visualFeedback:ShowDigResult(true, result.soundWorldPos or position)
+		end
+
+		if result.lootGranted and #result.lootGranted > 0 then
+			log:info("Loot received: %s", table.concat(result.lootGranted, ", "))
+		end
+		if result.nextAllowedAt then
+			log:debug("Next dig allowed at %.2f", result.nextAllowedAt)
+		end
+	else
+		log:warn("Dig failed: %s", (result and result.reason) or "Unknown reason")
+		-- No sound on failures ✅
+		if result and (result.cooldownSec or result.nextAllowedAt) then
+			local cd = result.cooldownSec
+			if not cd and result.nextAllowedAt then
+				cd = math.max(0, result.nextAllowedAt - t)
+			end
+			cooldownEndsAt = t + (cd or 0)
+			local timeLeft = (cd or 0)
+			log:debug("Can dig again in %.2fs", timeLeft)
+			if visualFeedback then
+				visualFeedback:SetCooldownEndsAt(cooldownEndsAt)
+				visualFeedback:OnDig() -- Show cooldown bar even on failures
+			end
+		end
+
+		-- Show failure feedback
+		if visualFeedback then
+			visualFeedback:ShowDigResult(false, position)
+		end
+	end
 end
 
 --[[
@@ -281,121 +301,150 @@ end
     Updates local state including cube origin and dig cooldown.
 ]]
 local function getProfile()
-    log:debug("Requesting profile...")
-    local profile, err = ClientRF.call("GetProfile")
-    if err then
-        log:warn("Failed to get profile: %s", err)
-        return
-    end
-    
-    if profile then
-        log:info("Profile loaded:")
-        log:info("  Coins: %d", profile.profile.coins or 0)
-        log:info("  Gems: %d", profile.profile.gems or 0)
-        log:info("  Total blocks dug: %d", profile.profile.totalBlocksDug or 0)
-        log:debug("  Effective stats:")
-        log:debug("    Delay: %s", tostring(profile.effectiveStats.delay))
-        log:debug("    Size: %s", tostring(profile.effectiveStats.size or 0))
-        log:debug("    Luck: %s", tostring(profile.effectiveStats.luck))
-        
-        -- Store cube origin for bounds checking
-        if profile.cubeOrigin then
-            -- Accept CFrame directly (or handle legacy formats)
-            if typeof(profile.cubeOrigin) == "CFrame" then
-                playerCubeOrigin = profile.cubeOrigin
-            elseif typeof(profile.cubeOrigin) == "Vector3" then
-                playerCubeOrigin = CFrame.new(profile.cubeOrigin)
-            elseif typeof(profile.cubeOrigin) == "table" then
-                -- Legacy table format
-                playerCubeOrigin = CFrame.new(profile.cubeOrigin.x, profile.cubeOrigin.y, profile.cubeOrigin.z)
-            end
-        else
-            -- Fallback (shouldn't happen with updated server)
-            warn("[TestClient] No cube origin in profile, using fallback")
-            local cubeY = GameConfig.Grid.CUBE_SIZE_STUDS / 2
-            playerCubeOrigin = CFrame.new(0, cubeY, 0)
-        end
-        log:debug("Cube origin set to: %s", tostring(playerCubeOrigin.Position))
-        
-        -- Update visual feedback with profile data
-        if visualFeedback then
-            visualFeedback:SetCubeOrigin(playerCubeOrigin)
-            visualFeedback:SetCooldown(profile.effectiveStats.delay)
-            visualFeedback:SetPreviewSize(profile.effectiveStats.size or 1)
-        end
-        
-        -- Update cooldown tracking
-        digCooldown = profile.effectiveStats.delay
-    else
-        log:error("Failed to get profile")
-    end
+	log:debug("Requesting profile...")
+	local profile, err = ClientRF.call("GetProfile")
+	if err then
+		log:warn("Failed to get profile: %s", err)
+		return
+	end
+
+	if profile then
+		log:info("Profile loaded:")
+		log:info("  Coins: %d", profile.profile.coins or 0)
+		log:info("  Gems: %d", profile.profile.gems or 0)
+		log:info("  Total blocks dug: %d", profile.profile.totalBlocksDug or 0)
+		log:debug("  Effective stats:")
+		log:debug("    Delay: %s", tostring(profile.effectiveStats.delay))
+		log:debug("    Size: %s", tostring(profile.effectiveStats.size or 0))
+		log:debug("    Luck: %s", tostring(profile.effectiveStats.luck))
+
+		-- Store cube origin for bounds checking
+		if profile.cubeOrigin then
+			-- Accept CFrame directly (or handle legacy formats)
+			if typeof(profile.cubeOrigin) == "CFrame" then
+				playerCubeOrigin = profile.cubeOrigin
+			elseif typeof(profile.cubeOrigin) == "Vector3" then
+				playerCubeOrigin = CFrame.new(profile.cubeOrigin)
+			elseif typeof(profile.cubeOrigin) == "table" then
+				-- Legacy table format
+				playerCubeOrigin = CFrame.new(profile.cubeOrigin.x, profile.cubeOrigin.y, profile.cubeOrigin.z)
+			end
+		else
+			-- Fallback (shouldn't happen with updated server)
+			warn("[TestClient] No cube origin in profile, using fallback")
+			local cubeY = GameConfig.Grid.CUBE_SIZE_STUDS / 2
+			playerCubeOrigin = CFrame.new(0, cubeY, 0)
+		end
+		log:debug("Cube origin set to: %s", tostring(playerCubeOrigin.Position))
+
+		-- Update visual feedback with profile data
+		if visualFeedback then
+			visualFeedback:SetCubeOrigin(playerCubeOrigin)
+			visualFeedback:SetCooldown(profile.effectiveStats.delay)
+			visualFeedback:SetPreviewSize(profile.effectiveStats.size or 1)
+		end
+
+		-- Update cooldown tracking
+		digCooldown = profile.effectiveStats.delay
+	else
+		log:error("Failed to get profile")
+	end
 end
 
 -- (Removed) DIG_FEEDBACK listener: RF result drives visuals directly in this test client.
 
 -- Listen for loot drops via EventBus
-table.insert(connections, Bus:on(EventNames.LOOT_DROPPED, function(p)
-    ClientError.try("LOOT_DROPPED", function()
-        log:debug("Loot dropped!")
-        local counts = p.counts or p.items
-        if counts then
-            for itemId, count in pairs(counts) do
-                log:debug("  - %s x%d", itemId, count)
-            end
-        end
-        local pos = p.position or p.worldPos
-        if pos then log:debug("  Position: %s", tostring(pos)) end
-    end)
-end))
+table.insert(
+	connections,
+	Bus:on(EventNames.LOOT_DROPPED, function(p)
+		ClientError.try("LOOT_DROPPED", function()
+			log:debug("Loot dropped!")
+			local counts = p.counts or p.items
+			if counts then
+				for itemId, count in pairs(counts) do
+					log:debug("  - %s x%d", itemId, count)
+				end
+			end
+			local pos = p.position or p.worldPos
+			if pos then
+				log:debug("  Position: %s", tostring(pos))
+			end
+		end)
+	end)
+)
 
 -- Listen for inventory changes via EventBus (snapshot or legacy delta)
-table.insert(connections, Bus:on(EventNames.INVENTORY_CHANGED, function(change)
-    ClientError.try("INVENTORY_CHANGED", function()
-        log:debug("Inventory changed:")
-        local isSnapshot = (type(change) == "table") and (change.items ~= nil or change.action == nil)
-        if isSnapshot then
-            local items = change.items or change -- new format sends the inventory table directly
-            local n = 0
-            for _ in pairs(items or {}) do n += 1 end
-            log:debug("  Snapshot items: %d", n)
-        else
-            -- delta
-            if change.action == "add" then
-                log:debug("  + %s x%d (total %s)", tostring(change.itemId), change.count or 0, tostring(change.total))
-            elseif change.action == "remove" then
-                log:debug("  - %s x%d (total %s)", tostring(change.itemId), change.count or 0, tostring(change.total))
-            elseif change.action == "equip" then
-                log:debug("  equip %s in %s", tostring(change.itemId), tostring(change.slot))
-            elseif change.action == "unequip" then
-                log:debug("  unequip from %s", tostring(change.slot))
-            end
-        end
-    end)
-end))
+table.insert(
+	connections,
+	Bus:on(EventNames.INVENTORY_CHANGED, function(change)
+		ClientError.try("INVENTORY_CHANGED", function()
+			log:debug("Inventory changed:")
+			local isSnapshot = (type(change) == "table") and (change.items ~= nil or change.action == nil)
+			if isSnapshot then
+				local items = change.items or change -- new format sends the inventory table directly
+				local n = 0
+				for _ in pairs(items or {}) do
+					n += 1
+				end
+				log:debug("  Snapshot items: %d", n)
+			else
+				-- delta
+				if change.action == "add" then
+					log:debug(
+						"  + %s x%d (total %s)",
+						tostring(change.itemId),
+						change.count or 0,
+						tostring(change.total)
+					)
+				elseif change.action == "remove" then
+					log:debug(
+						"  - %s x%d (total %s)",
+						tostring(change.itemId),
+						change.count or 0,
+						tostring(change.total)
+					)
+				elseif change.action == "equip" then
+					log:debug("  equip %s in %s", tostring(change.itemId), tostring(change.slot))
+				elseif change.action == "unequip" then
+					log:debug("  unequip from %s", tostring(change.slot))
+				end
+			end
+		end)
+	end)
+)
 
 -- Listen for announcements via EventBus
-table.insert(connections, Bus:on(EventNames.ANNOUNCEMENT_BROADCAST, function(msg)
-    ClientError.try("ANNOUNCEMENT_BROADCAST", function()
-        local message = msg.message or msg.text or "(no message)"
-        log:info("Notification: %s", message)
-    end)
-end))
+table.insert(
+	connections,
+	Bus:on(EventNames.ANNOUNCEMENT_BROADCAST, function(msg)
+		ClientError.try("ANNOUNCEMENT_BROADCAST", function()
+			local message = msg.message or msg.text or "(no message)"
+			log:info("Notification: %s", message)
+		end)
+	end)
+)
 
 -- Listen for server-wide metrics updates (EventBus path)
-table.insert(connections, Bus:on(EventNames.SERVER_METRICS_UPDATED, function(serverMetrics)
-    if RunService:IsStudio() then
-        log:debug("Server metrics updated push (keys=%d)", type(serverMetrics) == "table" and table.getn(serverMetrics) or 0)
-    end
-end))
+table.insert(
+	connections,
+	Bus:on(EventNames.SERVER_METRICS_UPDATED, function(serverMetrics)
+		if RunService:IsStudio() then
+			log:debug("Server metrics updated push (keys=%d)", type(serverMetrics) == "table" and #serverMetrics or 0)
+		end
+	end)
+)
 
 -- Listen for metrics updates (EventBus path)
-table.insert(connections, Bus:on(EventNames.METRICS_UPDATED, function(metrics)
-    if RunService:IsStudio() then
-        ClientError.try("METRICS_UPDATED", function()
-            log:debug("Metrics updated push received (ok=%s)", tostring(metrics and true or false))
-        end)
-    end
-end))
+table.insert(
+	connections,
+	Bus:on(EventNames.METRICS_UPDATED, function(metrics)
+		if RunService:IsStudio() then
+			ClientError.try("METRICS_UPDATED", function()
+				log:debug("Metrics updated push received (ok=%s)", tostring(metrics and true or false))
+			end)
+		end
+	end)
+)
 
 -- Controls
 log:debug("Controls:")
@@ -405,139 +454,159 @@ log:debug("  Click to dig at mouse position")
 
 -- Keyboard input
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    ClientError.try("InputBegan", function()
-        if gameProcessed then return end
-        
-        if input.KeyCode == Enum.KeyCode.E then
-            -- Dig below player
-            requestDigAt(humanoidRootPart.Position + Vector3.new(0, -10, 0))
-        elseif input.KeyCode == Enum.KeyCode.P then
-            getProfile()
-        elseif input.KeyCode == Enum.KeyCode.M then
-            -- M: request user metrics; Shift+M: request server metrics
-            if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift) then
-                if RunService:IsStudio() then log:debug("Requesting SERVER metrics via EventBus...") end
-                RemoteEventBridge.requestServerMetrics()
-            else
-                if RunService:IsStudio() then log:debug("Requesting user metrics via EventBus...") end
-                RemoteEventBridge.requestMetrics()
-            end
-        end
-    end)
+	ClientError.try("InputBegan", function()
+		if gameProcessed then
+			return
+		end
+
+		if input.KeyCode == Enum.KeyCode.E then
+			-- Dig below player
+			requestDigAt(humanoidRootPart.Position + Vector3.new(0, -10, 0))
+		elseif input.KeyCode == Enum.KeyCode.P then
+			getProfile()
+		elseif input.KeyCode == Enum.KeyCode.M then
+			-- M: request user metrics; Shift+M: request server metrics
+			if
+				UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)
+				or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
+			then
+				if RunService:IsStudio() then
+					log:debug("Requesting SERVER metrics via EventBus...")
+				end
+				RemoteEventBridge.requestServerMetrics()
+			else
+				if RunService:IsStudio() then
+					log:debug("Requesting user metrics via EventBus...")
+				end
+				RemoteEventBridge.requestMetrics()
+			end
+		end
+	end)
 end)
 
 -- Track continuous dig state
 local isMouseDown = false
-local continuousDigLoop = nil
+local continuousDigLoop: thread? = nil
 
 -- Helper function to get dig position from mouse
 local function getDigPositionFromMouse(): Vector3?
-    local cam = workspace.CurrentCamera
-    if not cam then return nil end
-    
-    -- Build a ray from the screen point
-    local ray = cam:ScreenPointToRay(mouse.X, mouse.Y)
-    
-    -- Use pre-created params for efficiency
-    local hit = workspace:Raycast(ray.Origin, ray.Direction * GameConfig.Client.CONTINUOUS_DIG_RAY_LENGTH, terrainRayParams)
-    
-    if not hit then
-        log:debug("Raycast miss (no Terrain under cursor)")
-        return nil
-    end
-    
-    -- DEBUG: Log exact hit details
-    log:info("[DEBUG] CLIENT HIT:")
-    log:info("  Hit Position: %s", tostring(hit.Position))
-    log:info("  Hit Normal: %s", tostring(hit.Normal))
-    log:info("  Hit Material: %s", tostring(hit.Material))
-    
-    -- Keep the actual surface position for external faces
-    local surfacePos = hit.Position
-    
-    -- Ask server which volume we're over
-    local vol, _ = ClientRF.call("QueryVolumeAt", surfacePos)
-    local origin: CFrame? = nil
-    if vol and vol.ok and vol.success and vol.hit then
-        origin = vol.origin
-        log:info("[DEBUG] VOLUME HIT:")
-        log:info("  Volume ID: %s", tostring(vol.id))
-        log:info("  Volume Kind: %s", tostring(vol.kind))
-        log:info("  Volume Origin: %s", tostring(vol.origin.Position))
-        log:info("  Volume Size: %s", tostring(vol.size))
-        -- Update visual feedback with the active volume
-        if _G.MiningGameVisualFeedback then
-            _G.MiningGameVisualFeedback:SetActiveVolume(vol.origin, vol.size)
-        end
-    else
-        log:debug("QueryVolumeAt: no hit at %s", tostring(surfacePos))
-        origin = playerCubeOrigin -- fallback for early boot
-        -- Update visual feedback to use player cube
-        if _G.MiningGameVisualFeedback and playerCubeOrigin then
-            local s = GameConfig.Grid.CUBE_SIZE_STUDS
-            _G.MiningGameVisualFeedback:SetActiveVolume(playerCubeOrigin, Vector3.new(s, s, s))
-        end
-    end
-    if not origin then return surfacePos end
+	local cam = workspace.CurrentCamera
+	if not cam then
+		return nil
+	end
 
-    -- For external surfaces, use the actual hit position
-    -- The server will validate if this is a valid exposed surface
-    log:info("[DEBUG] SENDING TO SERVER: %s", tostring(surfacePos))
-    return surfacePos
+	-- Build a ray from the screen point
+	local ray = cam:ScreenPointToRay(mouse.X, mouse.Y)
+
+	-- Use pre-created params for efficiency
+	local hit =
+		workspace:Raycast(ray.Origin, ray.Direction * GameConfig.Client.CONTINUOUS_DIG_RAY_LENGTH, terrainRayParams)
+
+	if not hit then
+		log:debug("Raycast miss (no Terrain under cursor)")
+		return nil
+	end
+
+	-- DEBUG: Log exact hit details
+	log:info("[DEBUG] CLIENT HIT:")
+	log:info("  Hit Position: %s", tostring(hit.Position))
+	log:info("  Hit Normal: %s", tostring(hit.Normal))
+	log:info("  Hit Material: %s", tostring(hit.Material))
+
+	-- Keep the actual surface position for external faces
+	local surfacePos = hit.Position
+
+	-- Ask server which volume we're over
+	local vol, _ = ClientRF.call("QueryVolumeAt", surfacePos)
+	local origin: CFrame? = nil
+	if vol and vol.ok and vol.success and vol.hit then
+		origin = vol.origin
+		log:info("[DEBUG] VOLUME HIT:")
+		log:info("  Volume ID: %s", tostring(vol.id))
+		log:info("  Volume Kind: %s", tostring(vol.kind))
+		log:info("  Volume Origin: %s", tostring(vol.origin.Position))
+		log:info("  Volume Size: %s", tostring(vol.size))
+		-- Update visual feedback with the active volume
+		do
+			local vf = ClientRegistry.getVisualFeedback()
+			if vf then
+				vf:SetActiveVolume(vol.origin, vol.size)
+			end
+		end
+	else
+		log:debug("QueryVolumeAt: no hit at %s", tostring(surfacePos))
+		origin = playerCubeOrigin -- fallback for early boot
+		-- Update visual feedback to use player cube
+		do
+			local vf = ClientRegistry.getVisualFeedback()
+			if vf and playerCubeOrigin then
+				local s = GameConfig.Grid.CUBE_SIZE_STUDS
+				vf:SetActiveVolume(playerCubeOrigin, Vector3.new(s, s, s))
+			end
+		end
+	end
+	if not origin then
+		return surfacePos
+	end
+
+	-- For external surfaces, use the actual hit position
+	-- The server will validate if this is a valid exposed surface
+	log:info("[DEBUG] SENDING TO SERVER: %s", tostring(surfacePos))
+	return surfacePos
 end
 
 -- Mouse down: start continuous digging at cursor position
 mouse.Button1Down:Connect(function()
-    ClientError.try("MouseDown", function()
-        isMouseDown = true
-        log:debug("MouseDown")
-        local pos = getDigPositionFromMouse()
-        if pos then
-            requestDigAt(pos)
-        else
-            log:debug("MouseDown: no dig position available")
-        end
-        
-        -- Start a loop that digs wherever the mouse is pointing
-        continuousDigLoop = task.spawn(function()
-            while isMouseDown do
-                ClientError.try("ContinuousDigTick", function()
-                    local t = now()
-                    
-                    -- Only dig if we're past the cooldown
-                    if t >= cooldownEndsAt then
-                        local pos = getDigPositionFromMouse()
-                        if pos then
-                            requestDigAt(pos)
-                            lastDigTime = t
-                        end
-                    end
-                end)
-                
-                -- Wait a short time before checking again
-                -- Use a small interval to be responsive when cooldown ends
-                task.wait(GameConfig.Client.DIG_POLL_INTERVAL)
-            end
-        end)
-    end)
+	ClientError.try("MouseDown", function()
+		isMouseDown = true
+		log:debug("MouseDown")
+		local pos = getDigPositionFromMouse()
+		if pos then
+			requestDigAt(pos)
+		else
+			log:debug("MouseDown: no dig position available")
+		end
+
+		-- Start a loop that digs wherever the mouse is pointing
+		continuousDigLoop = task.spawn(function()
+			while isMouseDown do
+				ClientError.try("ContinuousDigTick", function()
+					local t = now()
+
+					-- Only dig if we're past the cooldown
+					if t >= cooldownEndsAt then
+						local pos2 = getDigPositionFromMouse()
+						if pos2 then
+							requestDigAt(pos2)
+							_lastDigTime = t
+						end
+					end
+				end)
+
+				-- Wait a short time before checking again
+				-- Use a small interval to be responsive when cooldown ends
+				task.wait(GameConfig.Client.DIG_POLL_INTERVAL)
+			end
+		end)
+	end)
 end)
 
 -- Mouse up: stop continuous digging
 mouse.Button1Up:Connect(function()
-    ClientError.try("MouseUp", function()
-        isMouseDown = false
-        
-        -- Cancel the continuous dig loop
-        if continuousDigLoop then
-            task.cancel(continuousDigLoop)
-            continuousDigLoop = nil
-        end
-    end)
+	ClientError.try("MouseUp", function()
+		isMouseDown = false
+
+		-- Cancel the continuous dig loop
+		if continuousDigLoop then
+			task.cancel(continuousDigLoop)
+			continuousDigLoop = nil
+		end
+	end)
 end)
 
 -- Wait for server to be ready
 if not Ready.wait(10) then
-    log:warn("Server not ready after timeout, continuing anyway")
+	log:warn("Server not ready after timeout, continuing anyway")
 end
 
 -- Get initial profile first (before starting visual feedback)
@@ -546,27 +615,33 @@ getProfile()
 
 -- Initialize visual feedback system AFTER profile is loaded
 task.spawn(function()
-    -- Small delay to ensure profile data is set
-    wait(GameConfig.Client.VISUAL_STARTUP_DELAY)
-    
-    -- Reuse global visuals if UI bootstrapped it; do not create here
-    visualFeedback = _G.MiningGameVisualFeedback
-    
-    -- Set initial data if available
-    if playerCubeOrigin then
-        visualFeedback:SetCubeOrigin(playerCubeOrigin)
-    end
-    
-    log:info("Visual feedback system started with origin: {}", 
-        playerCubeOrigin and tostring(playerCubeOrigin.Position) or "nil")
+	-- Small delay to ensure profile data is set
+	wait(GameConfig.Client.VISUAL_STARTUP_DELAY)
+
+	-- Reuse global visuals if UI bootstrapped it; do not create here
+	local vf = ClientRegistry.getVisualFeedback()
+	if vf then
+		visualFeedback = vf
+	end
+
+	-- Set initial data if available
+	if vf and playerCubeOrigin then
+		vf:SetCubeOrigin(playerCubeOrigin)
+	end
+
+	log:info(
+		"Visual feedback system started with origin: {}",
+		playerCubeOrigin and tostring(playerCubeOrigin.Position) or "nil"
+	)
 end)
 
 -- Cleanup on script destroy
 script.Destroying:Connect(function()
-    for _, unsub in ipairs(connections) do
-        if type(unsub) == "function" then pcall(unsub) end
-    end
+	for _, unsub in ipairs(connections) do
+		if type(unsub) == "function" then
+			ClientError.try("TestClient.unsubscribe", unsub)
+		end
+	end
 end)
 
 log:info("Test client ready! Press E to dig, P for profile")
-
