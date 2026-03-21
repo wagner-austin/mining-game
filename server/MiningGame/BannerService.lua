@@ -3,7 +3,6 @@
 -- Spawns scenic cloth banners at each player's base (event-driven, service-integrated)
 
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
 local ServerScriptService = game:GetService("ServerScriptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 -- local CollectionService = game:GetService("CollectionService")
@@ -25,53 +24,68 @@ local Bus = EventBus.global()
 local BannerConfig = require(ServerScriptService:WaitForChild("Cloth"):WaitForChild("BannerConfig"))
 
 local function TUNE()
-    return BannerConfig.get()
+	return BannerConfig.get()
 end
 
 -- Asset cache
 local BLANKET_ASSET_ID = 116193032143091
 local function getTemplate(): Instance?
-    local assets = MiningGame:FindFirstChild("Assets")
-    local t = assets and assets:FindFirstChild("BlanketPlane")
-    if t then
-        -- Validate expected structure (MeshPart with Skin) to avoid silent rigid fallback
-        local mesh = t:IsA("MeshPart") and t or t:FindFirstChildWhichIsA("MeshPart", true)
-        if mesh then
-            local skin = mesh:FindFirstChildOfClass("Skin")
-            if not skin then
-                log:warn("BlanketPlane found but has no Skin child; cloth will appear rigid. Verify the published asset keeps skinning data.")
-            end
-        else
-            log:warn("BlanketPlane found but no MeshPart was detected; verify the asset contents.")
-        end
-        return t
-    end
+	local assets = MiningGame:FindFirstChild("Assets")
+	local t = assets and assets:FindFirstChild("BlanketPlane")
+	if t then
+		-- Validate expected structure (MeshPart with Skin) to avoid silent rigid fallback
+		local mesh = t:IsA("MeshPart") and t or t:FindFirstChildWhichIsA("MeshPart", true)
+		if mesh then
+			local skin = mesh:FindFirstChildOfClass("Skin")
+			if not skin then
+				log:warn(
+					"BlanketPlane found but has no Skin child; cloth will appear rigid. Verify the published asset keeps skinning data."
+				)
+			end
+		else
+			log:warn("BlanketPlane found but no MeshPart was detected; verify the asset contents.")
+		end
+		return t
+	end
 
-    -- Attempt to load published asset by ID (works in Studio and live if permissions allow)
-    local InsertService = game:GetService("InsertService")
-    local ok2, modelOrErr = Timeout.runWithRetry(function()
-        return InsertService:LoadAsset(BLANKET_ASSET_ID)
-    end, (LoadCfg.TIMEOUTS and LoadCfg.TIMEOUTS.RemoteCall) or 10.0, (LoadCfg.RETRY and LoadCfg.RETRY.AssetPreload and LoadCfg.RETRY.AssetPreload.attempts) or 2, (LoadCfg.RETRY and LoadCfg.RETRY.AssetPreload and LoadCfg.RETRY.AssetPreload.backoff) or 0.25)
-    if ok2 and modelOrErr and modelOrErr:IsA("Model") then
-        local mesh = modelOrErr:FindFirstChildWhichIsA("MeshPart", true)
-        local toStore: Instance = mesh or modelOrErr
-        toStore.Name = "BlanketPlane"
-        if not assets then
-            assets = Instance.new("Folder")
-            assets.Name = "Assets"
-            assets.Parent = MiningGame
-        end
-        toStore.Parent = assets
-        local skin = mesh and mesh:FindFirstChildOfClass("Skin")
-        if skin then (skin :: any).Enabled = true end
-        log:info("Loaded BlanketPlane via InsertService asset ID %d", BLANKET_ASSET_ID)
-        return toStore
-    else
-        -- Provide actionable diagnostics
-        log:error("LoadAsset(%d) failed in this environment: %s. Ensure the asset is owned by this place's creator or set to be accessible to the game.", BLANKET_ASSET_ID, tostring(modelOrErr))
-        log:error("Also consider packaging the asset under ReplicatedStorage.MiningGame.Assets.BlanketPlane to avoid runtime fetch.")
-    end
-    return nil
+	-- Attempt to load published asset by ID (works in Studio and live if permissions allow)
+	local InsertService = game:GetService("InsertService")
+	local ok2, modelOrErr = Timeout.runWithRetry(
+		function()
+			return InsertService:LoadAsset(BLANKET_ASSET_ID)
+		end,
+		(LoadCfg.TIMEOUTS and LoadCfg.TIMEOUTS.RemoteCall) or 10.0,
+		(LoadCfg.RETRY and LoadCfg.RETRY.AssetPreload and LoadCfg.RETRY.AssetPreload.attempts) or 2,
+		(LoadCfg.RETRY and LoadCfg.RETRY.AssetPreload and LoadCfg.RETRY.AssetPreload.backoff) or 0.25
+	)
+	if ok2 and modelOrErr and modelOrErr:IsA("Model") then
+		local mesh = modelOrErr:FindFirstChildWhichIsA("MeshPart", true)
+		local toStore: Instance = mesh or modelOrErr
+		toStore.Name = "BlanketPlane"
+		if not assets then
+			assets = Instance.new("Folder")
+			assets.Name = "Assets"
+			assets.Parent = MiningGame
+		end
+		toStore.Parent = assets
+		local skin = mesh and mesh:FindFirstChildOfClass("Skin")
+		if skin and skin:IsA("Skin") then
+			skin.Enabled = true
+		end
+		log:info("Loaded BlanketPlane via InsertService asset ID %d", BLANKET_ASSET_ID)
+		return toStore
+	else
+		-- Provide actionable diagnostics
+		log:error(
+			"LoadAsset(%d) failed in this environment: %s. Ensure the asset is owned by this place's creator or set to be accessible to the game.",
+			BLANKET_ASSET_ID,
+			tostring(modelOrErr)
+		)
+		log:error(
+			"Also consider packaging the asset under ReplicatedStorage.MiningGame.Assets.BlanketPlane to avoid runtime fetch."
+		)
+	end
+	return nil
 end
 
 -- Track spawned cloth per-player for cleanup
@@ -79,290 +93,317 @@ type ClothInstance = ClothBase.ClothInstance
 local spawned: { [Player]: { ClothInstance } } = {}
 
 local function spawnFor(player: Player, baseModel: Model)
-    -- Despawn previous
-    local prevList = spawned[player]
-    if prevList then
-        for _, inst in ipairs(prevList) do
-            ErrorService.safecall("BannerService.DestroyPrev", function()
-                inst.model:Destroy()
-            end)
-        end
-    end
-    spawned[player] = {}
+	-- Despawn previous
+	local prevList = spawned[player]
+	if prevList then
+		for _, inst in ipairs(prevList) do
+			ErrorService.safecall("BannerService.DestroyPrev", function()
+				inst.model:Destroy()
+				return true
+			end)
+		end
+	end
+	spawned[player] = {}
 
-    local petsAnchor = baseModel:FindFirstChild("PetsAnchor_Anchor") or baseModel:WaitForChild("PetsAnchor_Anchor", 10)
-    local hsAnchor = baseModel:FindFirstChild("HighScoreAnchor_Anchor") or baseModel:WaitForChild("HighScoreAnchor_Anchor", 10)
-    local shopAnchor = baseModel:FindFirstChild("ShopAnchor_Anchor") or baseModel:WaitForChild("ShopAnchor_Anchor", 10)
-    if not petsAnchor or not hsAnchor or not shopAnchor then
-        log:warn("Missing one or more base anchors for %s", player.Name)
-        return
-    end
+	local petsAnchor = baseModel:FindFirstChild("PetsAnchor_Anchor") or baseModel:WaitForChild("PetsAnchor_Anchor", 10)
+	local hsAnchor = baseModel:FindFirstChild("HighScoreAnchor_Anchor")
+		or baseModel:WaitForChild("HighScoreAnchor_Anchor", 10)
+	local shopAnchor = baseModel:FindFirstChild("ShopAnchor_Anchor") or baseModel:WaitForChild("ShopAnchor_Anchor", 10)
+	if not petsAnchor or not hsAnchor or not shopAnchor then
+		log:warn("Missing one or more base anchors for %s", player.Name)
+		return
+	end
 
-    local template = getTemplate()
-    if not template then return end
+	local template = getTemplate()
+	if not template then
+		return
+	end
 
-    -- Collect explicit banner info for client to avoid attribute race
-    local ready: { { model: Model, feature: string, category: string, face: string, color: Color3 } } = {}
+	-- Collect explicit banner info for client to avoid attribute race
+	local ready: { { model: Model, feature: string, category: string, face: string, color: Color3 } } = {}
 
-    local function spawnAt(alongZT: number, inwardXT: number, index: number, slot: any?)
-        local slotColor: Color3 = BannerConfig.getAccentColor(index)
-        local feature: string? = (slot and slot.feature) or TUNE().FEATURE
-        local category: string = (slot and slot.category) or (TUNE().CATEGORY or "")
-        local faceStr: string = (slot and slot.face) or (TUNE().FACE or "Front")
+	local function spawnAt(alongZT: number, inwardXT: number, index: number, slot: any?)
+		local slotColor: Color3 = BannerConfig.getAccentColor(index)
+		local feature: string? = (slot and slot.feature) or TUNE().FEATURE
+		local category: string = (slot and slot.category) or (TUNE().CATEGORY or "")
+		local faceStr: string = (slot and slot.face) or (TUNE().FACE or "Front")
 
-        local inst = ClothBase.spawnFromTemplate(template, {
-            parent = baseModel,
-            name = "BaseBanner",
-            anchored = true,
-            canCollide = true,
-            canQuery = true,
-            canTouch = true,
-            visual = {
-                material = Enum.Material.Glass,
-                color = slotColor,
-                transparency = 0.6,
-                reflectance = 0.08,
-                castShadow = false,
-                clearSurfaceAppearance = true,
-                clearHighlights = true,
-                materialVariant = "",
-            },
-            scale = 0.5,
-            widen = 1.1,
-            idAttribute = "ClothId",
-            -- Only create debug spheres in Studio to avoid network overhead in live servers
-            makeDebugSpheres = false,
-            glowBar = {
-                enabled = true,
-                thickness = 0.2,
-                width = 1.0,
-                extraLen = 2.0,
-                shortenFactor = 0.9,
-                colorOverride = (TUNE().MATCH_GLOW_TO_BANNER and slotColor or nil),
-            },
-        })
+		local parentInst: Instance = baseModel
+		local inst = ClothBase.spawnFromTemplate(template, {
+			parent = parentInst,
+			name = "BaseBanner",
+			anchored = true,
+			canCollide = true,
+			canQuery = true,
+			canTouch = true,
+			visual = {
+				material = Enum.Material.Glass,
+				color = slotColor,
+				transparency = 0.6,
+				reflectance = 0.08,
+				castShadow = false,
+				clearSurfaceAppearance = true,
+				clearHighlights = true,
+				materialVariant = "",
+			},
+			scale = 0.5,
+			widen = 1.1,
+			idAttribute = "ClothId",
+			-- Only create debug spheres in Studio to avoid network overhead in live servers
+			makeDebugSpheres = false,
+			glowBar = {
+				enabled = true,
+				thickness = 0.2,
+				width = 1.0,
+				extraLen = 2.0,
+				shortenFactor = 0.9,
+				colorOverride = (TUNE().MATCH_GLOW_TO_BANNER and slotColor or nil),
+			},
+		})
 
-        -- Verify that the spawned mesh carries a Skin for deformation
-        local mesh = inst.mesh
-        if mesh and not mesh:FindFirstChildOfClass("Skin") then
-            log:warn("Spawned banner mesh lacks Skin; cloth will not deform. Ensure the skinned asset is packaged (see CLOTH_SYSTEM.md).")
-        end
+		-- Verify that the spawned mesh carries a Skin for deformation
+		local mesh = inst.mesh
+		if mesh and not mesh:FindFirstChildOfClass("Skin") then
+			log:warn(
+				"Spawned banner mesh lacks Skin; cloth will not deform. Ensure the skinned asset is packaged (see CLOTH_SYSTEM.md)."
+			)
+		end
 
-        -- Annotate for client billboards
-        ErrorService.safecall("BannerService.TagAttributes", function()
-            if feature ~= nil then inst.model:SetAttribute("BannerFeature", feature) end
-            inst.model:SetAttribute("BannerCategory", category)
-            inst.model:SetAttribute("BannerSlotIndex", index)
-            inst.model:SetAttribute("BannerColor", slotColor)
-            inst.model:SetAttribute("BannerFace", faceStr)
-        end)
+		-- Annotate for client billboards
+		ErrorService.safecall("BannerService.TagAttributes", function()
+			if feature ~= nil then
+				inst.model:SetAttribute("BannerFeature", feature)
+			end
+			inst.model:SetAttribute("BannerCategory", category)
+			inst.model:SetAttribute("BannerSlotIndex", index)
+			inst.model:SetAttribute("BannerColor", slotColor)
+			inst.model:SetAttribute("BannerFace", faceStr)
+			return true
+		end)
 
-        -- Ensure PrimaryPart + anchor
-        ErrorService.safecall("BannerService.AnchorAndUIPanel", function()
-            if inst.mesh and inst.mesh:IsA("BasePart") then
-                inst.model.PrimaryPart = inst.mesh
-                local anchor = inst.mesh:FindFirstChild("BillboardAnchor")
-                if not anchor then
-                    local a = Instance.new("Attachment")
-                    a.Name = "BillboardAnchor"
-                    local sz = inst.mesh.Size
-                    a.Position = Vector3.new(0, (sz.Y > 0 and sz.Y or 4) * 0.55, 0)
-                    a.Parent = inst.mesh
-                end
+		-- Ensure PrimaryPart + anchor
+		ErrorService.safecall("BannerService.AnchorAndUIPanel", function()
+			if inst.mesh and inst.mesh:IsA("BasePart") then
+				inst.model.PrimaryPart = inst.mesh
+				local anchor = inst.mesh:FindFirstChild("BillboardAnchor")
+				if not anchor then
+					local a = Instance.new("Attachment")
+					a.Name = "BillboardAnchor"
+					local sz = inst.mesh.Size
+					a.Position = Vector3.new(0, (sz.Y > 0 and sz.Y or 4) * 0.55, 0)
+					a.Parent = inst.mesh
+				end
 
-                -- Create an invisible UI panel part with axes aligned so Front face's vertical is the banner's tall axis
-                local panel = inst.model:FindFirstChild("UIPanel")
-                if not panel then
-                    local p = Instance.new("Part")
-                    p.Name = "UIPanel"
-                    p.Anchored = true
-                    p.CanCollide = false
-                    p.CanTouch = false
-                    p.CanQuery = false
-                    p.CastShadow = false
-                    p.Transparency = 1
-                    -- Determine panel size relative to cloth so UI fills a readable area
-                    local s = inst.mesh.Size
-                    local tallLocal = (s.Z >= s.Y) and s.Z or s.Y
-                    local wideLocal = s.X
-                    -- Slightly reduce width so billboards don’t feel edge-to-edge
-                    local panelWidth = math.max(12, wideLocal * 0.78)
-                    -- Make the UI face physically taller so text reads larger in-world
-                    local panelHeight = math.max(8, tallLocal * 1.05)
-                    local panelThickness = 0.05
-                    p.Size = Vector3.new(panelWidth, panelHeight, panelThickness)
+				-- Create an invisible UI panel part with axes aligned so Front face's vertical is the banner's tall axis
+				local panel = inst.model:FindFirstChild("UIPanel")
+				if not panel then
+					local p = Instance.new("Part")
+					p.Name = "UIPanel"
+					p.Anchored = true
+					p.CanCollide = false
+					p.CanTouch = false
+					p.CanQuery = false
+					p.CastShadow = false
+					p.Transparency = 1
+					-- Determine panel size relative to cloth so UI fills a readable area
+					local s = inst.mesh.Size
+					local tallLocal = (s.Z >= s.Y) and s.Z or s.Y
+					local wideLocal = s.X
+					-- Slightly reduce width so billboards don’t feel edge-to-edge
+					local panelWidth = math.max(12, wideLocal * 0.78)
+					-- Make the UI face physically taller so text reads larger in-world
+					local panelHeight = math.max(8, tallLocal * 1.05)
+					local panelThickness = 0.05
+					p.Size = Vector3.new(panelWidth, panelHeight, panelThickness)
 
-                    -- Determine tall axis in world space (prefer Z if longer than Y)
-                    local tallWorld = (s.Z >= s.Y) and inst.mesh.CFrame.LookVector or inst.mesh.CFrame.UpVector
-                    local up = tallWorld.Unit
-                    -- Pick a reference that's not parallel to up
-                    local ref = math.abs(up:Dot(Vector3.new(0,1,0))) < 0.99 and Vector3.new(0,1,0) or Vector3.new(1,0,0)
-                    local right = up:Cross(ref).Unit
-                    local look = right:Cross(up).Unit
-                    -- Slight offset forward to avoid z-fighting when using Front face
-                    local pos = inst.mesh.Position + look * (panelThickness * 0.5 + 0.03)
-                    p.CFrame = CFrame.fromMatrix(pos, right, up, look)
-                    p.Parent = inst.model
-                    panel = p
-                end
-                if not panel then
-                    log:warn("UIPanel creation failed for %s", tostring(inst.model))
-                end
-            end
-        end)
+					-- Determine tall axis in world space (prefer Z if longer than Y)
+					local tallWorld = (s.Z >= s.Y) and inst.mesh.CFrame.LookVector or inst.mesh.CFrame.UpVector
+					local up = tallWorld.Unit
+					-- Pick a reference that's not parallel to up
+					local ref = math.abs(up:Dot(Vector3.new(0, 1, 0))) < 0.99 and Vector3.new(0, 1, 0)
+						or Vector3.new(1, 0, 0)
+					local right = up:Cross(ref).Unit
+					local look = right:Cross(up).Unit
+					-- Slight offset forward to avoid z-fighting when using Front face
+					local pos = inst.mesh.Position + look * (panelThickness * 0.5 + 0.03)
+					p.CFrame = CFrame.fromMatrix(pos, right, up, look)
+					p.Parent = inst.model
+					panel = p
+				end
+				if not panel then
+					log:warn("UIPanel creation failed for %s", tostring(inst.model))
+				end
+			end
+			return true
+		end)
 
-        -- Tag will be added after all setup is complete
+		-- Tag will be added after all setup is complete
 
-        -- Compute placement against anchors (extracted to BasePlacement)
-        local pitchDeg = TUNE().PITCH_X_DEG or 0
-        local pmod = pitchDeg % 180
-        local height = (math.abs(pmod - 90) < 1e-3) and inst.mesh.Size.Z or inst.mesh.Size.Y
-        local flat, baseFloorY = BasePlacement.compute(baseModel, {
-            alongZT = alongZT,
-            inwardXT = inwardXT,
-            insideZ = (TUNE().INSIDE_Z or 0),
-        })
-        if not flat or not baseFloorY then
-            log:warn("BasePlacement failed; destroying unplaced banner for slot %d", tonumber(index) or -1)
-            ErrorService.safecall("BannerService.DestroyUnplaced", function()
-                inst.model:Destroy()
-            end)
-            return
-        end
-        local clearanceY = TUNE().LIFT_Y
-        local center = Vector3.new(flat.X, baseFloorY + clearanceY + height * 0.5, flat.Z)
-        local yawDeg = TUNE().YAW_Y_DEG or 0
-        local rollDeg = TUNE().ROLL_Z_DEG or 0
-        inst.model:PivotTo(CFrame.new(center) * CFrame.Angles(math.rad(pitchDeg), math.rad(yawDeg), math.rad(rollDeg)))
-        log:info("Banner slot %d placed: pitch=%d yaw=%d roll=%d", index, pitchDeg, yawDeg, rollDeg)
+		-- Compute placement against anchors (extracted to BasePlacement)
+		local pitchDeg = TUNE().PITCH_X_DEG or 0
+		local pmod = pitchDeg % 180
+		local height = (math.abs(pmod - 90) < 1e-3) and inst.mesh.Size.Z or inst.mesh.Size.Y
+		local flat, baseFloorY = BasePlacement.compute(baseModel, {
+			alongZT = alongZT,
+			inwardXT = inwardXT,
+			insideZ = (TUNE().INSIDE_Z or 0),
+		})
+		if not flat or not baseFloorY then
+			log:warn("BasePlacement failed; destroying unplaced banner for slot %d", tonumber(index) or -1)
+			ErrorService.safecall("BannerService.DestroyUnplaced", function()
+				inst.model:Destroy()
+				return true
+			end)
+			return
+		end
+		local clearanceY = TUNE().LIFT_Y
+		local center = Vector3.new(flat.X, baseFloorY + clearanceY + height * 0.5, flat.Z)
+		local yawDeg = TUNE().YAW_Y_DEG or 0
+		local rollDeg = TUNE().ROLL_Z_DEG or 0
+		inst.model:PivotTo(CFrame.new(center) * CFrame.Angles(math.rad(pitchDeg), math.rad(yawDeg), math.rad(rollDeg)))
+		log:info("Banner slot %d placed: pitch=%d yaw=%d roll=%d", index, pitchDeg, yawDeg, rollDeg)
 
-        if inst.debugParts then
-            for _, p in ipairs(inst.debugParts :: any) do if p and p:IsA("BasePart") then p.Transparency = 0.2 end end
-        end
+		if inst.debugParts then
+			for _, p in ipairs(inst.debugParts) do
+				if p and p:IsA("BasePart") then
+					p.Transparency = 0.2
+				end
+			end
+		end
 
-        ErrorService.safecall("BannerService.NameBanner", function()
-            inst.model.Name = ("BaseBanner_%s_%d"):format(string.sub(inst.id, 1, 8), index)
-        end)
-        table.insert(spawned[player], inst)
+		ErrorService.safecall("BannerService.NameBanner", function()
+			inst.model.Name = ("BaseBanner_%s_%d"):format(string.sub(inst.id, 1, 8), index)
+			return true
+		end)
+		table.insert(spawned[player], inst)
 
-        -- Queue explicit banner info for client (mounts without waiting for attribute replication)
-        local feat = (type(feature) == "string" and feature) or ""
-        table.insert(ready, {
-            id = inst.id,
-            model = inst.model,
-            feature = feat,
-            category = category,
-            face = faceStr,
-            color = slotColor,
-        })
-        
-        -- Banner setup complete - event bus will notify clients
-    end
+		-- Queue explicit banner info for client (mounts without waiting for attribute replication)
+		local feat = (type(feature) == "string" and feature) or ""
+		table.insert(ready, {
+			id = inst.id,
+			model = inst.model,
+			feature = feat,
+			category = category,
+			face = faceStr,
+			color = slotColor,
+		})
 
-    local slots = (BannerConfig.get().SLOTS :: any)
-    if type(slots) == "table" and #slots > 0 then
-        for i, s in ipairs(slots) do
-            spawnAt(s.alongZT or (TUNE().ALONG_Z_T or 1.0), s.inwardXT or (TUNE().INWARD_X_T or 0.0), i, s)
-        end
-        log:info("Spawned %d banners for %s", #slots, player.Name)
-    else
-        spawnAt(TUNE().ALONG_Z_T or 1.0, TUNE().INWARD_X_T or 0.0, 1)
-        log:info("Spawned banner for %s", player.Name)
-    end
+		-- Banner setup complete - event bus will notify clients
+	end
 
-    -- Announce ready (route directly to this player) and re-emit briefly to catch late listeners
-    ErrorService.safecall("BannerService.EmitReady", function()
-        local target = { kind = "player", player = player }
-        local payload = { banners = ready }
-        Bus:emit(EventNames.BANNER_READY, { to = target, payload = payload })
-        task.delay(1.0, function()
-            Bus:emit(EventNames.BANNER_READY, { to = target, payload = payload })
-        end)
-        task.delay(2.0, function()
-            Bus:emit(EventNames.BANNER_READY, { to = target, payload = payload })
-        end)
-    end)
+	local slots = BannerConfig.get().SLOTS
+	if type(slots) == "table" and #slots > 0 then
+		for i, s in ipairs(slots) do
+			spawnAt(s.alongZT or (TUNE().ALONG_Z_T or 1.0), s.inwardXT or (TUNE().INWARD_X_T or 0.0), i, s)
+		end
+		log:info("Spawned %d banners for %s", #slots, player.Name)
+	else
+		spawnAt(TUNE().ALONG_Z_T or 1.0, TUNE().INWARD_X_T or 0.0, 1)
+		log:info("Spawned banner for %s", player.Name)
+	end
 
-    -- Cloth animation is handled client-side by BannerAnimator.client.lua
+	-- Announce ready (route directly to this player) and re-emit briefly to catch late listeners
+	ErrorService.safecall("BannerService.EmitReady", function()
+		local target = { kind = "player", player = player }
+		local payload = { banners = ready }
+		Bus:emit(EventNames.BANNER_READY, { to = target, payload = payload })
+		task.delay(1.0, function()
+			Bus:emit(EventNames.BANNER_READY, { to = target, payload = payload })
+		end)
+		task.delay(2.0, function()
+			Bus:emit(EventNames.BANNER_READY, { to = target, payload = payload })
+		end)
+		return true
+	end)
+
+	-- Cloth animation is handled client-side by BannerAnimator.client.lua
 end
 
 local Service = {}
 Service.__index = Service
 
-function Service:Init(container)
-    log:info("Initialized")
+function Service:Init(_container)
+	log:info("Initialized")
 end
 
-function Service:Start(container)
-    -- On player leave, cleanup
-    Players.PlayerRemoving:Connect(function(player)
-        local list = spawned[player]
-        if list then
-            for _, inst in ipairs(list) do
-                ErrorService.safecall("BannerService.DestroyOnLeave", function()
-                    inst.model:Destroy()
-                end)
-            end
-        end
-        spawned[player] = nil
-        ErrorService.safecall("BannerService.EmitRemoved", function()
-            Bus:emit(EventNames.BANNER_REMOVED, { to = { kind = "player", player = player } })
-        end)
-    end)
+function Service:Start(_container)
+	-- On player leave, cleanup
+	Players.PlayerRemoving:Connect(function(player)
+		local list = spawned[player]
+		if list then
+			for _, inst in ipairs(list) do
+				ErrorService.safecall("BannerService.DestroyOnLeave", function()
+					inst.model:Destroy()
+					return true
+				end)
+			end
+		end
+		spawned[player] = nil
+		ErrorService.safecall("BannerService.EmitRemoved", function()
+			Bus:emit(EventNames.BANNER_REMOVED, { to = { kind = "player", player = player } })
+			return true
+		end)
+	end)
 
-    -- On player join, send current banners so late joiners see billboards
-    Players.PlayerAdded:Connect(function(viewer)
-        ErrorService.safecall("BannerService.EmitReadyOnJoin", function()
-            local all = {}
-            for _owner, list in pairs(spawned) do
-                for _, inst in ipairs(list) do
-                    local m = inst.model
-                    if m and m:IsA("Model") then
-                        table.insert(all, {
-                            id = inst.id,
-                            model = m,
-                            feature = (m:GetAttribute("BannerFeature") or ""),
-                            category = (m:GetAttribute("BannerCategory") or ""),
-                            face = (m:GetAttribute("BannerFace") or "Front"),
-                            color = m:GetAttribute("BannerColor"),
-                        })
-                    end
-                end
-            end
-            if #all > 0 then
-                Bus:emit(EventNames.BANNER_READY, { to = { kind = "player", player = viewer }, payload = { banners = all } })
-            end
-        end)
-    end)
+	-- On player join, send current banners so late joiners see billboards
+	Players.PlayerAdded:Connect(function(viewer)
+		ErrorService.safecall("BannerService.EmitReadyOnJoin", function()
+			local all = {}
+			for _owner, list in pairs(spawned) do
+				for _, inst in ipairs(list) do
+					local m = inst.model
+					if m and m:IsA("Model") then
+						table.insert(all, {
+							id = inst.id,
+							model = m,
+							feature = (m:GetAttribute("BannerFeature") or ""),
+							category = (m:GetAttribute("BannerCategory") or ""),
+							face = (m:GetAttribute("BannerFace") or "Front"),
+							color = m:GetAttribute("BannerColor"),
+						})
+					end
+				end
+			end
+			if #all > 0 then
+				Bus:emit(
+					EventNames.BANNER_READY,
+					{ to = { kind = "player", player = viewer }, payload = { banners = all } }
+				)
+			end
+			return true
+		end)
+	end)
 
-    -- Spawn banners when the player's base is ready
-    Bus:on(EventNames.PLAYER_BASE_READY, function(evt)
-        local to = evt and evt.to
-        local player = to and to.player
-        local payload = evt and evt.payload
-        local baseModel = payload and payload.baseModel
-        if player and player.Parent and baseModel and baseModel:IsA("Model") then
-            spawnFor(player, baseModel)
-        end
-    end)
+	-- Spawn banners when the player's base is ready
+	Bus:on(EventNames.PLAYER_BASE_READY, function(evt)
+		local to = evt and evt.to
+		local player = to and to.player
+		local payload = evt and evt.payload
+		local baseModel = payload and payload.baseModel
+		if player and player.Parent and baseModel and baseModel:IsA("Model") then
+			spawnFor(player, baseModel)
+		end
+	end)
 
-    -- Handle bases pre-existing (e.g., Studio hot reload)
-    local basesFolder = workspace:FindFirstChild("PlayerBases")
-    if basesFolder then
-        for _, m in ipairs(basesFolder:GetChildren()) do
-            if m:IsA("Model") then
-                local name = m.Name
-                local uid = name:match("PlayerBase_(%d+)")
-                if uid then
-                    local userId = tonumber(uid)
-                    local player = userId and Players:GetPlayerByUserId(userId) or nil
-                    if player then spawnFor(player, m) end
-                end
-            end
-        end
-    end
+	-- Handle bases pre-existing (e.g., Studio hot reload)
+	local basesFolder = workspace:FindFirstChild("PlayerBases")
+	if basesFolder then
+		for _, m in ipairs(basesFolder:GetChildren()) do
+			if m:IsA("Model") then
+				local name = m.Name
+				local uid = name:match("PlayerBase_(%d+)")
+				if uid then
+					local userId = tonumber(uid)
+					local player = userId and Players:GetPlayerByUserId(userId) or nil
+					if player then
+						spawnFor(player, m)
+					end
+				end
+			end
+		end
+	end
 
-    log:info("Started")
+	log:info("Started")
 end
 
 return Service

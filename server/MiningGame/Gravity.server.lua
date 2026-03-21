@@ -36,5 +36,5 @@ log:info("Set server gravity to %.1f (%.2fx normal)", newGravity, gravityMult)
 -- Optional: Listen for gravity changes if we want dynamic gravity events later
 -- This could be useful for special zones or events
 workspace:GetPropertyChangedSignal("Gravity"):Connect(function()
-    log:debug("Gravity changed to %.1f", workspace.Gravity)
+	log:debug("Gravity changed to %.1f", workspace.Gravity)
 end)

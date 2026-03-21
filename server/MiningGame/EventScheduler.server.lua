@@ -6,7 +6,6 @@
 local TimeService = require(script.Parent.TimeService)
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
 local Logger = require(MiningGame:WaitForChild("Logger"))
 local GameConfig = require(MiningGame:WaitForChild("GameConfig"))
@@ -22,7 +21,7 @@ local eventIds = {}
 -- Example scheduled events
 local function setupScheduledEvents()
 	log:info("Setting up scheduled events...")
-	
+
 	-- Morning announcement (6 AM) - Recurring daily
 	local morningId = timeService:ScheduleEvent(GameConfig.Scheduler.MORNING_HOUR, function()
 		log:info("[Event] ☀️ Good morning! The sun is rising.")
@@ -31,7 +30,7 @@ local function setupScheduledEvents()
 		-- Example: Show UI notification, give morning bonus, etc.
 	end, true)
 	table.insert(eventIds, morningId)
-	
+
 	-- Noon event (12 PM) - Recurring daily
 	local noonId = timeService:ScheduleEvent(12, function()
 		log:info("[Event] ☀️ It's noon! Peak daylight hours.")
@@ -39,7 +38,7 @@ local function setupScheduledEvents()
 		-- Example: Double XP hour, special merchant appears, etc.
 	end, true)
 	table.insert(eventIds, noonId)
-	
+
 	-- Evening event (18:00 / 6 PM) - Recurring daily
 	local eveningId = timeService:ScheduleEvent(GameConfig.Scheduler.EVENING_HOUR, function()
 		log:info("[Event] 🌅 Evening has arrived. The sun is setting.")
@@ -47,7 +46,7 @@ local function setupScheduledEvents()
 		-- Example: Spawn night creatures, change shop prices, etc.
 	end, true)
 	table.insert(eventIds, eveningId)
-	
+
 	-- Midnight event (0:00) - Recurring daily
 	local midnightId = timeService:ScheduleEvent(0, function()
 		log:info("[Event] 🌙 Midnight! Special event time.")
@@ -55,7 +54,7 @@ local function setupScheduledEvents()
 		-- Example: Rare item spawns, bonus rewards, etc.
 	end, true)
 	table.insert(eventIds, midnightId)
-	
+
 	log:info("Scheduled %d recurring events", #eventIds)
 end
 
@@ -64,10 +63,9 @@ local function handlePlayerJoin(player: Player)
 	local period = timeService:GetTimePeriod()
 	local currentTime = timeService:GetCurrentTime()
 	local dayNight = timeService:IsDay() and "Day" or "Night"
-	
-	log:info("%s joined during %s (%.2f:00 - %s)", 
-		player.Name, period, currentTime, dayNight)
-	
+
+	log:info("%s joined during %s (%.2f:00 - %s)", player.Name, period, currentTime, dayNight)
+
 	-- Example: Different spawn bonuses based on time
 	if timeService:IsNight() then
 		-- Give night vision item or torch
@@ -89,20 +87,17 @@ local lastPeriodLogged = ""
 task.spawn(function()
 	while true do
 		task.wait(GameConfig.Scheduler.CHECK_INTERVAL)
-		
+
 		local time = timeService:GetCurrentTime()
 		local period = timeService:GetTimePeriod()
-		
+
 		-- Log period transitions
 		if period ~= lastPeriodLogged then
 			lastPeriodLogged = period
 			log:info("Period changed to: %s (%.2f:00)", period, time)
 		end
-		
-		-- Special dawn/dusk effects
-		if period == "Dawn" or period == "Dusk" then
-			-- Could trigger special lighting effects, sounds, etc.
-		end
+
+		-- Special dawn/dusk effects (currently none)
 	end
 end)
 
