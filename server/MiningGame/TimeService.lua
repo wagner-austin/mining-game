@@ -22,10 +22,10 @@ type ScheduledEvent = {
 	recurring: boolean,
 	running: boolean,
 	nextUnix: number,
-	callback: () -> ()
+	callback: () -> (),
 }
 
-local scheduledEvents: {[string]: ScheduledEvent} = {}
+local scheduledEvents: { [string]: ScheduledEvent } = {}
 
 function TimeService.new()
 	return setmetatable({ running = false }, TimeService)
@@ -45,29 +45,38 @@ end
 local function loopDaily(eventId: string)
 	while true do
 		local ev = scheduledEvents[eventId]
-		if not ev or not ev.running then return end
-		
+		if not ev or not ev.running then
+			return
+		end
+
 		local waitSec = MathUtils.nonNegative(ev.nextUnix - Time.unix())
 		-- Break long waits into chunks so BindToClose can stop quickly
 		while waitSec > 5 do
 			task.wait(math.min(30, waitSec))
-			if not scheduledEvents[eventId] or not scheduledEvents[eventId].running then return end
+			if not scheduledEvents[eventId] or not scheduledEvents[eventId].running then
+				return
+			end
 			waitSec = MathUtils.nonNegative(ev.nextUnix - Time.unix())
 		end
 		task.wait(waitSec)
-		
+
 		-- Fire safely
 		ev = scheduledEvents[eventId]
-		if not ev or not ev.running then return end
-		
-		log:debug("Firing event at %d:00 (current time: %.2f)", 
-			ev.hour, WorldTime.clockTimeFromUnix(Time.unix()))
-		
-		local ok, err = pcall(ev.callback)
-		if not ok then
-            log:warn("Event error: %s", tostring(err))
+		if not ev or not ev.running then
+			return
 		end
-		
+
+		log:debug("Firing event at %d:00 (current time: %.2f)", ev.hour, WorldTime.clockTimeFromUnix(Time.unix()))
+
+		local ErrorService = require(script.Parent.ErrorService)
+		local ok, err = ErrorService.safecall("TimeService.EventCallback", function()
+			ev.callback()
+			return true
+		end)
+		if not ok then
+			log:warn("Event error: %s", tostring(err))
+		end
+
 		if ev.recurring then
 			ev.nextUnix += WorldTime.secondsPerGameDay()
 			log:debug("Rescheduled recurring event at %d:00 for next cycle", ev.hour)
@@ -85,7 +94,7 @@ function TimeService:ScheduleEvent(hour: number, callback: () -> (), recurring: 
 	local id = HttpService:GenerateGUID(false)
 	local secondsUntil = self:GetSecondsUntilTime(hour)
 	local nextUnix = Time.unix() + secondsUntil
-	
+
 	scheduledEvents[id] = {
 		hour = hour,
 		callback = callback,
@@ -93,12 +102,17 @@ function TimeService:ScheduleEvent(hour: number, callback: () -> (), recurring: 
 		nextUnix = nextUnix,
 		running = true,
 	}
-	
+
 	-- Log scheduling
 	local eventType = recurring and "recurring" or "one-time"
-	log:info("Scheduled %s event at %d:00 - fires in %.1f seconds (%.2f minutes)", 
-		eventType, hour, secondsUntil, secondsUntil / 60)
-	
+	log:info(
+		"Scheduled %s event at %d:00 - fires in %.1f seconds (%.2f minutes)",
+		eventType,
+		hour,
+		secondsUntil,
+		secondsUntil / 60
+	)
+
 	task.spawn(loopDaily, id)
 	return id
 end
@@ -129,18 +143,20 @@ end
 
 -- Initialize the service
 function TimeService:Initialize()
-	if self.running then return end
+	if self.running then
+		return
+	end
 	self.running = true
-	
+
 	local currentTime = self:GetCurrentTime()
 	local period = self:GetTimePeriod()
 	local dayNight = self:IsDay() and "Day" or "Night"
-	
+
 	log:info("Initialized")
 	log:info("  - Current time: %.2f:00 (%s - %s)", currentTime, period, dayNight)
 	log:info("  - Day length: %d real minutes", WorldTime.MINUTES_PER_DAY)
 	log:info("  - Unix epoch: %d", WorldTime.EPOCH_UNIX)
-	
+
 	-- Clean up on server shutdown
 	game:BindToClose(function()
 		self:Destroy()
@@ -150,7 +166,7 @@ end
 -- Cleanup
 function TimeService:Destroy()
 	self.running = false
-	
+
 	-- Cancel all events
 	for id, ev in pairs(scheduledEvents) do
 		ev.running = false
