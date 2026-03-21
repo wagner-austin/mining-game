@@ -15,9 +15,9 @@
 local CashShopDefinitions = {}
 
 CashShopDefinitions.COSMETICS = {
-    -- Enhanced cosmetics (feature gated): curated for launch
-    { itemId = "back_quad_wings", price = 3000, featured = true, requireEnhanced = true, sort = 10 },
-    { itemId = "head_speed_charm", price = 1500, featured = true, requireEnhanced = true, sort = 20 },
+	-- Enhanced cosmetics (feature gated): curated for launch
+	{ itemId = "back_quad_wings", price = 3000, featured = true, requireEnhanced = true, sort = 10 },
+	{ itemId = "head_speed_charm", price = 1500, featured = true, requireEnhanced = true, sort = 20 },
 }
 
 return CashShopDefinitions
