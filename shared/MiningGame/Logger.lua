@@ -30,15 +30,15 @@ Logger.__index = Logger
 
 -- Instance shape for Logger
 type LoggerT = {
-    category: string,
-    log: (self: LoggerT, level: number, message: string, ...any) -> (),
-    debug: (self: LoggerT, message: string, ...any) -> (),
-    info: (self: LoggerT, message: string, ...any) -> (),
-    warn: (self: LoggerT, message: string, ...any) -> (),
-    error: (self: LoggerT, message: string, ...any) -> (),
-    event: (self: LoggerT, eventName: string, data: {[string]: any}?) -> (),
-    metric: (self: LoggerT, name: string, value: any, fields: {[string]: any}?) -> (),
-    perf: (self: LoggerT, op: string, startedAt: number) -> (),
+	category: string,
+	log: (self: LoggerT, level: number, message: string, ...any) -> (),
+	debug: (self: LoggerT, message: string, ...any) -> (),
+	info: (self: LoggerT, message: string, ...any) -> (),
+	warn: (self: LoggerT, message: string, ...any) -> (),
+	error: (self: LoggerT, message: string, ...any) -> (),
+	event: (self: LoggerT, eventName: string, data: { [string]: any }?) -> (),
+	metric: (self: LoggerT, name: string, value: any, fields: { [string]: any }?) -> (),
+	perf: (self: LoggerT, op: string, startedAt: number) -> (),
 }
 
 -- Node label for output
@@ -104,7 +104,7 @@ local LogLevel = {
 	DEBUG = 1,
 	INFO = 2,
 	WARN = 3,
-	ERROR = 4
+	ERROR = 4,
 }
 
 -- Get log level from GameConfig (single source of truth)
@@ -116,7 +116,7 @@ local levelMap = {
 	DEBUG = LogLevel.DEBUG,
 	INFO = LogLevel.INFO,
 	WARN = LogLevel.WARN,
-	ERROR = LogLevel.ERROR
+	ERROR = LogLevel.ERROR,
 }
 
 -- Current minimum log level (from GameConfig)
@@ -146,7 +146,7 @@ local function cleanupRateTable(): ()
 		return
 	end
 	lastCleanup = now
-	
+
 	for k, t in pairs(lastByKey) do
 		local cat = k:match("^([^|]+)")
 		local window = categoryRateWindows[cat] or rateWindow
@@ -159,43 +159,53 @@ end
 -- Check rate limiting
 local function passRateLimit(category: string, message: string): boolean
 	cleanupRateTable()
-	
+
 	local window = categoryRateWindows[category] or rateWindow
 	if window <= 0 then
 		return true
 	end
-	
+
 	local key = category .. "|" .. normalize(message)
 	local now = Time.mono()
 	local last = lastByKey[key]
-	
+
 	if last and (now - last) < window then
 		return false
 	end
-	
+
 	lastByKey[key] = now
 	return true
 end
 
 -- Create a new logger instance for a category
 function Logger.new(category: string): LoggerT
-    local self: LoggerT = setmetatable({}, Logger)
-    self.category = category
-	
+	local inst: LoggerT = {
+		category = category,
+		log = Logger.log,
+		debug = Logger.debug,
+		info = Logger.info,
+		warn = Logger.warn,
+		error = Logger.error,
+		event = Logger.event,
+		metric = Logger.metric,
+		perf = Logger.perf,
+	}
+	local self = setmetatable(inst, Logger)
+
 	-- Initialize category if not exists
 	if activeCategories[category] == nil then
 		activeCategories[category] = defaultVisible
 	end
-	
+
 	-- Initialize stats
 	if not categoryStats[category] then
 		categoryStats[category] = {
 			messages = 0,
 			lastMessage = nil,
-			throttled = 0
+			throttled = 0,
 		}
 	end
-	
+
 	return self
 end
 
@@ -206,12 +216,12 @@ local function shouldLog(category: string, level: number): boolean
 	if level < floor then
 		return false
 	end
-	
+
 	-- Check solo mode
 	if soloMode then
 		return category == soloCategory
 	end
-	
+
 	-- Check category setting
 	local active = activeCategories[category]
 	if active == nil then
@@ -225,7 +235,7 @@ end
 local function formatMessage(category: string, level: number, message: string): string
 	local timestamp = os.date("%H:%M:%S")
 	local levelStr = ""
-	
+
 	if level == LogLevel.DEBUG then
 		levelStr = "[DEBUG]"
 	elseif level == LogLevel.INFO then
@@ -235,65 +245,68 @@ local function formatMessage(category: string, level: number, message: string): 
 	elseif level == LogLevel.ERROR then
 		levelStr = "[ERROR]"
 	end
-	
+
 	return string.format("%s %s [%s] - %s | %s", timestamp, levelStr, nodeLabel, category, message)
 end
 
 -- Log a message
-function Logger:log(level: number, message: string, ...: any)
+function Logger.log(self: LoggerT, level: number, message: string, ...: any)
 	if not shouldLog(self.category, level) then
 		return
 	end
-	
-    -- Format message with arguments (no automatic placeholder fallback)
-    if select("#", ...) > 0 then
-        local success, formatted = pcall(string.format, message, ...)
-        if success then
-            message = formatted
-        end
-    end
-	
+
+	-- Format message with arguments (no automatic placeholder fallback)
+	if select("#", ...) > 0 then
+		local args = table.pack(...)
+		local ok, formattedOrErr = xpcall(function()
+			return string.format(message, table.unpack(args, 1, args.n))
+		end, debug.traceback)
+		if ok then
+			message = formattedOrErr
+		end
+	end
+
 	-- Check rate limiting
 	if not passRateLimit(self.category, message) then
 		local stats = categoryStats[self.category]
 		stats.throttled = stats.throttled + 1
 		return
 	end
-	
+
 	-- Update stats
 	local stats = categoryStats[self.category]
 	stats.messages = stats.messages + 1
 	stats.lastMessage = Time.mono()
-	
+
 	-- Format and output
 	local output = formatMessage(self.category, level, message)
-	
+
 	if level == LogLevel.ERROR then
-		warn(output)  -- Use warn for errors to make them stand out
+		warn(output) -- Use warn for errors to make them stand out
 	else
 		print(output)
 	end
 end
 
 -- Convenience methods
-function Logger:debug(message: string, ...: any)
+function Logger.debug(self: LoggerT, message: string, ...: any)
 	self:log(LogLevel.DEBUG, message, ...)
 end
 
-function Logger:info(message: string, ...: any)
+function Logger.info(self: LoggerT, message: string, ...: any)
 	self:log(LogLevel.INFO, message, ...)
 end
 
-function Logger:warn(message: string, ...: any)
+function Logger.warn(self: LoggerT, message: string, ...: any)
 	self:log(LogLevel.WARN, message, ...)
 end
 
-function Logger:error(message: string, ...: any)
+function Logger.error(self: LoggerT, message: string, ...: any)
 	self:log(LogLevel.ERROR, message, ...)
 end
 
 -- Analytics event logging (logs as INFO with special format)
-function Logger:event(eventName: string, data: {[string]: any}?)
+function Logger.event(self: LoggerT, eventName: string, data: { [string]: any }?)
 	local message = string.format("[EVENT] %s", eventName)
 	if data then
 		-- Convert data table to a readable format
@@ -309,12 +322,14 @@ function Logger:event(eventName: string, data: {[string]: any}?)
 end
 
 -- Structured logging helpers
-function Logger:metric(name: string, value: any, fields: {[string]: any}?)
+function Logger.metric(self: LoggerT, name: string, value: any, fields: { [string]: any }?)
 	-- Cheap structured suffix; avoids JSON to keep DevConsole readable
 	if typeof(fields) == "table" then
-		local success, json = pcall(function() return HttpService:JSONEncode(fields) end)
-		if success then
-			self:info("[METRIC] %s=%s %s", name, tostring(value), json)
+		local ok, jsonOrErr = xpcall(function()
+			return HttpService:JSONEncode(fields)
+		end, debug.traceback)
+		if ok then
+			self:info("[METRIC] %s=%s %s", name, tostring(value), jsonOrErr)
 		else
 			self:info("[METRIC] %s=%s", name, tostring(value))
 		end
@@ -323,8 +338,8 @@ function Logger:metric(name: string, value: any, fields: {[string]: any}?)
 	end
 end
 
-function Logger:perf(op: string, startedAt: number)
-    local ms: number
+function Logger.perf(self: LoggerT, op: string, startedAt: number)
+	local ms: number
 	if typeof(startedAt) == "number" then
 		ms = (Time.mono() - startedAt) * 1000
 	else
@@ -412,17 +427,11 @@ function Logger.only(...)
 		local category = select(i, ...)
 		activeCategories[category] = true
 	end
-	print(string.format("[Logger] Showing only: %s", table.concat({...}, ", ")))
+	print(string.format("[Logger] Showing only: %s", table.concat({ ... }, ", ")))
 end
 
 -- Set minimum log level
-function Logger.setLevel(level)
-	if type(level) == "string" then
-		level = LogLevel[level:upper()]
-	end
-	minLevel = level or LogLevel.INFO
-	print(string.format("[Logger] Minimum level set to: %d", minLevel))
-end
+-- (removed duplicate setLevel; see definition near line ~341)
 
 -- Set category-specific log level
 function Logger.setCategoryLevel(category, level)
@@ -493,7 +502,7 @@ function Logger.status()
 	end
 	print(string.format("Default Visible: %s", tostring(defaultVisible)))
 	print(string.format("Min Level: %d", minLevel))
-	
+
 	print("\nCategories:")
 	for category, active in pairs(activeCategories) do
 		local stats = categoryStats[category]
@@ -511,7 +520,7 @@ function Logger.list()
 		table.insert(categories, cat)
 	end
 	table.sort(categories)
-	
+
 	print("\n=== Registered Categories ===")
 	for _, cat in ipairs(categories) do
 		local active = activeCategories[cat]
@@ -527,17 +536,43 @@ end
 
 -- Define quietByDefault BEFORE Logger.preset to avoid nil reference
 local quietByDefault = {
-	"Logger", "MetricsTab", "AmbientLogging", "TestClient", "CubeVisuals",
-	"DataService", "GridService", "MaterialsTab", "ThemeTab",
-	"CubeMaterialService", "SoundPreloader", "MaterialManager",
-	"SettingsPanel", "TimeService", "EventScheduler",
-	"InventoryService", "LootService", "MonetizationService",
-	"CubePositionService", "ThemeSettingsService", "ThemeBootstrap",
-	"ThemeManager", "SoundThemeManager", "ClientUI", "UIManager",
-	"AmbientBoot", "CellGizmo", "SoundReplication", "DayNightCycle",
+	"Logger",
+	"MetricsTab",
+	"AmbientLogging",
+	"TestClient",
+	"CubeVisuals",
+	"DataService",
+	"GridService",
+	"MaterialsTab",
+	"ThemeTab",
+	"CubeMaterialService",
+	"SoundPreloader",
+	"MaterialManager",
+	"SettingsPanel",
+	"TimeService",
+	"EventScheduler",
+	"InventoryService",
+	"LootService",
+	"MonetizationService",
+	"CubePositionService",
+	"ThemeSettingsService",
+	"ThemeBootstrap",
+	"ThemeManager",
+	"SoundThemeManager",
+	"ClientUI",
+	"UIManager",
+	"AmbientBoot",
+	"CellGizmo",
+	"SoundReplication",
+	"DayNightCycle",
 	-- New noisy categories
-	"UserMetricsService", "DigDamage", "Extraction", "DropTable", 
-	"AFKService", "CachePerf", "Performance"
+	"UserMetricsService",
+	"DigDamage",
+	"Extraction",
+	"DropTable",
+	"AFKService",
+	"CachePerf",
+	"Performance",
 }
 
 -- Quick presets for common testing scenarios
@@ -608,6 +643,6 @@ Logger.setCategoryLevel("Bootstrap", "INFO")
 Logger.setCategoryLevel("DigService", "INFO")
 Logger.setCategoryLevel("SessionService", "INFO")
 Logger.setCategoryLevel("Remotes", "INFO")
-Logger.setCategoryLevel("UIManager", "INFO")  -- Default to INFO; raise to DEBUG when needed
+Logger.setCategoryLevel("UIManager", "INFO") -- Default to INFO; raise to DEBUG when needed
 
 return Logger

@@ -8,51 +8,58 @@ local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
 local Remotes = require(MiningGame:WaitForChild("Remotes"))
 local ClientRF = require(MiningGame:WaitForChild("ClientRF"))
 local PlayerProfileGuard = require(MiningGame:WaitForChild("PlayerProfileGuard"))
+local ClientRegistry = require(MiningGame:WaitForChild("ClientRegistry"))
+local ClientError = require(MiningGame:WaitForChild("ClientError"))
 
 local ClientEconomy = {}
 
 local function hasRF(name: string): boolean
-    return Remotes and Remotes.RF and Remotes.RF[name] ~= nil
+	if not Remotes or not Remotes.RF then
+		return false
+	end
+	return rawget(Remotes.RF, name) ~= nil
 end
 
 -- Returns the current coin balance, using the most stable provider available.
 function ClientEconomy.getCoins(): number
-    -- 1) Preferred: PlayerProfileGuard (central API with caching)
-    if PlayerProfileGuard and typeof(PlayerProfileGuard.getCoins) == "function" then
-        local amount, _ = PlayerProfileGuard.getCoins()
-        if typeof(amount) == "number" then return amount end
-    end
+	-- 1) Preferred: PlayerProfileGuard (central API with caching)
+	if PlayerProfileGuard and typeof(PlayerProfileGuard.getCoins) == "function" then
+		local amount, _ = PlayerProfileGuard.getCoins()
+		if typeof(amount) == "number" then
+			return amount
+		end
+	end
 
-    -- 2) UIManager's account data provider snapshot (kept live elsewhere)
-    local provider = (_G and _G.UIManager and _G.UIManager.accountDataProvider) or nil
-    if provider and provider.getSnapshot then
-        local snap = provider:getSnapshot()
-        local coins = snap and snap.profile and snap.profile.coins
-        if typeof(coins) == "number" then
-            return coins
-        end
-    end
+	-- 2) UIManager's account data provider snapshot (kept live elsewhere)
+	local mgr = ClientRegistry.getUIManager()
+	local provider = (mgr and mgr.accountDataProvider) or nil
+	if provider and provider.getSnapshot then
+		local snap = provider:getSnapshot()
+		local coins = snap and snap.profile and snap.profile.coins
+		if typeof(coins) == "number" then
+			return coins
+		end
+	end
 
-    -- 3) Fallback RF calls
-    if hasRF("GetBalance") then
-        local ok, res = pcall(function()
-            return ClientRF.call("GetBalance")
-        end)
-        if ok and res and typeof(res.coins) == "number" then
-            return res.coins
-        end
-    end
-    if hasRF("GetProfile") then
-        local ok, res = pcall(function()
-            return ClientRF.call("GetProfile")
-        end)
-        if ok and res and res.profile and typeof(res.profile.coins) == "number" then
-            return res.profile.coins
-        end
-    end
+	-- 3) Fallback RF calls
+	if hasRF("GetBalance") then
+		local ok, res = ClientError.try("ClientEconomy.GetBalance", function()
+			return ClientRF.call("GetBalance")
+		end)
+		if ok and res and typeof(res.coins) == "number" then
+			return res.coins
+		end
+	end
+	if hasRF("GetProfile") then
+		local ok, res = ClientError.try("ClientEconomy.GetProfile", function()
+			return ClientRF.call("GetProfile")
+		end)
+		if ok and res and res.profile and typeof(res.profile.coins) == "number" then
+			return res.profile.coins
+		end
+	end
 
-    return 0
+	return 0
 end
 
 return ClientEconomy
-
