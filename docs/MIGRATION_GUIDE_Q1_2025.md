@@ -140,3 +140,67 @@ local profile, err = ClientRF.call("GetProfile")
 - Some RFs intentionally return raw maps or scalars; ClientRF unwraps these as plain values
 - Most user-facing RFs return top-level `{ ok, success, ... }` shapes
 - In Studio, access the container via `_G.MiningGameServices.container`
+
+### Typing the container (optional)
+The container module exports a public API type you can reference if you want method-level type annotations without exposing internals:
+
+```lua
+-- server/MiningGame/SomeService.lua
+type ServiceContainerPublic = require(script.Parent.ServiceContainer).ServiceContainerPublic
+
+function SomeService:Init(container: ServiceContainerPublic)
+    local DataService = container:Get("DataService")
+    -- ...
+end
+```
+
+This keeps consumer code strictly typed while the internal container data shape remains private and decoupled.
+
+### Typed service lookups (Get/tryGet)
+The container’s public API supports typed lookups using a service name → type map. Calls with string literals return the correct service type without casts.
+
+```lua
+-- server/MiningGame/SomeService.lua
+type ServiceContainerPublic = require(script.Parent.ServiceContainer).ServiceContainerPublic
+
+function SomeService:Init(container: ServiceContainerPublic)
+    -- This is typed as typeof(require(script.Parent.DataService))
+    local DataService = container:Get("DataService")
+end
+
+-- If you want to annotate a local explicitly:
+type Services = require(script.Parent.ServiceIndex).Services
+local InventoryService: Services["InventoryService"] = container:Get("InventoryService")
+```
+
+Notes:
+- The service index lives at `server/MiningGame/ServiceIndex.lua` and is type-only (no runtime values).
+- Generic typing kicks in when you pass a string literal; variables typed as `string` will widen the result.
+
+### Strict service validation
+The container validates service shape at registration (no normalization). At minimum, `Init(self, container)` is required. If `Start`/`Stop` are present, they must be functions. We can optionally enforce `Start` and `Stop` as required once all services adopt stubs.
+
+### Strict service interface (optional, recommended)
+If you want full internal strictness, services can implement the exact lifecycle interface the container enforces. This avoids optional lifecycle methods and guarantees uniform shapes.
+
+```lua
+-- server/MiningGame/MyService.lua
+type ServiceContainerPublic = require(script.Parent.ServiceContainer).ServiceContainerPublic
+type ManagedServiceExact = require(script.Parent.ServiceContainer).ManagedServiceExact
+
+local MyService: ManagedServiceExact = {} :: any
+
+function MyService:Init(container: ServiceContainerPublic)
+    -- wiring
+end
+
+function MyService:Start(container: ServiceContainerPublic)
+    -- start work
+end
+
+function MyService:Stop()
+    -- cleanup
+end
+
+return MyService
+```
