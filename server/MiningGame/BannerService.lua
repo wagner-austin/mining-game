@@ -161,14 +161,6 @@ local function spawnFor(player: Player, baseModel: Model)
 			},
 		})
 
-		-- Verify that the spawned mesh carries a Skin for deformation
-		local mesh = inst.mesh
-		if mesh and not mesh:FindFirstChildOfClass("Skin") then
-			log:warn(
-				"Spawned banner mesh lacks Skin; cloth will not deform. Ensure the skinned asset is packaged (see CLOTH_SYSTEM.md)."
-			)
-		end
-
 		-- Annotate for client billboards
 		ErrorService.safecall("BannerService.TagAttributes", function()
 			if feature ~= nil then

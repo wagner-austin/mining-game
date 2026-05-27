@@ -62,7 +62,6 @@ A mobile-optimized Roblox mining game with pay-to-progress mechanics.
 - `character/` - Character scripts (movement, etc.)
 - `StarterPack/` - Player tools
 - `Workspace/Map/` - World objects
-- `ServerStorage/Items/` - Spawnable items
 
 ## Dev Tooling
 - Lint: `selene .` (config: `.selene.toml`)

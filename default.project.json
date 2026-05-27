@@ -24,18 +24,6 @@
       }
     },
 
-    "StarterPack": {
-      "$path": "StarterPack"
-    },
-
-    "ServerStorage": {
-      "$className": "ServerStorage",
-      "$ignoreUnknownInstances": true,
-      "Items": {
-        "$path": "ServerStorage/Items"
-      }
-    },
-
     "Workspace": {
       "$className": "Workspace",
       "$ignoreUnknownInstances": true,
@@ -44,9 +32,6 @@
         "StreamingMinRadius": 64,
         "StreamingTargetRadius": 128,
         "StreamOutBehavior": "Opportunistic"
-      },
-      "Map": {
-        "$path": "Workspace/Map"
       }
     }
   }

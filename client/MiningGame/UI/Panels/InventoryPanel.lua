@@ -154,13 +154,13 @@ function InventoryPanel:init(manager: ManagerI)
 	local function wrapChip(b: any): ChipFns
 		return {
 			setBackgroundColor = function(c: Color3)
-				b.setBackgroundColor(c)
+				b:setBackgroundColor(c)
 			end,
 			setTextColor = function(c: Color3)
-				b.setTextColor(c)
+				b:setTextColor(c)
 			end,
 			setText = function(s: string)
-				b.setText(s)
+				b:setText(s)
 			end,
 			destroy = function()
 				b:destroy()
@@ -187,11 +187,11 @@ function InventoryPanel:init(manager: ManagerI)
 		for k, chip in pairs(filterChips) do
 			local active = (k == (self._activeCategory or "resources"))
 			if active then
-				chip.setBackgroundColor(Theme.colors.Primary)
-				chip.setTextColor(Theme.colors.OnPrimary)
+				chip:setBackgroundColor(Theme.colors.Primary)
+				chip:setTextColor(Theme.colors.OnPrimary)
 			else
-				chip.setBackgroundColor(Theme.colors.Surface)
-				chip.setTextColor(Theme.colors.Text)
+				chip:setBackgroundColor(Theme.colors.Surface)
+				chip:setTextColor(Theme.colors.Text)
 			end
 		end
 	end

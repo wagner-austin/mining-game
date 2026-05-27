@@ -4,7 +4,6 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Workspace = game:GetService("Workspace")
 
 local LocalPlayer = Players.LocalPlayer
 local MiningGame = ReplicatedStorage:WaitForChild("MiningGame")
@@ -75,19 +74,13 @@ local function waitDataLoaded(timeoutSec: number): boolean
 	return LocalPlayer:GetAttribute("DataLoaded") == true
 end
 
-local function chooseStreamRadius(): number
-	-- Keep it deterministic/config-driven; avoid introspecting Workspace
-	return (GameConfig.Spawn and GameConfig.Spawn.CLIENT_STREAM_RADIUS) or 128
-end
-
 local function ensureStreamAroundOrigin()
 	local origin = latestOriginCF
 	if not origin then
 		return
 	end
-	local radius = chooseStreamRadius()
 	ClientError.try("SpawnGuard.RequestStream", function()
-		Workspace:RequestStreamAroundAsync(origin.Position, radius)
+		LocalPlayer:RequestStreamAroundAsync(origin.Position)
 		return true
 	end)
 end
