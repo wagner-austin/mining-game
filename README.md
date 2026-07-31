@@ -3,8 +3,11 @@
 A mobile-optimized Roblox mining game with pay-to-progress mechanics.
 
 ## Setup
-1. Run `rojo serve` in this directory
-2. Connect Rojo plugin in Studio to localhost:34872
+1. `aftman install` once, to fetch the pinned toolchain from `aftman.toml`
+2. `make wally-install` to fetch Lua packages
+3. `make run` (or `rojo serve`) in this directory
+4. Connect the Rojo plugin in Studio to `localhost:34873` — the port is set by
+   `servePort` in `default.project.json`
 
 ## Documentation
 - 📚 **[DOCUMENTATION_INDEX.md](DOCUMENTATION_INDEX.md)** - Complete documentation index
@@ -60,14 +63,19 @@ A mobile-optimized Roblox mining game with pay-to-progress mechanics.
 - `client/` - UI and client scripts
   - `RemoteEventBridge.client.lua` - Event routing
 - `character/` - Character scripts (movement, etc.)
-- `StarterPack/` - Player tools
-- `Workspace/Map/` - World objects
+- `coordination/` - Engineering standards and design notes
+- `docs/` - System documentation (47 files; start at `DOCUMENTATION_INDEX.md`)
+- `scripts/` - Build and dev scripts
+- `tools/` - Analysis helpers
+- `tests/` - TestEZ specs
+- `deprecated/` - Retired scripts kept for reference, `.disabled` so Studio ignores them
 
 ## Dev Tooling
 - Lint: `selene .` (config: `.selene.toml`)
 - Format: `stylua .` (config: `.stylua.toml`)
 - Packages: `wally install` (installs into `Packages/`)
-- Make targets: `make fmt`, `make lint`, `make wally-install`
+- Make targets: `make check` (the gate), `fmt`, `lint`, `analyze`, `analyze-server`,
+  `test`, `wally-install`, `run`, `help`
 
 ### Toolchain via Aftman (recommended)
 - Install Aftman once, then run `aftman install` to fetch pinned tool versions defined in `aftman.toml`.
