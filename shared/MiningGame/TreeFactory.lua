@@ -250,6 +250,26 @@ do
 			if i == 0 then
 				baseTrunkPart = trunkBlock
 			end
+			local heightFrac = i / trunkHeight
+			local radius = if heightFrac < 0.7 then 1 else 0
+			for offsetX = -radius, radius do
+				for offsetZ = -radius, radius do
+					if offsetX == 0 and offsetZ == 0 then
+						continue
+					end
+					if heightFrac >= 0.25 and offsetX ~= 0 and offsetZ ~= 0 then
+						continue
+					end
+					createBlock(
+						trunkPos + Vector3.new(offsetX * trunkThickness, 0, offsetZ * trunkThickness),
+						trunkBlock.Size,
+						TRUNK_COLOR,
+						Enum.Material.Wood,
+						model,
+						{ collidable = true, castShadow = false }
+					)
+				end
+			end
 		end
 
 		-- Branches
